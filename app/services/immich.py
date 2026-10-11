@@ -122,6 +122,46 @@ class ImmichClient:
         items = self._extract_items(data)
         return self._fill_missing_score(items)
 
+    async def get_asset(self, asset_id: str) -> dict:
+        """调用 GET /api/assets/{id} 获取单条资产详情（含 people 人物分组信息）。"""
+        resp = await self._request_with_retry("GET", f"/api/assets/{asset_id}")
+        if resp.status_code != 200:
+            raise UpstreamError(
+                "Immich 获取资产失败",
+                details={"status": resp.status_code, "body": resp.text[:500]},
+            )
+        return resp.json()
+
+    async def similar_assets(self, asset_id: str, k: int = 50) -> list[dict]:
+        """调用 POST /api/search/smart 以图搜图（query 传 asset id），返回带 score 的相似资产。"""
+        resp = await self._request_with_retry(
+            "POST",
+            "/api/search/smart",
+            json={"query": asset_id, "k": k, "withExif": False},
+        )
+        if resp.status_code != 200:
+            raise UpstreamError(
+                "Immich 相似搜索失败",
+                details={"status": resp.status_code, "body": resp.text[:500]},
+            )
+        data = resp.json()
+        return self._fill_missing_score(self._extract_items(data))
+
+    async def list_people(self) -> list[dict]:
+        """调用 GET /api/people 获取人物列表（用于健康检查与人物可用性判断）。"""
+        resp = await self._request_with_retry("GET", "/api/people")
+        if resp.status_code != 200:
+            raise UpstreamError(
+                "Immich 获取人物列表失败",
+                details={"status": resp.status_code, "body": resp.text[:500]},
+            )
+        data = resp.json()
+        if isinstance(data, dict):
+            people = data.get("people", [])
+            if isinstance(people, list):
+                return [p for p in people if isinstance(p, dict)]
+        return []
+
     @staticmethod
     def _extract_items(data: Any) -> list[dict]:
         if isinstance(data, list):

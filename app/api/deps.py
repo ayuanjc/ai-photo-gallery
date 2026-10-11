@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from fastapi import Depends, Request
 
+from ..ai.base import ImageAnalyzer
 from ..core.config import Settings, get_settings
 from ..core.errors import UnauthorizedError, VisionError
 from ..scene.analyzer import SceneAnalyzer
@@ -60,3 +61,8 @@ def get_face_service(request: Request) -> FaceService:
     if service is None:
         raise VisionError("人脸分类功能未启用，请配置 HUAWEI_FACE_ENABLED=true 及 AK/SK/PROJECT_ID")
     return service
+
+
+def get_ai_analyzer(request: Request) -> ImageAnalyzer:
+    """返回 AI 图像分析器（同一个人 vs 相似图片）。"""
+    return request.app.state.ai_analyzer
