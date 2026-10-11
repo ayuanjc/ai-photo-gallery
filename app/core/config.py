@@ -37,8 +37,8 @@ class Settings(BaseSettings):
     immich_retry_backoff_seconds: float = 0.5
 
     # ---- 搜索结果 ----
-    default_result_limit: int = 50
-    max_result_limit: int = 200
+    search_max_concurrent_vision: int = 5
+    search_max_concurrent_scene: int = 10
 
     # ---- 排序权重（二次排序：时间 α + 相似度 β）----
     time_weight: float = 0.3
@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     ai_similarity_threshold: float = 0.75
     ai_analyze_timeout_seconds: float = 5.0
     ai_analyzer_max_retries: int = 2
+    ai_max_concurrent: int = 10
 
     # ---- 华为云图像识别（预留扩展，默认关闭）----
     huawei_enabled: bool = False

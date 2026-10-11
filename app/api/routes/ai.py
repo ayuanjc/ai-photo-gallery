@@ -6,12 +6,11 @@ import asyncio
 from fastapi import APIRouter, Depends
 
 from ...ai.base import AnalysisResult, ImageAnalyzer
+from ...core.config import Settings
 from ...models.ai import AIAnalyzeRequest
-from ..deps import get_ai_analyzer, verify_api_key
+from ..deps import get_ai_analyzer, get_settings_dep, verify_api_key
 
 router = APIRouter(tags=["ai"], dependencies=[Depends(verify_api_key)])
-
-_MAX_CONCURRENT = 10
 
 
 @router.post(
@@ -23,9 +22,10 @@ _MAX_CONCURRENT = 10
 async def analyze_images(
     request: AIAnalyzeRequest,
     analyzer: ImageAnalyzer = Depends(get_ai_analyzer),
+    settings: Settings = Depends(get_settings_dep),
 ) -> list[AnalysisResult]:
     reference = str(request.reference_url)
-    sem = asyncio.Semaphore(_MAX_CONCURRENT)
+    sem = asyncio.Semaphore(settings.ai_max_concurrent)
 
     async def _one(candidate) -> AnalysisResult:
         async with sem:

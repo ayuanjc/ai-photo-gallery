@@ -52,7 +52,7 @@ def test_health(client):
 def test_smart_search_success(client):
     resp = client.post(
         "/api/v1/search/smart",
-        json={"query": "海边日落", "image_urls": ["https://example.com/a.jpg"]},
+        json={"query": "海边日落", "asset_ids": ["asset-001"]},
     )
     assert resp.status_code == 200
     body = resp.json()
@@ -64,7 +64,7 @@ def test_smart_search_success(client):
 def test_validation_error_returns_400_unified_structure(client):
     resp = client.post(
         "/api/v1/search/smart",
-        json={"query": "   ", "image_urls": []},
+        json={"query": "   ", "asset_ids": []},
     )
     assert resp.status_code == 400
     body = resp.json()
@@ -75,7 +75,7 @@ def test_upstream_unavailable_returns_502(client):
     client._fake.fail = True
     resp = client.post(
         "/api/v1/search/smart",
-        json={"query": "海边", "image_urls": ["https://example.com/a.jpg"]},
+        json={"query": "海边", "asset_ids": ["asset-001"]},
     )
     assert resp.status_code == 502
     body = resp.json()

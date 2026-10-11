@@ -16,7 +16,7 @@ class FakeImmich:
     def __init__(self, assets):
         self.assets = assets
 
-    async def smart_search(self, query: str, k: int = 50):
+    async def smart_search(self, query: str, k: int = 50, asset_ids=None):
         return self.assets
 
     def thumbnail_url(self, asset_id: str, size: str = "preview") -> str:
@@ -77,7 +77,7 @@ def boom_client(settings):
 def test_search_returns_scene_field(normal_client):
     resp = normal_client.post(
         "/api/v1/search/smart",
-        json={"query": "海边", "image_urls": ["https://example.com/a.jpg"]},
+        json={"query": "海边", "asset_ids": ["asset-001"]},
     )
     assert resp.status_code == 200
     body = resp.json()
@@ -91,7 +91,7 @@ def test_search_returns_scene_field(normal_client):
 def test_scene_failure_still_returns_none(boom_client):
     resp = boom_client.post(
         "/api/v1/search/smart",
-        json={"query": "海边", "image_urls": ["https://example.com/a.jpg"]},
+        json={"query": "海边", "asset_ids": ["asset-001"]},
     )
     assert resp.status_code == 200
     body = resp.json()

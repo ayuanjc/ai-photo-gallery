@@ -12,7 +12,7 @@ class FakeImmich:
         self.raise_on_search = raise_on_search
         self.queries: list[tuple[str, int]] = []
 
-    async def smart_search(self, query: str, k: int = 50):
+    async def smart_search(self, query: str, k: int = 50, asset_ids=None):
         self.queries.append((query, k))
         if self.raise_on_search:
             raise self.raise_on_search
@@ -48,7 +48,7 @@ def _asset(aid: str, score: float) -> dict:
 
 
 def _request(**overrides) -> SearchRequest:
-    payload = {"query": "海滩", "image_urls": ["https://example.com/a.jpg"]}
+    payload = {"query": "海滩", "asset_ids": ["asset-001"]}
     payload.update(overrides)
     return SearchRequest(**payload)
 

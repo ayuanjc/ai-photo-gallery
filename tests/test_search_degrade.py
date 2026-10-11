@@ -18,7 +18,7 @@ class FakeImmich:
     def __init__(self, exc: Exception | None = None) -> None:
         self._exc = exc
 
-    async def smart_search(self, query: str, k: int = 50):
+    async def smart_search(self, query: str, k: int = 50, asset_ids=None):
         if self._exc is not None:
             raise self._exc
         return []
@@ -31,7 +31,7 @@ class FakeImmich:
 
 
 def _request() -> SearchRequest:
-    return SearchRequest(query="海滩", image_urls=["https://example.com/a.jpg"])
+    return SearchRequest(query="海滩", asset_ids=["asset-001"])
 
 
 def _service(settings, exc: Exception | None) -> SearchService:
@@ -47,7 +47,7 @@ def make_client(settings, exc: Exception | None = None, raise_server_exceptions:
 
 
 def _body():
-    return {"query": "海滩", "image_urls": ["https://example.com/a.jpg"]}
+    return {"query": "海滩", "asset_ids": ["asset-001"]}
 
 
 # ---- 单元：降级逻辑 ----
@@ -111,7 +111,7 @@ def test_api_returns_400_on_validation_error(settings):
     with TestClient(app) as c:
         resp = c.post(
             "/api/v1/search/smart",
-            json={"query": "", "image_urls": ["https://example.com/a.jpg"]},
+            json={"query": "", "asset_ids": ["asset-001"]},
         )
 
     assert resp.status_code == 400

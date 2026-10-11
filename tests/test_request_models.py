@@ -10,14 +10,14 @@ from app.models.request import SearchRequest
 def _valid_payload() -> dict:
     return {
         "query": "海边日落",
-        "image_urls": ["https://example.com/a.jpg", "http://example.com/b.png"],
+        "asset_ids": ["asset-001", "asset-002"],
     }
 
 
 def test_valid_request():
     req = SearchRequest(**_valid_payload())
     assert req.query == "海边日落"
-    assert len(req.image_urls) == 2
+    assert len(req.asset_ids) == 2
     assert req.limit == 50
 
 
@@ -26,14 +26,9 @@ def test_query_blank_rejected():
         SearchRequest(**(dict(_valid_payload(), query="   ")))
 
 
-def test_image_urls_empty_rejected():
+def test_asset_ids_empty_rejected():
     with pytest.raises(ValidationError):
-        SearchRequest(**(dict(_valid_payload(), image_urls=[])))
-
-
-def test_image_url_invalid_rejected():
-    with pytest.raises(ValidationError):
-        SearchRequest(**(dict(_valid_payload(), image_urls=["not-a-url"])))
+        SearchRequest(**(dict(_valid_payload(), asset_ids=[])))
 
 
 def test_limit_out_of_range_rejected():

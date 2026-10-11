@@ -31,7 +31,7 @@ def make_client(search_api_key: str):
 def _search(client: TestClient):
     return client.post(
         "/api/v1/search/smart",
-        json={"query": "海边", "image_urls": ["https://example.com/a.jpg"]},
+        json={"query": "海边", "asset_ids": ["asset-001"]},
     )
 
 
@@ -53,7 +53,7 @@ def test_wrong_key_returns_401():
     with make_client("secret-key") as c:
         resp = c.post(
             "/api/v1/search/smart",
-            json={"query": "海边", "image_urls": ["https://example.com/a.jpg"]},
+            json={"query": "海边", "asset_ids": ["asset-001"]},
             headers={"x-api-key": "wrong-key"},
         )
     assert resp.status_code == 401
@@ -64,7 +64,7 @@ def test_correct_key_returns_200():
     with make_client("secret-key") as c:
         resp = c.post(
             "/api/v1/search/smart",
-            json={"query": "海边", "image_urls": ["https://example.com/a.jpg"]},
+            json={"query": "海边", "asset_ids": ["asset-001"]},
             headers={"x-api-key": "secret-key"},
         )
     assert resp.status_code == 200
