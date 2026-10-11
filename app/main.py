@@ -47,6 +47,7 @@ async def lifespan(app: FastAPI):
             scene_dictionary,
             inferrer=NullSceneInferrer(),
             cache_size=settings.scene_cache_size,
+            cache_halflife_seconds=settings.scene_cache_halflife_days * 86400,
             infer_timeout_seconds=settings.scene_infer_timeout_seconds,
         )
         if settings.scene_enabled
