@@ -23,31 +23,7 @@ SCENE_WEIGHTS: dict[str, dict[str, float]] = {
     "people": {"alpha": 0.5, "beta": 0.5},
     "nature": {"alpha": 0.2, "beta": 0.8},
     "event": {"alpha": 0.4, "beta": 0.6},
-
 }
-
-
-def resolve_scene_weights(
-    primary_scene: str | None,
-    *,
-    default_alpha: float = 0.3,
-    default_beta: float = 0.7,
-) -> tuple[float, float]:
-    """按主场景选择归一化后的 (时间权重 α, 语义权重 β)。
-
-    - 命中 SCENE_WEIGHTS 中的 people/nature/event 时使用对应权重；
-    - 否则（None / 未知 / default）回退到传入的 default，其来源为环境变量配置。
-    """
-    entry = SCENE_WEIGHTS.get(primary_scene) if primary_scene else None
-    if entry is None or primary_scene == "default":
-        alpha, beta = default_alpha, default_beta
-    else:
-        alpha, beta = entry["alpha"], entry["beta"]
-
-    total = alpha + beta
-    if total <= 0:
-        return default_alpha, default_beta
-    return alpha / total, beta / total
 
 
 def blend_scene_weights(

@@ -15,7 +15,7 @@ router = APIRouter(tags=["search"], dependencies=[Depends(verify_api_key)])
     "/search/smart",
     response_model=SearchResponse,
     summary="AI 图像语义搜索",
-    description="提交图片 URL 列表与自然语言关键词，调用 Immich 语义搜索并做二次排序。",
+    description="提交图库 asset_ids 列表与自然语言关键词，调用 Immich 语义搜索并做二次排序。",
 )
 async def smart_search(
     request: SearchRequest,

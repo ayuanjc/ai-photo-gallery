@@ -92,7 +92,7 @@ class HuaweiFaceClient:
             )
         except httpx.TimeoutException as exc:
             raise VisionTimeoutError(f"FRS 请求超时: {method} {path}", details=str(exc)) from exc
-        except (httpx.ConnectError, httpx.HTTPError) as exc:
+        except (httpx.ConnectError, httpx.RemoteProtocolError, httpx.NetworkError) as exc:
             raise VisionUnavailableError(
                 f"FRS 服务不可用: {method} {path}", details=str(exc)
             ) from exc
@@ -114,6 +114,17 @@ class HuaweiFaceClient:
             )
         return resp
 
+    @staticmethod
+    def _parse_json(resp: httpx.Response) -> Any:
+        """安全解析 JSON 响应，非 JSON 时抛 VisionError。"""
+        try:
+            return resp.json()
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise VisionError(
+                "FRS 返回非 JSON 响应",
+                details={"status": resp.status_code, "body": resp.text[:500]},
+            ) from exc
+
     # ---- 人脸检测 ----
 
     async def detect_faces(self, image_url: str, max_face: int = 10) -> list[dict[str, Any]]:
@@ -123,12 +134,11 @@ class HuaweiFaceClient:
         """
         path = f"/v2/{self.project_id}/face-detect"
         resp = await self._request(
-
             "POST",
             path,
             json_body={"image_url": image_url, "max_face": max_face},
         )
-        data = resp.json()
+        data = self._parse_json(resp)
         return list(data.get("faces", []))
 
     # ---- 人脸库管理 ----
@@ -141,7 +151,7 @@ class HuaweiFaceClient:
             path,
             json_body={"face_set_name": face_set_name, "face_set_capacity": capacity},
         )
-        return resp.json()
+        return self._parse_json(resp)
 
     async def delete_face_set(self, face_set_name: str) -> None:
         """删除人脸库（幂等：不存在时记录日志不报错）。"""
@@ -167,7 +177,7 @@ class HuaweiFaceClient:
                 "external_image_id": external_image_id,
             },
         )
-        data = resp.json()
+        data = self._parse_json(resp)
         face_id = data.get("face_id")
         if not face_id:
             raise VisionError("FRS 添加人脸未返回 face_id", details=data)
@@ -190,5 +200,5 @@ class HuaweiFaceClient:
             path,
             json_body={"face_id": face_id, "top_n": top_n, "threshold": threshold},
         )
-        data = resp.json()
+        data = self._parse_json(resp)
         return list(data.get("faces", []))

@@ -41,6 +41,7 @@ class ImmichAnalyzer(ImageAnalyzer):
         self._immich = immich
         self._timeout = settings.ai_analyze_timeout_seconds
         self._max_retries = max(0, settings.ai_analyzer_max_retries)
+        self._backoff = max(0.0, settings.ai_retry_backoff_seconds)
 
     async def analyze(self, reference_url: str, candidate_url: str) -> AnalysisResult:
         for attempt in range(self._max_retries + 1):
@@ -52,12 +53,13 @@ class ImmichAnalyzer(ImageAnalyzer):
             except asyncio.TimeoutError as exc:
                 if attempt >= self._max_retries:
                     raise AIAnalyzerTimeoutError("AI 分析超时") from exc
-                await asyncio.sleep(0.5 * (2 ** attempt))
+                await asyncio.sleep(self._backoff * (2 ** attempt))
             except (AIAnalyzerUnavailableError, AIAnalyzerTimeoutError):
                 if attempt >= self._max_retries:
                     raise
-                await asyncio.sleep(0.5 * (2 ** attempt))
-            except Exception as exc:  # 业务失败：不重试，直接降级
+                await asyncio.sleep(self._backoff * (2 ** attempt))
+            except Exception as exc:  # provider 未知异常：记录堆栈后降级，避免阻塞分析链
+                logger.error("AI 分析 provider 异常，降级处理: %s", exc, exc_info=True)
                 return self._degrade(str(exc))
         raise AIAnalyzerUnavailableError("AI 分析重试耗尽")
 
