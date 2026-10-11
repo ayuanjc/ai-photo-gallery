@@ -35,6 +35,17 @@ logger = logging.getLogger(__name__)
 
 _REQUEST_ID_RE = re.compile(r"^[a-zA-Z0-9\-]{1,128}$")
 
+_SENSITIVE_PATTERNS = [
+    (re.compile(r'://[^:\s]+:[^@\s]+@'), '://***@'),
+    (re.compile(r'(password|secret|token|api[_-]?key|credential)\s*[=:]\s*\S+', re.IGNORECASE), r'\1=***'),
+]
+
+
+def _sanitize_message(message: str) -> str:
+    for pattern, replacement in _SENSITIVE_PATTERNS:
+        message = pattern.sub(replacement, message)
+    return message
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -114,7 +125,7 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
         content={
             "error": {
                 "code": exc.code.value,
-                "message": exc.message,
+                "message": _sanitize_message(exc.message),
                 "request_id": _request_id(request),
                 "details": exc.details,
             }
