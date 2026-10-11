@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import Any
 
@@ -100,6 +101,17 @@ class ImmichClient:
             f"Immich 服务不可用: {method} {path}", details=str(last_exc)
         )
 
+    @staticmethod
+    def _parse_json(resp: httpx.Response) -> Any:
+        """安全解析 JSON 响应，非 JSON 时抛 UpstreamError。"""
+        try:
+            return resp.json()
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise UpstreamError(
+                "Immich 返回非 JSON 响应",
+                details={"status": resp.status_code, "body": resp.text[:500]},
+            ) from exc
+
     async def smart_search(self, query: str, k: int = 50, asset_ids: list[str] | None = None) -> list[dict]:
         """调用 POST /api/search/smart 执行语义搜索，返回资产列表。
 
@@ -134,7 +146,7 @@ class ImmichClient:
                 details={"status": resp.status_code, "body": resp.text[:500]},
             )
 
-        data = resp.json()
+        data = self._parse_json(resp)
         items = self._extract_items(data)
         return self._fill_missing_score(items)
 
@@ -160,7 +172,7 @@ class ImmichClient:
                 "Immich 相似搜索失败",
                 details={"status": resp.status_code, "body": resp.text[:500]},
             )
-        data = resp.json()
+        data = self._parse_json(resp)
         return self._fill_missing_score(self._extract_items(data))
 
     async def list_people(self) -> list[dict]:
@@ -171,7 +183,7 @@ class ImmichClient:
                 "Immich 获取人物列表失败",
                 details={"status": resp.status_code, "body": resp.text[:500]},
             )
-        data = resp.json()
+        data = self._parse_json(resp)
         if isinstance(data, dict):
             people = data.get("people", [])
             if isinstance(people, list):
