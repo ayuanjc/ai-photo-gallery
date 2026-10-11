@@ -1,0 +1,29 @@
+{
+  "scenes": {
+    "nature": {
+      "label": "自然",
+      "children": ["beach", "mountain", "forest", "lake", "desert", "snow"]
+    },
+    "city": {
+      "label": "城市",
+      "children": ["street", "building", "night_view", "traffic", "landmark"]
+    },
+    "people": {
+      "label": "人物",
+      "children": ["single", "group", "wedding", "party", "child"]
+    },
+    "life": {
+      "label": "生活",
+      "children": ["food", "pet", "home", "office", "sport"]
+    },
+    "event": {
+      "label": "事件",
+      "children": ["festival", "celebration", "performance", "travel", "graduation"]
+    }
+  },
+  "visual_attrs": {
+    "time": ["day", "night", "sunrise", "sunset"],
+    "people": ["none", "single", "group"],
+    "indoor": ["indoor", "outdoor"]
+  }
+}
