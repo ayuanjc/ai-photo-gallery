@@ -43,6 +43,8 @@ class TimeDecayedLFUCache(Cache):
         return value
 
     def __setitem__(self, key, value):
+        if self.maxsize <= 0:
+            return
         now = time.monotonic()
         if key in self._data:
             self._data[key] = value

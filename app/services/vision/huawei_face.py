@@ -163,7 +163,7 @@ class HuaweiFaceClient:
             try:
                 await self._request("DELETE", path)
                 return
-            except (VisionError, httpx.HTTPError) as exc:
+            except (VisionError, VisionUnavailableError, VisionTimeoutError, httpx.HTTPError) as exc:
                 if attempt < 2:
                     await asyncio.sleep(0.1 * (attempt + 1))
                 else:
