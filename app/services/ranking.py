@@ -61,6 +61,51 @@ def clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
     return max(low, min(high, value))
 
 
+# 查询意图关键词表
+_RECENT_KEYWORDS = ("最近", "昨天", "今天", "今年", "上周")
+_NOSTALGIC_KEYWORDS = ("以前", "老照片", "童年", "经典")
+
+
+def intent_score(query: str) -> float:
+    """根据查询关键词判定时间意图分数。
+
+    - 包含"最近/昨天/今天/今年/上周"等近期词 → 1.0（偏向时间新鲜度）
+    - 包含"以前/老照片/童年/经典"等怀旧词 → 0.0（偏向语义相似度）
+    - 其他 → 0.5（中性）
+    """
+    for kw in _RECENT_KEYWORDS:
+        if kw in query:
+            return 1.0
+    for kw in _NOSTALGIC_KEYWORDS:
+        if kw in query:
+            return 0.0
+    return 0.5
+
+
+def calculate_dynamic_weights(
+    query: str,
+    base_alpha: float,
+    base_beta: float,
+    gamma: float,
+) -> tuple[float, float]:
+    """基于查询意图动态分配 (α, β) 权重。
+
+    公式：α_dynamic = α_base_normalized + γ * IntentScore
+    其中 α_base_normalized 为归一化后的基础时间权重（保证 α+β=1 的前提下）。
+    最终 clamp α 到 [0,1]，β = 1 - α。
+    """
+    total = base_alpha + base_beta
+    if total <= 0:
+        alpha_norm = 0.0
+    else:
+        alpha_norm = base_alpha / total
+
+    score = intent_score(query)
+    alpha_dynamic = clamp(alpha_norm + gamma * score)
+    beta_dynamic = 1.0 - alpha_dynamic
+    return alpha_dynamic, beta_dynamic
+
+
 def resolve_captured_at(asset: dict, default_iso: str) -> tuple[datetime | None, str]:
     """按优先级解析拍摄时间，返回 (时间, 来源)。"""
     exif = asset.get("exifInfo") or {}

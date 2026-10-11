@@ -11,7 +11,7 @@ from ..models.response import SearchResultItem, SearchResponse
 from ..scene.analyzer import SceneAnalyzer
 from ..scene.models import SceneTags
 from .immich import ImmichClient
-from .ranking import clamp, rank_assets
+from .ranking import calculate_dynamic_weights, clamp, rank_assets
 from .vision.base import VisionProvider
 
 logger = logging.getLogger(__name__)
@@ -144,7 +144,13 @@ class SearchService:
             total = time_weight + similarity_weight
             if total > 0:
                 return time_weight / total, similarity_weight / total
-        return self._settings.weights
+        base_alpha, base_beta = self._settings.weights
+        return calculate_dynamic_weights(
+            request.query,
+            base_alpha=base_alpha,
+            base_beta=base_beta,
+            gamma=self._settings.query_intent_gamma,
+        )
 
     def _to_item(
         self,
