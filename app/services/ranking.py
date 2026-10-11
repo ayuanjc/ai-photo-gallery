@@ -50,6 +50,37 @@ def resolve_scene_weights(
     return alpha / total, beta / total
 
 
+def blend_scene_weights(
+    scenes: list[str],
+    default_alpha: float,
+    default_beta: float,
+) -> tuple[float, float]:
+    """多场景权重加权综合：对 scenes 中每个场景取 SCENE_WEIGHTS 的 (alpha, beta) 算术平均。
+
+    - 不在 SCENE_WEIGHTS 中的场景（含 "default" 标识）跳过。
+    - scenes 为空或过滤后为空时回退 default_alpha / default_beta。
+    - 平均后做归一化，保证 alpha + beta == 1。
+    """
+    alphas: list[float] = []
+    betas: list[float] = []
+    for scene in scenes or []:
+        entry = SCENE_WEIGHTS.get(scene) if scene else None
+        if entry is None or scene == "default":
+            continue
+        alphas.append(entry["alpha"])
+        betas.append(entry["beta"])
+
+    if not alphas:
+        return default_alpha, default_beta
+
+    alpha = sum(alphas) / len(alphas)
+    beta = sum(betas) / len(betas)
+    total = alpha + beta
+    if total <= 0:
+        return default_alpha, default_beta
+    return alpha / total, beta / total
+
+
 def clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
     return max(low, min(high, value))
 
@@ -80,8 +111,8 @@ def rank_assets(
 ) -> list[tuple[dict, float, float, float, datetime | None, str]]:
     """对 Immich 返回的资产列表做加权融合排序。
 
-    每条 asset 的融合权重按其 primary_scene 动态选择（见 resolve_scene_weights），
-    未提供主场景时回退到传入的默认权重。
+    每条 asset 的融合权重按其 scenes 多场景综合选择（见 blend_scene_weights），
+    scenes 为空时回退到 primary_scene 单场景，再为空则用传入的默认权重。
 
     返回按 final_score 降序排列的元组列表：
         (asset, final_score, similarity_score, time_freshness, captured_at, captured_at_source)
@@ -90,9 +121,9 @@ def rank_assets(
     scored: list[tuple[dict, float, float, float, datetime | None, str]] = []
 
     for asset in assets:
-        # 按 asset 的主场景动态选权重，未命中则用传入的默认权重。
-        alpha, beta = resolve_scene_weights(
-            asset.get("primary_scene"),
+        # 按 asset 的多场景综合选权重；scenes 为空时回退到 primary_scene 单场景兜底。
+        alpha, beta = blend_scene_weights(
+            asset.get("scenes") or [asset.get("primary_scene")],
             default_alpha=time_weight,
             default_beta=similarity_weight,
         )
