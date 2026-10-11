@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     similarity_weight: float = 0.7
     # 查询意图动态权重调整强度（0=完全静态，1=最大动态偏移）。
     query_intent_gamma: float = 0.4
+    # 多模态查询融合权重 λ（V_final = λ*V_text + (1-λ)*V_vision）。
+    multimodal_lambda: float = 0.7
     # 时间新鲜度指数衰减的半衰期（天）。半衰期越小，越“喜新厌旧”。
     time_decay_half_life_days: float = 365.0
     # EXIF 与文件创建时间都缺失时的回退时间。
