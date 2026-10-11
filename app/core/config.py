@@ -53,6 +53,13 @@ class Settings(BaseSettings):
     scene_cache_size: int = 2000
     scene_infer_timeout_seconds: float = 3.0
 
+    # ---- AI 分析（同一个人 vs 相似图片）----
+    ai_analyzer_provider: str = "immich"
+    ai_person_confidence_threshold: float = 0.6
+    ai_similarity_threshold: float = 0.75
+    ai_analyze_timeout_seconds: float = 5.0
+    ai_analyzer_max_retries: int = 2
+
     # ---- 华为云图像识别（预留扩展，默认关闭）----
     huawei_enabled: bool = False
     huawei_image_endpoint: str = "https://image.cn-north-4.myhuaweicloud.com"

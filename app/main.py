@@ -15,7 +15,8 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from .api.routes import faces, scene, search
+from .api.routes import ai, faces, scene, search
+from .ai.factory import build_ai_analyzer
 from .core.config import get_settings
 from .core.errors import AppError, ErrorCode
 from .core.logging import setup_logging
@@ -58,6 +59,7 @@ async def lifespan(app: FastAPI):
     app.state.scene_analyzer = scene_analyzer
     app.state.face_client = face_client
     app.state.face_service = FaceService(settings, face_client) if face_client else None
+    app.state.ai_analyzer = build_ai_analyzer(settings, immich)
     app.state.search_service = SearchService(
         settings, immich, vision, scene_analyzer=scene_analyzer
     )
@@ -81,6 +83,7 @@ app = FastAPI(
 app.include_router(search.router, prefix="/api/v1")
 app.include_router(scene.router, prefix="/api/v1")
 app.include_router(faces.router, prefix="/api/v1")
+app.include_router(ai.router, prefix="/api/v1")
 
 
 @app.middleware("http")
