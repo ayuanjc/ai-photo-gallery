@@ -22,9 +22,6 @@ logger = logging.getLogger(__name__)
 # 场景词典文件与本模块同目录。
 DICT_PATH: Path = Path(__file__).with_name("scene_dict.json")
 
-# 未命中白名单时的兜底场景 key。
-OTHER_SCENE = "other"
-
 
 @dataclass(frozen=True)
 class SceneDict:

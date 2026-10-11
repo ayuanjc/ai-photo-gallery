@@ -9,8 +9,8 @@ from app.services.ranking import SCENE_WEIGHTS, rank_assets, resolve_scene_weigh
 
 
 def test_scene_weights_table_present():
-    assert set(SCENE_WEIGHTS) == {"people", "nature", "event", "default"}
-    for key in ("people", "nature", "event", "default"):
+    assert set(SCENE_WEIGHTS) == {"people", "nature", "event"}
+    for key in ("people", "nature", "event"):
         assert {"alpha", "beta"} <= set(SCENE_WEIGHTS[key])
 
 

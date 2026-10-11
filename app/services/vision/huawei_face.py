@@ -148,8 +148,8 @@ class HuaweiFaceClient:
         path = f"/v2/{self.project_id}/face-sets/{face_set_name}"
         try:
             await self._request("DELETE", path)
-        except VisionError as exc:
-            logger.warning("删除人脸库 %s 失败（忽略）: %s", face_set_name, exc.message)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("删除人脸库 %s 失败（忽略）: %s", face_set_name, exc)
 
     async def add_face_by_url(
         self,

@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-from ..models.response import SearchResultItem
+
 from ..utils.time_parsing import DEFAULT_SOURCE, parse_datetime, time_freshness
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ SCENE_WEIGHTS: dict[str, dict[str, float]] = {
     "people": {"alpha": 0.5, "beta": 0.5},
     "nature": {"alpha": 0.2, "beta": 0.8},
     "event": {"alpha": 0.4, "beta": 0.6},
-    "default": {"alpha": 0.3, "beta": 0.7},
+
 }
 
 

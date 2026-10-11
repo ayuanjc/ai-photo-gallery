@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from app.scene.dictionary import (
-    OTHER_SCENE,
     SceneDict,
     load_scene_dict,
 )
@@ -105,7 +104,3 @@ def test_to_dict_roundtrip():
     data = d.to_dict()
     assert set(data["scenes"]) == d.scene_keys
     assert set(data["visual_attrs"]) == {"time", "people", "indoor", "weather"}
-
-
-def test_other_scene_constant():
-    assert OTHER_SCENE == "other"
