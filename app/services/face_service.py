@@ -186,7 +186,7 @@ class FaceService:
         face_count: int,
         warnings: list[str],
     ) -> bool:
-        capacity = max(face_count * 2, 100)
+        capacity = max(face_count * 2, 100)  # FRS 最低容量 100，按 2 倍冗余预留
         try:
             await self._face.create_face_set(name, capacity=capacity)
             return True
@@ -289,9 +289,14 @@ class FaceService:
         request: FaceClassifyRequest,
     ) -> FaceClassifyResponse:
         face_groups: list[FaceGroup] = []
+        unclassified_images: list[str] = list(unclassified)
         sorted_groups = sorted(groups.values(), key=len, reverse=True)
 
         for gid, indices in enumerate(sorted_groups, 1):
+            # 入库失败的人脸（无 face_id）会各自成孤立分组，归入 unclassified，避免误导性单成员分组。
+            if len(indices) == 1 and not all_faces[indices[0]].face_id:
+                unclassified_images.append(all_faces[indices[0]].image_url)
+                continue
             rep_idx = next((i for i in indices if all_faces[i].face_id), indices[0])
             rep_face = all_faces[rep_idx]
             group_faces: list[FaceInfo] = []
@@ -335,7 +340,7 @@ class FaceService:
             total_faces=len(all_faces),
             group_count=len(face_groups),
             groups=face_groups,
-            unclassified_images=unclassified,
+            unclassified_images=unclassified_images,
             warnings=warnings,
         )
 

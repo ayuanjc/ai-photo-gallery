@@ -158,7 +158,7 @@ class ImmichClient:
                 "Immich 获取资产失败",
                 details={"status": resp.status_code, "body": resp.text[:500]},
             )
-        return resp.json()
+        return self._parse_json(resp)
 
     async def similar_assets(self, asset_id: str, k: int = 50) -> list[dict]:
         """调用 POST /api/search/smart 以图搜图（query 传 asset id），返回带 score 的相似资产。"""

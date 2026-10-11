@@ -59,12 +59,11 @@ class Settings(BaseSettings):
     ai_similarity_threshold: float = 0.75
     ai_analyze_timeout_seconds: float = 5.0
     ai_analyzer_max_retries: int = 2
+    ai_retry_backoff_seconds: float = 0.5
     ai_max_concurrent: int = 10
 
     # ---- 华为云图像识别（预留扩展，默认关闭）----
     huawei_enabled: bool = False
-    huawei_image_endpoint: str = "https://image.cn-north-4.myhuaweicloud.com"
-    huawei_iam_endpoint: str = "https://iam.cn-north-4.myhuaweicloud.com"
     huawei_ak: str = ""
     huawei_sk: str = ""
     huawei_project_id: str = ""
