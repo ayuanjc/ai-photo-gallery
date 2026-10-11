@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from ..core.errors import ErrorCode
+from ..scene.models import SceneTags
 
 
 class SearchResultItem(BaseModel):
@@ -21,6 +22,7 @@ class SearchResultItem(BaseModel):
     time_freshness: float = Field(ge=0.0, le=1.0, description="时间新鲜度（归一化到 0~1）")
     final_score: float = Field(description="加权融合后的最终排序分数")
     metadata: dict[str, Any] = Field(default_factory=dict, description="所选元数据字段")
+    scene: SceneTags | None = Field(default=None, description="多标签场景分析结果")
 
 
 class SearchResponse(BaseModel):
