@@ -107,3 +107,5 @@ venv.bak/
 .idea/
 .vscode/
 .ruff_cache/
+# 本地测试脚本（含真实 API Key，不入库）
+local_test_immich.py
