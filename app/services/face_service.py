@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass
@@ -33,6 +34,21 @@ from .ranking import clamp
 from .vision.huawei_face import HuaweiFaceClient
 
 logger = logging.getLogger(__name__)
+
+
+def calculate_gaussian_probability(similarity: float, sigma: float) -> float:
+    """基于高斯核计算两张人脸属于同一人的概率。
+
+    公式：P(same_person) = exp(-((1 - Sim)^2) / (2 * sigma^2))
+
+    - Sim=1.0 → P=1.0（完全相同）
+    - Sim 越低 → P 越小（指数衰减）
+    - sigma 控制衰减速度：sigma 越大越宽容，越小越严格
+    """
+    if sigma <= 0:
+        return 1.0 if similarity >= 1.0 else 0.0
+    distance = 1.0 - clamp(similarity)
+    return math.exp(-(distance * distance) / (2.0 * sigma * sigma))
 
 
 @dataclass
@@ -121,8 +137,13 @@ class FaceService:
         finally:
             await self._face.delete_face_set(face_set_name)
 
-        # 3. 并查集聚类
-        groups = self._cluster(all_faces, search_results, request.similarity_threshold)
+        # 3. 并查集聚类（高斯概率软聚类）
+        groups = self._cluster(
+            all_faces,
+            search_results,
+            self._settings.face_gaussian_sigma,
+            self._settings.face_probability_threshold,
+        )
 
         # 4. 组装响应
         return self._build_response(
@@ -253,9 +274,14 @@ class FaceService:
     def _cluster(
         all_faces: list[_DetectedFace],
         search_results: dict[str, dict[str, float]],
-        threshold: float,
+        sigma: float,
+        prob_threshold: float,
     ) -> dict[int, list[int]]:
-        """并查集聚类，返回 {root_index: [member_indices]}。"""
+        """并查集聚类，返回 {root_index: [member_indices]}。
+
+        合并条件：高斯概率 P(same_person) >= prob_threshold，
+        而非硬阈值 sim >= threshold，使相似度在阈值附近时概率平滑过渡。
+        """
         n = len(all_faces)
         uf = UnionFind(n)
         face_id_to_idx: dict[str, int] = {}
@@ -268,8 +294,10 @@ class FaceService:
                 continue
             for other_id, sim in search_results.get(face.face_id, {}).items():
                 j = face_id_to_idx.get(other_id)
-                if j is not None and j != i and sim >= threshold:
-                    uf.union(i, j)
+                if j is not None and j != i:
+                    prob = calculate_gaussian_probability(sim, sigma)
+                    if prob >= prob_threshold:
+                        uf.union(i, j)
 
         groups: dict[int, list[int]] = defaultdict(list)
         for i in range(n):
