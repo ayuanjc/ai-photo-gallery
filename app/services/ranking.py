@@ -106,6 +106,48 @@ def calculate_dynamic_weights(
     return alpha_dynamic, beta_dynamic
 
 
+def fuse_multimodal_query(
+    query: str,
+    vision_tags: list[str],
+    lambda_weight: float,
+) -> str:
+    """多模态查询加权融合：V_final = λ * V_text + (1 - λ) * V_vision。
+
+    Immich API 仅支持文本字符串，通过"加权拼接"在工程上模拟向量级融合：
+    - 将原始 query 重复 text_repeat 次，vision_tags 拼接 1 次
+    - text_repeat = max(1, round(λ / (1 - λ)))，使 text:vision ≈ λ:(1-λ)
+    - λ=0.7 → query 重复 2 次（2:1 ≈ 0.67:0.33，接近 0.7:0.3）
+    - λ=1.0 → 仅 query，λ=0.0 → 仅 vision_tags
+
+    重复拼接的原理：在 BM25/TF-IDF 文本检索中，词频（TF）直接影响权重，
+    重复 query N 次相当于将其在向量空间中的权重乘以 N。
+    """
+    query = (query or "").strip()
+    seen_in_query = set(query.split())
+    unique_tags: list[str] = []
+    for tag in vision_tags or []:
+        tag = (tag or "").strip()
+        if tag and tag not in seen_in_query and tag not in unique_tags:
+            unique_tags.append(tag)
+
+    if not query and not unique_tags:
+        return ""
+    if not unique_tags:
+        return query
+    if not query:
+        return " ".join(unique_tags)
+
+    lam = clamp(lambda_weight)
+    if lam >= 1.0:
+        return query
+    if lam <= 0.0:
+        return " ".join(unique_tags)
+
+    text_repeat = max(1, round(lam / (1.0 - lam)))
+    text_part = " ".join([query] * text_repeat)
+    return f"{text_part} {' '.join(unique_tags)}"
+
+
 def resolve_captured_at(asset: dict, default_iso: str) -> tuple[datetime | None, str]:
     """按优先级解析拍摄时间，返回 (时间, 来源)。"""
     exif = asset.get("exifInfo") or {}

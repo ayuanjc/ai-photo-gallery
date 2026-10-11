@@ -11,7 +11,7 @@ from ..models.response import SearchResultItem, SearchResponse
 from ..scene.analyzer import SceneAnalyzer
 from ..scene.models import SceneTags
 from .immich import ImmichClient
-from .ranking import calculate_dynamic_weights, clamp, rank_assets
+from .ranking import calculate_dynamic_weights, clamp, fuse_multimodal_query, rank_assets
 from .vision.base import VisionProvider
 
 logger = logging.getLogger(__name__)
@@ -108,8 +108,8 @@ class SearchService:
         if not keywords:
             return base, []
 
-        enriched = self._vision.build_enriched_query(base, keywords)
-        if enriched == base:
+        enriched = fuse_multimodal_query(base, keywords, self._settings.multimodal_lambda)
+        if enriched == base or not enriched:
             return base, []
         return enriched, [f"已通过视觉识别增强查询词（{len(keywords)} 个标签）"]
 
