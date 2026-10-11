@@ -1,10 +1,10 @@
 """FastAPI 依赖注入。"""
 from __future__ import annotations
 
-from fastapi import Request
+from fastapi import Depends, Request
 
 from ..core.config import Settings, get_settings
-from ..core.errors import VisionError
+from ..core.errors import UnauthorizedError, VisionError
 from ..scene.analyzer import SceneAnalyzer
 from ..scene.dictionary import SceneDict
 from ..services.face_service import FaceService
@@ -15,6 +15,22 @@ from ..services.vision.base import VisionProvider
 
 def get_settings_dep() -> Settings:
     return get_settings()
+
+
+async def verify_api_key(
+    request: Request,
+    settings: Settings = Depends(get_settings_dep),
+) -> None:
+    """搜索接口 API Key 鉴权。
+
+    未配置 search_api_key（空字符串）时直接放行；配置后校验请求头 x-api-key，
+    缺失或不匹配抛 UnauthorizedError（映射 401，走全局异常处理器统一格式）。
+    """
+    if not settings.search_api_key:
+        return
+    provided = request.headers.get("x-api-key")
+    if provided != settings.search_api_key:
+        raise UnauthorizedError()
 
 
 def get_immich_client(request: Request) -> ImmichClient:

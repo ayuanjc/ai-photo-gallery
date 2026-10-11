@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     app_env: str = "development"
     log_level: str = "INFO"
 
+    # ---- API Key 鉴权（搜索接口）----
+    # 空字符串 = 不启用鉴权（向后兼容）；非空 = 启用，请求头需携带 x-api-key。
+    search_api_key: str = ""
+
     # ---- Immich 上游 ----
     immich_base_url: str = "http://localhost:2283"
     immich_api_key: str = ""

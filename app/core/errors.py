@@ -26,6 +26,8 @@ class ErrorCode(str, Enum):
     VISION_TIMEOUT = "VISION_TIMEOUT"
     # 华为云视觉服务返回异常（4xx、鉴权失败、协议错误等）
     VISION_ERROR = "VISION_ERROR"
+    # 请求未授权（缺 API Key 或 Key 不正确）
+    UNAUTHORIZED = "UNAUTHORIZED"
     # 服务内部错误
     INTERNAL_ERROR = "INTERNAL_ERROR"
 
@@ -39,6 +41,7 @@ STATUS_CODE_MAP: dict[ErrorCode, int] = {
     ErrorCode.VISION_UNAVAILABLE: 502,
     ErrorCode.VISION_TIMEOUT: 504,
     ErrorCode.VISION_ERROR: 502,
+    ErrorCode.UNAUTHORIZED: 401,
     ErrorCode.INTERNAL_ERROR: 500,
 }
 
@@ -89,3 +92,8 @@ class VisionTimeoutError(AppError):
 class VisionError(AppError):
     def __init__(self, message: str, details: Any = None) -> None:
         super().__init__(ErrorCode.VISION_ERROR, message, details)
+
+
+class UnauthorizedError(AppError):
+    def __init__(self, message: str = "API Key 缺失或不正确", details: Any = None) -> None:
+        super().__init__(ErrorCode.UNAUTHORIZED, message, details)
