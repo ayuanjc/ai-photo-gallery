@@ -20,6 +20,12 @@ class ErrorCode(str, Enum):
     UPSTREAM_TIMEOUT = "UPSTREAM_TIMEOUT"
     # 上游 Immich 返回异常（4xx、协议错误等）
     UPSTREAM_ERROR = "UPSTREAM_ERROR"
+    # 华为云视觉服务不可用（连接失败、5xx）
+    VISION_UNAVAILABLE = "VISION_UNAVAILABLE"
+    # 华为云视觉服务请求超时
+    VISION_TIMEOUT = "VISION_TIMEOUT"
+    # 华为云视觉服务返回异常（4xx、鉴权失败、协议错误等）
+    VISION_ERROR = "VISION_ERROR"
     # 服务内部错误
     INTERNAL_ERROR = "INTERNAL_ERROR"
 
@@ -30,6 +36,9 @@ STATUS_CODE_MAP: dict[ErrorCode, int] = {
     ErrorCode.UPSTREAM_UNAVAILABLE: 502,
     ErrorCode.UPSTREAM_TIMEOUT: 504,
     ErrorCode.UPSTREAM_ERROR: 502,
+    ErrorCode.VISION_UNAVAILABLE: 502,
+    ErrorCode.VISION_TIMEOUT: 504,
+    ErrorCode.VISION_ERROR: 502,
     ErrorCode.INTERNAL_ERROR: 500,
 }
 
@@ -66,3 +75,17 @@ class UpstreamTimeoutError(AppError):
 class UpstreamError(AppError):
     def __init__(self, message: str, details: Any = None) -> None:
         super().__init__(ErrorCode.UPSTREAM_ERROR, message, details)
+
+class VisionUnavailableError(AppError):
+    def __init__(self, message: str, details: Any = None) -> None:
+        super().__init__(ErrorCode.VISION_UNAVAILABLE, message, details)
+
+
+class VisionTimeoutError(AppError):
+    def __init__(self, message: str, details: Any = None) -> None:
+        super().__init__(ErrorCode.VISION_TIMEOUT, message, details)
+
+
+class VisionError(AppError):
+    def __init__(self, message: str, details: Any = None) -> None:
+        super().__init__(ErrorCode.VISION_ERROR, message, details)
