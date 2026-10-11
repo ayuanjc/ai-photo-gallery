@@ -5,8 +5,8 @@
     第二级：词典未命中时，用可插拔推理器做零样本判断（仅大场景）。
     第三级：TODO —— 用户查看单图详情时，再补全小场景与视觉属性。
 
-缓存与降级：
-    - 按 asset_id 使用进程内 LRU 缓存（cachetools.LRUCache）。
+    缓存与降级：
+    - 按 asset_id 使用进程内时间衰减 LFU 缓存（TimeDecayedLFUCache）。
     - 推理超时或异常时不写缓存，返回 primary_scene=None，不阻塞搜索主链路。
 """
 from __future__ import annotations
@@ -17,8 +17,8 @@ from abc import ABC, abstractmethod
 
 
 import httpx
-from cachetools import LRUCache
 
+from ..utils.cache import TimeDecayedLFUCache
 from .dictionary import SceneDict
 from .models import SceneTags
 
@@ -86,7 +86,7 @@ class HttpSceneInferrer(SceneInferrer):
 
 
 class SceneAnalyzer:
-    """为 asset 生成 SceneTags，内置进程内 LRU 缓存与超时降级。"""
+    """为 asset 生成 SceneTags，内置进程内时间衰减 LFU 缓存与超时降级。"""
 
     def __init__(
         self,
@@ -94,11 +94,15 @@ class SceneAnalyzer:
         *,
         inferrer: SceneInferrer | None = None,
         cache_size: int = 2000,
+        cache_halflife_seconds: float = 604800.0,
         infer_timeout_seconds: float = 3.0,
     ) -> None:
         self._dict = dictionary
         self._inferrer = inferrer or NullSceneInferrer()
-        self._cache: LRUCache[str, SceneTags] = LRUCache(maxsize=max(1, cache_size))
+        self._cache: TimeDecayedLFUCache = TimeDecayedLFUCache(
+            maxsize=max(1, cache_size),
+            halflife_seconds=max(1.0, cache_halflife_seconds),
+        )
         self._inflight: dict[str, asyncio.Future[SceneTags]] = {}
         self._timeout = max(0.0, infer_timeout_seconds)
 

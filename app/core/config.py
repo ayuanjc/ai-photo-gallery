@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     # ---- 智能场景分析（多标签体系）----
     scene_enabled: bool = True
     scene_cache_size: int = 2000
+    scene_cache_halflife_days: float = 7.0
     scene_infer_timeout_seconds: float = 3.0
 
     # ---- AI 分析（同一个人 vs 相似图片）----
