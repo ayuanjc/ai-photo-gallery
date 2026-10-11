@@ -81,6 +81,9 @@ class Settings(BaseSettings):
     huawei_face_set_prefix: str = "tmp_classify_"
     huawei_face_timeout_seconds: float = 15.0
     huawei_face_connect_timeout_seconds: float = 5.0
+    # 高斯核软聚类参数
+    face_gaussian_sigma: float = 0.1
+    face_probability_threshold: float = 0.85
 
     @field_validator("immich_base_url")
     @classmethod

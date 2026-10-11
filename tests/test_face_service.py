@@ -114,8 +114,8 @@ async def test_two_images_same_person(settings):
         "https://a.com/2.jpg": [{"bounding_box": _bbox()}],
     }
     fc.search_results = {
-        "f1": [{"face_id": "f2", "similarity": 0.9}],
-        "f2": [{"face_id": "f1", "similarity": 0.9}],
+        "f1": [{"face_id": "f2", "similarity": 0.95}],
+        "f2": [{"face_id": "f1", "similarity": 0.95}],
     }
     svc = FaceService(settings, fc)
     resp = await svc.classify(
