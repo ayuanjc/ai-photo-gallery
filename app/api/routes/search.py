@@ -5,10 +5,10 @@ from fastapi import APIRouter, Depends
 
 from ...models.request import SearchRequest
 from ...models.response import SearchResponse
-from ..deps import get_search_service
+from ..deps import get_search_service, verify_api_key
 from ...services.search_service import SearchService
 
-router = APIRouter(tags=["search"])
+router = APIRouter(tags=["search"], dependencies=[Depends(verify_api_key)])
 
 
 @router.post(

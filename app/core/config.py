@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     app_env: str = "development"
     log_level: str = "INFO"
 
+    # ---- API Key 鉴权（搜索接口）----
+    # 空字符串 = 不启用鉴权（向后兼容）；非空 = 启用，请求头需携带 x-api-key。
+    search_api_key: str = ""
+
     # ---- Immich 上游 ----
     immich_base_url: str = "http://localhost:2283"
     immich_api_key: str = ""
@@ -48,6 +52,13 @@ class Settings(BaseSettings):
     scene_enabled: bool = True
     scene_cache_size: int = 2000
     scene_infer_timeout_seconds: float = 3.0
+
+    # ---- AI 分析（同一个人 vs 相似图片）----
+    ai_analyzer_provider: str = "immich"
+    ai_person_confidence_threshold: float = 0.6
+    ai_similarity_threshold: float = 0.75
+    ai_analyze_timeout_seconds: float = 5.0
+    ai_analyzer_max_retries: int = 2
 
     # ---- 华为云图像识别（预留扩展，默认关闭）----
     huawei_enabled: bool = False

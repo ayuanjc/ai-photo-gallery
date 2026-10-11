@@ -2,7 +2,7 @@
   "scenes": {
     "nature": {
       "label": "自然",
-      "children": ["beach", "mountain", "forest", "lake", "desert", "snow"]
+      "children": ["beach", "mountain", "forest", "lake", "desert", "snow", "ocean", "sky", "flower"]
     },
     "city": {
       "label": "城市",
@@ -10,7 +10,7 @@
     },
     "people": {
       "label": "人物",
-      "children": ["single", "group", "wedding", "party", "child"]
+      "children": ["single", "group", "wedding", "party", "child", "portrait", "family"]
     },
     "life": {
       "label": "生活",
@@ -19,11 +19,32 @@
     "event": {
       "label": "事件",
       "children": ["festival", "celebration", "performance", "travel", "graduation"]
+    },
+    "animal": {
+      "label": "动物",
+      "children": ["dog", "cat", "bird", "wildlife", "marine", "insect"]
+    },
+    "architecture": {
+      "label": "建筑",
+      "children": ["temple", "bridge", "modern", "historic", "interior"]
+    },
+    "night": {
+      "label": "夜景",
+      "children": ["starry", "city_lights", "moon", "fireworks", "neon"]
+    },
+    "vehicle": {
+      "label": "车辆",
+      "children": ["car", "bike", "boat", "plane", "train"]
+    },
+    "art": {
+      "label": "艺术",
+      "children": ["painting", "sculpture", "graffiti", "design", "craft"]
     }
   },
   "visual_attrs": {
     "time": ["day", "night", "sunrise", "sunset"],
     "people": ["none", "single", "group"],
-    "indoor": ["indoor", "outdoor"]
+    "indoor": ["indoor", "outdoor"],
+    "weather": ["sunny", "cloudy", "rainy", "snow"]
   }
 }
