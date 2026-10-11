@@ -26,6 +26,7 @@ from .scene.dictionary import get_scene_dict
 from .services.face_service import FaceService
 from .services.immich import ImmichClient
 from .services.search_service import SearchService
+from .services.multi_condition_service import MultiConditionSearchService
 from .services.vision.base import NullVisionProvider, VisionProvider
 from .services.vision.huawei import HuaweiVisionProvider
 from .services.vision.huawei_face import HuaweiFaceClient
@@ -66,6 +67,7 @@ async def lifespan(app: FastAPI):
     app.state.search_service = SearchService(
         settings, immich, vision, scene_analyzer=scene_analyzer
     )
+    app.state.multi_condition_service = MultiConditionSearchService(settings, immich)
 
     logger.info("应用启动：env=%s immich=%s", settings.app_env, settings.immich_base_url)
     try:

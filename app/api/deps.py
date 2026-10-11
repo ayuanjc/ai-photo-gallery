@@ -12,6 +12,7 @@ from ..scene.analyzer import SceneAnalyzer
 from ..scene.dictionary import SceneDict
 from ..services.face_service import FaceService
 from ..services.immich import ImmichClient
+from ..services.multi_condition_service import MultiConditionSearchService
 from ..services.search_service import SearchService
 from ..services.vision.base import VisionProvider
 
@@ -46,6 +47,10 @@ def get_vision_provider(request: Request) -> VisionProvider:
 
 def get_search_service(request: Request) -> SearchService:
     return request.app.state.search_service
+
+
+def get_multi_condition_service(request: Request) -> MultiConditionSearchService:
+    return request.app.state.multi_condition_service
 
 
 def get_scene_analyzer(request: Request) -> SceneAnalyzer | None:
