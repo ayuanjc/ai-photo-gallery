@@ -23,6 +23,14 @@ from ..core.errors import UpstreamError, UpstreamTimeoutError, UpstreamUnavailab
 logger = logging.getLogger(__name__)
 
 
+class RespgenError(Exception):
+    """包装非 2xx 响应用于重试逻辑。"""
+
+    def __init__(self, resp: httpx.Response) -> None:
+        super().__init__(f"HTTP {resp.status_code}")
+        self.resp = resp
+
+
 class ImmichClient:
     def __init__(
         self,
@@ -76,7 +84,7 @@ class ImmichClient:
                 raise UpstreamTimeoutError(
                     f"Immich 请求超时: {method} {path}", details=str(exc)
                 ) from exc
-            except (httpx.ConnectError, httpx.HTTPError) as exc:
+            except (httpx.ConnectError, httpx.RemoteProtocolError, httpx.NetworkError) as exc:
                 last_exc = exc
 
             if resp is not None:
@@ -92,16 +100,24 @@ class ImmichClient:
             f"Immich 服务不可用: {method} {path}", details=str(last_exc)
         )
 
-    async def smart_search(self, query: str, k: int = 50) -> list[dict]:
+    async def smart_search(self, query: str, k: int = 50, asset_ids: list[str] | None = None) -> list[dict]:
         """调用 POST /api/search/smart 执行语义搜索，返回资产列表。
 
         兼容 Immich 多种响应格式（assets.items / assets(list) / items / 直接 list），
         并对未携带 score 的资产按排名补默认相似度（越靠前越高）。
+
+        参数:
+            query: 自然语言搜索关键词。
+            k: 返回结果数量上限。
+            asset_ids: 图库中已有的资产 ID 列表，用于以图搜图（可选）。
         """
+        payload: dict[str, Any] = {"query": query, "k": k, "withExif": True}
+        if asset_ids:
+            payload["assetIds"] = asset_ids
         resp = await self._request_with_retry(
             "POST",
             "/api/search/smart",
-            json={"query": query, "k": k, "withExif": True},
+            json=payload,
         )
         if resp.status_code == 400:
             raise UpstreamError(
@@ -194,11 +210,3 @@ class ImmichClient:
 
     def original_url(self, asset_id: str) -> str:
         return f"{self.base_url}/api/assets/{asset_id}/original"
-
-
-class RespgenError(Exception):
-    """包装非 2xx 响应用于重试逻辑。"""
-
-    def __init__(self, resp: httpx.Response) -> None:
-        super().__init__(f"HTTP {resp.status_code}")
-        self.resp = resp

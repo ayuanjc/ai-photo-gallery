@@ -85,6 +85,7 @@ class UpstreamError(AppError):
     def __init__(self, message: str, details: Any = None) -> None:
         super().__init__(ErrorCode.UPSTREAM_ERROR, message, details)
 
+
 class VisionUnavailableError(AppError):
     def __init__(self, message: str, details: Any = None) -> None:
         super().__init__(ErrorCode.VISION_UNAVAILABLE, message, details)

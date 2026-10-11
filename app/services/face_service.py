@@ -29,13 +29,10 @@ from ..models.face import (
     FaceGroup,
     FaceInfo,
 )
+from .ranking import clamp
 from .vision.huawei_face import HuaweiFaceClient
 
 logger = logging.getLogger(__name__)
-
-
-def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
-    return max(low, min(high, value))
 
 
 @dataclass
@@ -103,19 +100,26 @@ class FaceService:
         face_set_name = self._gen_face_set_name()
         created = await self._safe_create_face_set(face_set_name, len(all_faces), warnings)
 
+        if not created:
+            return FaceClassifyResponse(
+                total_images=len(urls),
+                total_faces=len(all_faces),
+                group_count=0,
+                unclassified_images=unclassified + [f.image_url for f in all_faces],
+                warnings=warnings,
+            )
+
         search_results: dict[str, dict[str, float]] = {}
         try:
-            if created:
-                await self._add_all_faces(face_set_name, all_faces, warnings)
-                search_results = await self._search_all_faces(
-                    face_set_name,
-                    all_faces,
-                    request.similarity_threshold,
-                    warnings,
-                )
+            await self._add_all_faces(face_set_name, all_faces, warnings)
+            search_results = await self._search_all_faces(
+                face_set_name,
+                all_faces,
+                request.similarity_threshold,
+                warnings,
+            )
         finally:
-            if created:
-                await self._face.delete_face_set(face_set_name)
+            await self._face.delete_face_set(face_set_name)
 
         # 3. 并查集聚类
         groups = self._cluster(all_faces, search_results, request.similarity_threshold)
@@ -233,7 +237,7 @@ class FaceService:
                         face_set_name, face.face_id, top_n=top_n, threshold=threshold
                     )
                     results[face.face_id] = {
-                        str(m.get("face_id", "")): _clamp(float(m.get("similarity", 0.0)))
+                        str(m.get("face_id", "")): clamp(float(m.get("similarity", 0.0)))
                         for m in matches
                     }
                 except Exception as exc:  # noqa: BLE001
@@ -308,12 +312,12 @@ class FaceService:
                         bounding_box=self._to_bbox(face.bounding_box)
                         if request.return_face_boxes
                         else None,
-                        similarity=round(_clamp(sim), 6),
+                        similarity=round(clamp(sim), 6),
                     )
                 )
 
             image_urls = list(dict.fromkeys(all_faces[i].image_url for i in indices))
-            confidence = round(_clamp(sum(sims) / len(sims)), 6) if sims else 0.0
+            confidence = round(clamp(sum(sims) / len(sims)), 6) if sims else 0.0
             face_groups.append(
                 FaceGroup(
                     group_id=gid,

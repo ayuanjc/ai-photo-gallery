@@ -16,10 +16,6 @@ from .vision.base import VisionProvider
 
 logger = logging.getLogger(__name__)
 
-# 控制视觉识别并发度，避免打爆上游。
-_MAX_CONCURRENT_VISION = 5
-# 控制场景分析并发度。
-_MAX_CONCURRENT_SCENE = 10
 
 
 class SearchService:
@@ -41,7 +37,7 @@ class SearchService:
 
         # 2. 调用 Immich 语义搜索（上游不可用/超时时降级返回空结果，不报 5xx）。
         try:
-            assets = await self._immich.smart_search(enriched_query, k=request.limit)
+            assets = await self._immich.smart_search(enriched_query, k=request.limit, asset_ids=request.asset_ids)
         except (UpstreamUnavailableError, UpstreamTimeoutError) as exc:
             logger.error("Immich 不可用，降级返回空结果: %s", exc)
             return SearchResponse(
@@ -85,7 +81,7 @@ class SearchService:
         return SearchResponse(
             query=request.query,
             total=len(results),
-            degraded=bool(warnings),
+            degraded=any("不可用" in w or "降级" in w for w in warnings),
             warnings=warnings,
             results=results,
             enriched_query=enriched_query if enriched_query != request.query else None,
@@ -94,7 +90,7 @@ class SearchService:
     async def _enrich_query(self, request: SearchRequest) -> tuple[str, list[str]]:
         """并发调用视觉识别，失败不阻塞主流程（降级记录 warning）。"""
         base = request.query
-        semantic = asyncio.Semaphore(_MAX_CONCURRENT_VISION)
+        semantic = asyncio.Semaphore(self._settings.search_max_concurrent_vision)
 
         async def _analyze(url: str) -> list[str]:
             async with semantic:
@@ -105,7 +101,7 @@ class SearchService:
                     logger.warning("视觉识别失败，url=%s err=%s", url, exc)
                     return []
 
-        urls = [str(u) for u in request.image_urls]
+        urls = [self._immich.thumbnail_url(aid) for aid in request.asset_ids]
         batches = await asyncio.gather(*(_analyze(u) for u in urls))
         keywords = [kw for batch in batches for kw in batch]
 
@@ -125,7 +121,7 @@ class SearchService:
         """
         if self._scene_analyzer is None or not self._settings.scene_enabled:
             return
-        semantic = asyncio.Semaphore(_MAX_CONCURRENT_SCENE)
+        semantic = asyncio.Semaphore(self._settings.search_max_concurrent_scene)
 
         async def _one(asset: dict) -> None:
             async with semantic:

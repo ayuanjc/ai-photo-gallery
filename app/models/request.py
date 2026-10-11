@@ -1,7 +1,7 @@
 """请求模型（Pydantic）与字段校验。"""
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, HttpUrl, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 # 允许客户端请求返回的图片元数据字段白名单，防止任意字段注入。
 ALLOWED_METADATA_FIELDS = frozenset(
@@ -41,7 +41,7 @@ class SearchRequest(BaseModel):
     """语义搜索请求。
 
     - query: 自然语言搜索关键词（必填，去空白后非空）。
-    - image_urls: 客户端提交的图片 URL 批量列表（必填、非空、元素为合法 http/https URL）。
+    - asset_ids: Immich 图库中已有的资产 ID 列表（必填、非空），用于以图搜图。
     - limit: 期望返回的结果数量。
     - time_weight / similarity_weight: 可选的单次请求权重覆盖（0~1）。
     - include_metadata_fields: 希望返回的元数据字段（白名单校验）。
@@ -49,7 +49,7 @@ class SearchRequest(BaseModel):
     """
 
     query: str = Field(..., description="自然语言搜索关键词")
-    image_urls: list[HttpUrl] = Field(..., min_length=1, max_length=200, description="图片 URL 批量列表")
+    asset_ids: list[str] = Field(..., min_length=1, max_length=200, description="Immich 资产 ID 列表")
     limit: int = Field(default=50, ge=1, le=200, description="返回结果数量上限")
     time_weight: float | None = Field(default=None, ge=0.0, le=1.0, description="时间权重 α")
     similarity_weight: float | None = Field(default=None, ge=0.0, le=1.0, description="相似度权重 β")
