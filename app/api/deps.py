@@ -4,8 +4,10 @@ from __future__ import annotations
 from fastapi import Request
 
 from ..core.config import Settings, get_settings
+from ..core.errors import VisionError
 from ..scene.analyzer import SceneAnalyzer
 from ..scene.dictionary import SceneDict
+from ..services.face_service import FaceService
 from ..services.immich import ImmichClient
 from ..services.search_service import SearchService
 from ..services.vision.base import VisionProvider
@@ -35,3 +37,10 @@ def get_scene_analyzer(request: Request) -> SceneAnalyzer | None:
 def get_scene_dictionary(request: Request) -> SceneDict:
     """返回进程级场景词典（只读）。"""
     return request.app.state.scene_dictionary
+
+
+def get_face_service(request: Request) -> FaceService:
+    service = getattr(request.app.state, "face_service", None)
+    if service is None:
+        raise VisionError("人脸分类功能未启用，请配置 HUAWEI_FACE_ENABLED=true 及 AK/SK/PROJECT_ID")
+    return service
