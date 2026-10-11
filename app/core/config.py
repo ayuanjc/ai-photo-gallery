@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     # EXIF 与文件创建时间都缺失时的回退时间。
     default_datetime_iso: str = "1970-01-01T00:00:00+00:00"
 
+    # ---- 智能场景分析（多标签体系）----
+    scene_enabled: bool = True
+    scene_cache_size: int = 2000
+    scene_infer_timeout_seconds: float = 3.0
+
     # ---- 华为云图像识别（预留扩展，默认关闭）----
     huawei_enabled: bool = False
     huawei_image_endpoint: str = "https://image.cn-north-4.myhuaweicloud.com"
@@ -51,6 +56,16 @@ class Settings(BaseSettings):
     huawei_ak: str = ""
     huawei_sk: str = ""
     huawei_project_id: str = ""
+
+    # ---- 华为云人脸识别 FRS（用于人脸分类，默认关闭）----
+    huawei_face_enabled: bool = False
+    huawei_frs_endpoint: str = "https://face.cn-north-4.myhuaweicloud.com"
+    huawei_face_similarity_threshold: float = 0.62
+    huawei_face_search_top_n: int = 10
+    huawei_face_max_concurrent: int = 5
+    huawei_face_set_prefix: str = "tmp_classify_"
+    huawei_face_timeout_seconds: float = 15.0
+    huawei_face_connect_timeout_seconds: float = 5.0
 
     @field_validator("immich_base_url")
     @classmethod

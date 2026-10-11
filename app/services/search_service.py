@@ -7,6 +7,8 @@ import logging
 from ..core.config import Settings
 from ..models.request import SearchRequest
 from ..models.response import SearchResultItem, SearchResponse
+from ..scene.analyzer import SceneAnalyzer
+from ..scene.models import SceneTags
 from .immich import ImmichClient
 from .ranking import clamp, rank_assets
 from .vision.base import VisionProvider
@@ -15,6 +17,8 @@ logger = logging.getLogger(__name__)
 
 # 控制视觉识别并发度，避免打爆上游。
 _MAX_CONCURRENT_VISION = 5
+# 控制场景分析并发度。
+_MAX_CONCURRENT_SCENE = 10
 
 
 class SearchService:
@@ -23,10 +27,12 @@ class SearchService:
         settings: Settings,
         immich: ImmichClient,
         vision: VisionProvider,
+        scene_analyzer: SceneAnalyzer | None = None,
     ) -> None:
         self._settings = settings
         self._immich = immich
         self._vision = vision
+        self._scene_analyzer = scene_analyzer
 
     async def search(self, request: SearchRequest) -> SearchResponse:
         # 1. 并发调用视觉识别，从图片 URL 提取标签，用于增强语义查询。
@@ -35,10 +41,13 @@ class SearchService:
         # 2. 调用 Immich 语义搜索。
         assets = await self._immich.smart_search(enriched_query, k=request.limit)
 
-        # 3. 解析单次请求的权重覆盖（否则用全局配置）。
+        # 3. 为每条 asset 生成场景标签（失败不阻塞），并把 primary_scene 附加到 asset。
+        await self._attach_scenes(assets)
+
+        # 4. 解析单次请求的权重覆盖（否则用全局配置）。
         time_weight, similarity_weight = self._resolve_weights(request)
 
-        # 4. 二次排序。
+        # 5. 二次排序（权重按各 asset 的 primary_scene 动态选择）。
         ranked = rank_assets(
             assets,
             time_weight=time_weight,
@@ -47,7 +56,7 @@ class SearchService:
             default_iso=self._settings.default_datetime_iso,
         )
 
-        # 5. 组装结果。
+        # 6. 组装结果。
         results = [
             self._to_item(
                 asset,
@@ -97,6 +106,28 @@ class SearchService:
             return base, []
         return enriched, [f"已通过视觉识别增强查询词（{len(keywords)} 个标签）"]
 
+    async def _attach_scenes(self, assets: list[dict]) -> None:
+        """并发为每条 asset 生成场景标签，失败不阻塞搜索主链路。
+
+        成功时在 asset 上附加 scene_tags 与 primary_scene；整体异常时仅记日志，
+        asset 不携带 scene 信息（对应响应中 scene=None）。
+        """
+        if self._scene_analyzer is None or not self._settings.scene_enabled:
+            return
+        semantic = asyncio.Semaphore(_MAX_CONCURRENT_SCENE)
+
+        async def _one(asset: dict) -> None:
+            async with semantic:
+                try:
+                    tags = await self._scene_analyzer.analyze(asset)
+                except Exception as exc:  # 场景分析异常不应导致搜索失败
+                    logger.warning("场景分析失败，asset_id=%s err=%s", asset.get("id"), exc)
+                    return
+                asset["scene_tags"] = tags
+                asset["primary_scene"] = tags.primary_scene
+
+        await asyncio.gather(*(_one(asset) for asset in assets))
+
     def _resolve_weights(self, request: SearchRequest) -> tuple[float, float]:
         time_weight = request.time_weight
         similarity_weight = request.similarity_weight
@@ -133,6 +164,7 @@ class SearchService:
             time_freshness=round(clamp(freshness), 6),
             final_score=round(final, 6),
             metadata=metadata,
+            scene=asset.get("scene_tags"),
         )
 
     @staticmethod
