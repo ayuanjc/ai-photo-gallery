@@ -9,7 +9,7 @@ from ..core.errors import UpstreamTimeoutError, UpstreamUnavailableError, Vision
 from ..models.request import SearchRequest
 from ..models.response import SearchResultItem, SearchResponse
 from ..scene.analyzer import SceneAnalyzer
-from ..scene.models import SceneTags
+
 from .immich import ImmichClient
 from .ranking import calculate_dynamic_weights, clamp, fuse_multimodal_query, rank_assets
 from .vision.base import VisionProvider

@@ -219,19 +219,18 @@ class ImmichClient:
     @staticmethod
     def _extract_items(data: Any) -> list[dict]:
         if isinstance(data, list):
-            return [item for item in data if isinstance(item, dict)]
-        if isinstance(data, dict):
+            items = data
+        elif isinstance(data, dict):
             assets = data.get("assets")
             if isinstance(assets, dict):
                 items = assets.get("items", [])
             elif isinstance(assets, list):
                 items = assets
-            elif "items" in data:
-                items = data["items"]
             else:
-                items = []
-            return [item for item in items if isinstance(item, dict)]
-        return []
+                items = data.get("items", [])
+        else:
+            items = []
+        return [item for item in items if isinstance(item, dict)]
 
     @staticmethod
     def _fill_missing_score(items: list[dict]) -> list[dict]:

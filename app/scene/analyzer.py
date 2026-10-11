@@ -19,7 +19,7 @@ from abc import ABC, abstractmethod
 import httpx
 
 from ..utils.cache import TimeDecayedLFUCache
-from .dictionary import SceneDict
+from .dictionary import SceneDict, _normalize
 from .models import SceneTags
 
 logger = logging.getLogger(__name__)
@@ -268,10 +268,6 @@ class SceneAnalyzer:
         if asset_id:
             self._cache[asset_id] = tags
 
-
-def _normalize(token: str) -> str:
-    """归一化自由文本标签：小写 + 连字符/空格统一为下划线。"""
-    return token.strip().lower().replace("-", "_").replace(" ", "_")
 
 
 def _pick_primary(scenes: list[str], confidence: dict[str, float]) -> str | None:
