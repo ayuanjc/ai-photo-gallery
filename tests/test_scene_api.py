@@ -35,7 +35,7 @@ class FakeVision(VisionProvider):
 
 class BoomAnalyzer:
     async def analyze(self, asset: dict):
-        raise RuntimeError("scene boom")
+        raise ValueError("scene boom")
 
 
 def _asset(aid: str, smart_tags=None) -> dict:

@@ -69,9 +69,11 @@ class ImmichAnalyzer(ImageAnalyzer):
         if not ref_id or not cand_id:
             return self._degrade("无法从 URL 解析 Immich asset id")
 
-        ref_person = await self._person_id(ref_id)
-        cand_person = await self._person_id(cand_id)
-        similarity = await self._similarity(ref_id, cand_id)
+        ref_person, cand_person, similarity = await asyncio.gather(
+            self._person_id(ref_id),
+            self._person_id(cand_id),
+            self._similarity(ref_id, cand_id),
+        )
 
         if ref_person is not None and cand_person is not None:
             same_person = ref_person == cand_person

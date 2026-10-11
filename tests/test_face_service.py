@@ -1,6 +1,7 @@
 """人脸分类编排服务测试（注入 FakeFaceClient）。"""
 from __future__ import annotations
 
+from app.core.errors import VisionError
 from app.models.face import FaceClassifyRequest
 from app.services.face_service import FaceService, UnionFind
 
@@ -16,7 +17,7 @@ class FakeFaceClient:
 
     async def detect_faces(self, image_url: str, max_face: int = 10):
         if image_url in self.detect_should_fail:
-            raise RuntimeError("detect boom")
+            raise VisionError("detect boom")
         return self.detect_results.get(image_url, [])
 
     async def create_face_set(self, name: str, capacity: int = 100000):

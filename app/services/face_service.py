@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..core.config import Settings
+from ..core.errors import VisionError
 from ..models.face import (
     BoundingBox,
     FaceClassifyRequest,
@@ -166,7 +167,7 @@ class FaceService:
                 try:
                     faces = await self._face.detect_faces(url, max_face=max_face)
                     results[url] = faces
-                except Exception as exc:  # noqa: BLE001
+                except (VisionError, ValueError, KeyError, TypeError) as exc:
                     logger.warning("人脸检测失败 url=%s err=%s", url, exc)
                     warnings.append(f"人脸检测失败: {url}")
                     results[url] = []
@@ -211,7 +212,7 @@ class FaceService:
         try:
             await self._face.create_face_set(name, capacity=capacity)
             return True
-        except Exception as exc:  # noqa: BLE001
+        except (VisionError, ValueError, KeyError, TypeError) as exc:
             logger.warning("创建人脸库 %s 失败: %s", name, exc)
             warnings.append(f"创建人脸库失败: {exc}")
             return False
@@ -232,7 +233,7 @@ class FaceService:
                     face.face_id = await self._face.add_face_by_url(
                         face_set_name, face.image_url, external_id
                     )
-                except Exception as exc:  # noqa: BLE001
+                except (VisionError, ValueError, KeyError, TypeError) as exc:
                     logger.warning("添加人脸失败 idx=%d err=%s", idx, exc)
                     warnings.append(f"添加人脸失败: {face.image_url}")
 
@@ -261,7 +262,7 @@ class FaceService:
                         str(m.get("face_id", "")): clamp(float(m.get("similarity", 0.0)))
                         for m in matches
                     }
-                except Exception as exc:  # noqa: BLE001
+                except (VisionError, ValueError, KeyError, TypeError) as exc:
                     logger.warning("搜索人脸失败 face_id=%s err=%s", face.face_id, exc)
                     warnings.append(f"搜索人脸失败: {face.image_url}")
 
