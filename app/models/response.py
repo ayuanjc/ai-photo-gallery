@@ -1,0 +1,45 @@
+"""响应模型（Pydantic）。"""
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+from ..core.errors import ErrorCode
+
+
+class SearchResultItem(BaseModel):
+    """单条搜索结果。"""
+
+    asset_id: str
+    thumbnail_url: str
+    original_url: str | None = None
+    captured_at: datetime | None = Field(default=None, description="EXIF 拍摄时间（回退后）")
+    captured_at_source: str = Field(default="default", description="拍摄时间来源: exif | file_created | default")
+    similarity_score: float = Field(ge=0.0, le=1.0, description="语义相似度分数（归一化到 0~1）")
+    time_freshness: float = Field(ge=0.0, le=1.0, description="时间新鲜度（归一化到 0~1）")
+    final_score: float = Field(description="加权融合后的最终排序分数")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="所选元数据字段")
+
+
+class SearchResponse(BaseModel):
+    """语义搜索统一响应。"""
+
+    query: str
+    total: int
+    degraded: bool = Field(default=False, description="是否发生降级（如上游部分可用）")
+    warnings: list[str] = Field(default_factory=list)
+    results: list[SearchResultItem] = Field(default_factory=list)
+    enriched_query: str | None = Field(default=None, description="经视觉识别增强后的实际查询词")
+
+
+class ErrorDetail(BaseModel):
+    code: ErrorCode
+    message: str
+    request_id: str | None = None
+    details: Any = None
+
+
+class ErrorResponse(BaseModel):
+    error: ErrorDetail

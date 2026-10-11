@@ -1,0 +1,68 @@
+"""统一的错误码体系与领域异常。
+
+对外接口返回统一错误结构：
+    { "error": { "code": "...", "message": "...", "request_id": "...", "details": ... } }
+
+领域异常（AppError）在 service 层抛出，由全局异常处理器转换为 HTTP 响应。
+"""
+from __future__ import annotations
+
+from enum import Enum
+from typing import Any
+
+
+class ErrorCode(str, Enum):
+    # 请求参数校验失败（FastAPI/Pydantic 校验错误统一映射）
+    INVALID_PARAMS = "INVALID_PARAMS"
+    # 上游 Immich 不可用（连接失败、5xx）
+    UPSTREAM_UNAVAILABLE = "UPSTREAM_UNAVAILABLE"
+    # 上游 Immich 请求超时
+    UPSTREAM_TIMEOUT = "UPSTREAM_TIMEOUT"
+    # 上游 Immich 返回异常（4xx、协议错误等）
+    UPSTREAM_ERROR = "UPSTREAM_ERROR"
+    # 服务内部错误
+    INTERNAL_ERROR = "INTERNAL_ERROR"
+
+
+# 错误码 -> HTTP 状态码
+STATUS_CODE_MAP: dict[ErrorCode, int] = {
+    ErrorCode.INVALID_PARAMS: 400,
+    ErrorCode.UPSTREAM_UNAVAILABLE: 502,
+    ErrorCode.UPSTREAM_TIMEOUT: 504,
+    ErrorCode.UPSTREAM_ERROR: 502,
+    ErrorCode.INTERNAL_ERROR: 500,
+}
+
+
+class AppError(Exception):
+    """服务层抛出的领域异常。"""
+
+    def __init__(
+        self,
+        code: ErrorCode,
+        message: str,
+        details: Any = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.details = details
+
+    @property
+    def status_code(self) -> int:
+        return STATUS_CODE_MAP[self.code]
+
+
+class UpstreamUnavailableError(AppError):
+    def __init__(self, message: str, details: Any = None) -> None:
+        super().__init__(ErrorCode.UPSTREAM_UNAVAILABLE, message, details)
+
+
+class UpstreamTimeoutError(AppError):
+    def __init__(self, message: str, details: Any = None) -> None:
+        super().__init__(ErrorCode.UPSTREAM_TIMEOUT, message, details)
+
+
+class UpstreamError(AppError):
+    def __init__(self, message: str, details: Any = None) -> None:
+        super().__init__(ErrorCode.UPSTREAM_ERROR, message, details)
