@@ -15,10 +15,12 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from .api.routes import search
+from .api.routes import scene, search
 from .core.config import get_settings
 from .core.errors import AppError, ErrorCode
 from .core.logging import setup_logging
+from .scene.analyzer import NullSceneInferrer, SceneAnalyzer
+from .scene.dictionary import get_scene_dict
 from .services.immich import ImmichClient
 from .services.search_service import SearchService
 from .services.vision.base import NullVisionProvider, VisionProvider
@@ -36,9 +38,24 @@ async def lifespan(app: FastAPI):
     vision: VisionProvider = (
         HuaweiVisionProvider(settings) if settings.huawei_enabled else NullVisionProvider()
     )
+    scene_dictionary = get_scene_dict()
+    scene_analyzer = (
+        SceneAnalyzer(
+            scene_dictionary,
+            inferrer=NullSceneInferrer(),
+            cache_size=settings.scene_cache_size,
+            infer_timeout_seconds=settings.scene_infer_timeout_seconds,
+        )
+        if settings.scene_enabled
+        else None
+    )
     app.state.immich_client = immich
     app.state.vision_provider = vision
-    app.state.search_service = SearchService(settings, immich, vision)
+    app.state.scene_dictionary = scene_dictionary
+    app.state.scene_analyzer = scene_analyzer
+    app.state.search_service = SearchService(
+        settings, immich, vision, scene_analyzer=scene_analyzer
+    )
 
     logger.info("应用启动：env=%s immich=%s", settings.app_env, settings.immich_base_url)
     try:
@@ -55,6 +72,7 @@ app = FastAPI(
 )
 
 app.include_router(search.router, prefix="/api/v1")
+app.include_router(scene.router, prefix="/api/v1")
 
 
 @app.middleware("http")
