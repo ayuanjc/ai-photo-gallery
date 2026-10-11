@@ -5,6 +5,7 @@ import asyncio
 import logging
 
 from ..core.config import Settings
+from ..core.errors import UpstreamTimeoutError, UpstreamUnavailableError
 from ..models.request import SearchRequest
 from ..models.response import SearchResultItem, SearchResponse
 from ..scene.analyzer import SceneAnalyzer
@@ -38,8 +39,18 @@ class SearchService:
         # 1. 并发调用视觉识别，从图片 URL 提取标签，用于增强语义查询。
         enriched_query, warnings = await self._enrich_query(request)
 
-        # 2. 调用 Immich 语义搜索。
-        assets = await self._immich.smart_search(enriched_query, k=request.limit)
+        # 2. 调用 Immich 语义搜索（上游不可用/超时时降级返回空结果，不报 5xx）。
+        try:
+            assets = await self._immich.smart_search(enriched_query, k=request.limit)
+        except (UpstreamUnavailableError, UpstreamTimeoutError) as exc:
+            logger.error("Immich 不可用，降级返回空结果: %s", exc)
+            return SearchResponse(
+                query=request.query,
+                total=0,
+                degraded=True,
+                warnings=["Immich 暂不可用，返回空结果"],
+                results=[],
+            )
 
         # 3. 为每条 asset 生成场景标签（失败不阻塞），并把 primary_scene 附加到 asset。
         await self._attach_scenes(assets)
