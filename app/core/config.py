@@ -52,6 +52,16 @@ class Settings(BaseSettings):
     huawei_sk: str = ""
     huawei_project_id: str = ""
 
+    # ---- 华为云人脸识别 FRS（用于人脸分类，默认关闭）----
+    huawei_face_enabled: bool = False
+    huawei_frs_endpoint: str = "https://face.cn-north-4.myhuaweicloud.com"
+    huawei_face_similarity_threshold: float = 0.62
+    huawei_face_search_top_n: int = 10
+    huawei_face_max_concurrent: int = 5
+    huawei_face_set_prefix: str = "tmp_classify_"
+    huawei_face_timeout_seconds: float = 15.0
+    huawei_face_connect_timeout_seconds: float = 5.0
+
     @field_validator("immich_base_url")
     @classmethod
     def _strip_trailing_slash(cls, value: str) -> str:
