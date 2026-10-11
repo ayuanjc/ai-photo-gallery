@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import field_validator
+from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -70,7 +70,7 @@ class Settings(BaseSettings):
     # ---- 华为云图像识别（预留扩展，默认关闭）----
     huawei_enabled: bool = False
     huawei_ak: str = ""
-    huawei_sk: str = ""
+    huawei_sk: SecretStr = SecretStr("")
     huawei_project_id: str = ""
 
     # ---- 华为云人脸识别 FRS（用于人脸分类，默认关闭）----
@@ -85,6 +85,10 @@ class Settings(BaseSettings):
     # 高斯核软聚类参数
     face_gaussian_sigma: float = 0.1
     face_probability_threshold: float = 0.85
+    # 复合条件搜索权重（贝叶斯降级加权评分）
+    multi_condition_weight_person: float = 0.5
+    multi_condition_weight_location: float = 0.3
+    multi_condition_weight_query: float = 0.2
 
     @field_validator("immich_base_url")
     @classmethod

@@ -44,3 +44,18 @@ def test_unknown_metadata_field_rejected():
 def test_query_whitespace_trimmed():
     req = SearchRequest(**(dict(_valid_payload(), query="  海滩  ")))
     assert req.query == "海滩"
+
+def test_asset_id_empty_string_rejected():
+    with pytest.raises(ValidationError):
+        SearchRequest(**(dict(_valid_payload(), asset_ids=["asset-001", ""])))
+
+
+def test_asset_id_too_long_rejected():
+    long_id = "x" * 129
+    with pytest.raises(ValidationError):
+        SearchRequest(**(dict(_valid_payload(), asset_ids=[long_id])))
+
+
+def test_asset_id_duplicate_rejected():
+    with pytest.raises(ValidationError):
+        SearchRequest(**(dict(_valid_payload(), asset_ids=["dup", "dup"])))

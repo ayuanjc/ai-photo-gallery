@@ -20,7 +20,7 @@ class SearchResultItem(BaseModel):
     captured_at_source: str = Field(default="default", description="拍摄时间来源: exif | file_created | default")
     similarity_score: float = Field(ge=0.0, le=1.0, description="语义相似度分数（归一化到 0~1）")
     time_freshness: float = Field(ge=0.0, le=1.0, description="时间新鲜度（归一化到 0~1）")
-    final_score: float = Field(description="加权融合后的最终排序分数")
+    final_score: float = Field(ge=0.0, le=1.0, description="加权融合后的最终排序分数")
     metadata: dict[str, Any] = Field(default_factory=dict, description="所选元数据字段")
     scene: SceneTags | None = Field(default=None, description="多标签场景分析结果")
 
@@ -45,3 +45,27 @@ class ErrorDetail(BaseModel):
 
 class ErrorResponse(BaseModel):
     error: ErrorDetail
+
+class MultiConditionResultItem(BaseModel):
+    """复合条件搜索单条结果。"""
+
+    asset_id: str
+    thumbnail_url: str
+    multi_score: float = Field(description="加权综合评分 Score_multi = Σ(wi * Si)")
+    matched_conditions: list[str] = Field(description="命中的条件列表")
+    person_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    location_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    query_score: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class MultiConditionSearchResponse(BaseModel):
+    """复合条件搜索响应。"""
+
+    total: int
+    degraded: bool = Field(default=False, description="是否触发了贝叶斯降级检索")
+    degraded_conditions: list[str] = Field(
+        default_factory=list,
+        description="降级时放宽的条件列表（按权重从低到高排序）",
+    )
+    warnings: list[str] = Field(default_factory=list)
+    results: list[MultiConditionResultItem] = Field(default_factory=list)

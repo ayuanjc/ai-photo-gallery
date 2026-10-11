@@ -1,15 +1,18 @@
 """FastAPI 依赖注入。"""
 from __future__ import annotations
 
+import hmac
+
 from fastapi import Depends, Request
 
 from ..ai.base import ImageAnalyzer
 from ..core.config import Settings, get_settings
-from ..core.errors import UnauthorizedError, VisionError
+from ..core.errors import ServiceUnavailableError, UnauthorizedError
 from ..scene.analyzer import SceneAnalyzer
 from ..scene.dictionary import SceneDict
 from ..services.face_service import FaceService
 from ..services.immich import ImmichClient
+from ..services.multi_condition_service import MultiConditionSearchService
 from ..services.search_service import SearchService
 from ..services.vision.base import VisionProvider
 
@@ -30,7 +33,7 @@ async def verify_api_key(
     if not settings.search_api_key:
         return
     provided = request.headers.get("x-api-key")
-    if provided != settings.search_api_key:
+    if not provided or not hmac.compare_digest(provided, settings.search_api_key):
         raise UnauthorizedError()
 
 
@@ -46,6 +49,10 @@ def get_search_service(request: Request) -> SearchService:
     return request.app.state.search_service
 
 
+def get_multi_condition_service(request: Request) -> MultiConditionSearchService:
+    return request.app.state.multi_condition_service
+
+
 def get_scene_analyzer(request: Request) -> SceneAnalyzer | None:
     """返回场景分析器（未启用时可能为 None）。"""
     return getattr(request.app.state, "scene_analyzer", None)
@@ -59,7 +66,7 @@ def get_scene_dictionary(request: Request) -> SceneDict:
 def get_face_service(request: Request) -> FaceService:
     service = getattr(request.app.state, "face_service", None)
     if service is None:
-        raise VisionError("人脸分类功能未启用，请配置 HUAWEI_FACE_ENABLED=true 及 AK/SK/PROJECT_ID")
+        raise ServiceUnavailableError("人脸分类功能未启用，请配置 HUAWEI_FACE_ENABLED=true 及 AK/SK/PROJECT_ID")
     return service
 
 

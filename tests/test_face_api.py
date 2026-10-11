@@ -82,7 +82,7 @@ def test_classify_vision_error_returns_502(client):
     assert resp.json()["error"]["code"] == "VISION_ERROR"
 
 
-def test_classify_disabled_returns_502():
+def test_classify_disabled_returns_503():
     saved = dict(app.dependency_overrides)
     app.dependency_overrides.clear()
     try:
@@ -91,7 +91,7 @@ def test_classify_disabled_returns_502():
                 "/api/v1/faces/classify",
                 json={"image_urls": ["https://example.com/a.jpg"]},
             )
-            assert resp.status_code == 502
-            assert resp.json()["error"]["code"] == "VISION_ERROR"
+            assert resp.status_code == 503
+            assert resp.json()["error"]["code"] == "SERVICE_UNAVAILABLE"
     finally:
         app.dependency_overrides.update(saved)

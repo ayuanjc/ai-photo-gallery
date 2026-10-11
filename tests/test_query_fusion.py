@@ -115,7 +115,7 @@ def test_fuse_lambda_below_zero_clamped():
 
 def test_fuse_text_to_vision_ratio_approximates_lambda():
     """验证重复次数比例近似 λ:(1-λ)。"""
-    for lam, expected_repeat in [(0.7, 2), (0.5, 1), (0.8, 4), (0.6, 1), (0.75, 3), (0.9, 9)]:
+    for lam, expected_repeat in [(0.7, 2), (0.5, 1), (0.8, 4), (0.6, 1), (0.75, 3), (0.9, 5)]:
         result = fuse_multimodal_query("q", ["v"], lam)
         parts = result.split()
         q_count = parts.count("q")

@@ -65,17 +65,15 @@ class HttpSceneInferrer(SceneInferrer):
 
     def __init__(self, endpoint: str, client: httpx.AsyncClient | None = None) -> None:
         self._endpoint = endpoint.rstrip("/")
-        self._client = client
-        self._owns_client = client is None
-
-    async def _get_client(self) -> httpx.AsyncClient:
-        if self._client is None:
+        if client is not None:
+            self._client = client
+            self._owns_client = False
+        else:
             self._client = httpx.AsyncClient()
-        return self._client
+            self._owns_client = True
 
     async def infer_scenes(self, asset: dict) -> list[str]:
-        client = await self._get_client()
-        resp = await client.post(
+        resp = await self._client.post(
             f"{self._endpoint}/infer", json={"id": asset.get("id")}
         )
         resp.raise_for_status()
@@ -105,16 +103,35 @@ class SceneAnalyzer:
             maxsize=max(1, cache_size),
             halflife_seconds=max(1.0, cache_halflife_seconds),
         )
+        self._inflight: dict[str, asyncio.Future[SceneTags]] = {}
         self._timeout = max(0.0, infer_timeout_seconds)
 
     async def analyze(self, asset: dict) -> SceneTags:
-        """分析单条 asset，优先命中缓存，其次分级推理，超时降级。"""
+        """分析单条 asset，优先命中缓存，其次分级推理，超时降级。
+
+        使用 singleflight 模式：相同 asset_id 的并发请求共享同一个推理任务，
+        避免缓存 stampede（大量并发 miss 同时触发推理）。
+        """
         asset_id = str(asset.get("id", "") or "")
         if asset_id:
             cached = self._cache.get(asset_id)
             if cached is not None:
                 return cached
+            inflight = self._inflight.get(asset_id)
+            if inflight is not None and not inflight.done():
+                return await inflight
 
+        task = asyncio.ensure_future(self._compute(asset, asset_id))
+        if asset_id:
+            self._inflight[asset_id] = task
+        try:
+            return await task
+        finally:
+            if asset_id:
+                self._inflight.pop(asset_id, None)
+
+    async def _compute(self, asset: dict, asset_id: str) -> SceneTags:
+        """实际推理逻辑（不含缓存检查），由 analyze 通过 singleflight 调度。"""
         # 第一级：基于 Immich smartInfo / tags 的确定性映射。
         base = self._analyze_smartinfo(asset)
         if base.scenes:

@@ -1,6 +1,7 @@
 """搜索编排服务测试（注入假 Immich / 假视觉识别）。"""
 from __future__ import annotations
 
+from app.core.errors import VisionError
 from app.models.request import SearchRequest
 from app.services.search_service import SearchService
 from app.services.vision.base import VisionProvider, VisionResult
@@ -35,7 +36,7 @@ class FakeVision(VisionProvider):
     async def analyze(self, image_url: str) -> VisionResult:
         self.calls.append(image_url)
         if self.fail:
-            raise RuntimeError("vision boom")
+            raise VisionError("vision boom")
         return VisionResult(labels=["海边", "日落"])
 
 

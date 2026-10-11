@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from contextlib import asynccontextmanager
 
@@ -25,11 +26,14 @@ from .scene.dictionary import get_scene_dict
 from .services.face_service import FaceService
 from .services.immich import ImmichClient
 from .services.search_service import SearchService
+from .services.multi_condition_service import MultiConditionSearchService
 from .services.vision.base import NullVisionProvider, VisionProvider
 from .services.vision.huawei import HuaweiVisionProvider
 from .services.vision.huawei_face import HuaweiFaceClient
 
 logger = logging.getLogger(__name__)
+
+_REQUEST_ID_RE = re.compile(r"^[a-zA-Z0-9\-]{1,128}$")
 
 
 @asynccontextmanager
@@ -64,6 +68,7 @@ async def lifespan(app: FastAPI):
     app.state.search_service = SearchService(
         settings, immich, vision, scene_analyzer=scene_analyzer
     )
+    app.state.multi_condition_service = MultiConditionSearchService(settings, immich)
 
     logger.info("应用启动：env=%s immich=%s", settings.app_env, settings.immich_base_url)
     try:
@@ -90,6 +95,8 @@ app.include_router(ai.router, prefix="/api/v1")
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
     request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
+    if not _REQUEST_ID_RE.match(request_id):
+        request_id = uuid.uuid4().hex
     request.state.request_id = request_id
     response = await call_next(request)
     response.headers["x-request-id"] = request_id

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
+from ..utils.url_safety import validate_url_or_raise
+
 
 class BoundingBox(BaseModel):
     """人脸边界框（像素坐标）。"""
@@ -56,6 +58,7 @@ class FaceClassifyRequest(BaseModel):
         seen: list[HttpUrl] = []
         for url in value:
             if url not in seen:
+                validate_url_or_raise(str(url))
                 seen.append(url)
         return seen
 

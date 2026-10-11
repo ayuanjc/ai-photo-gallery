@@ -15,6 +15,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -37,9 +38,21 @@ class HuaweiFaceClient:
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self._settings = settings
-        self._signer = HuaweiCloudSigner(settings.huawei_ak, settings.huawei_sk)
-        self._client = client
-        self._owns_client = client is None
+        self._signer = HuaweiCloudSigner(
+            settings.huawei_ak, settings.huawei_sk.get_secret_value()
+        )
+        if client is not None:
+            self._client = client
+            self._owns_client = False
+        else:
+            timeout = httpx.Timeout(
+                connect=settings.huawei_face_connect_timeout_seconds,
+                read=settings.huawei_face_timeout_seconds,
+                write=settings.huawei_face_timeout_seconds,
+                pool=settings.huawei_face_timeout_seconds,
+            )
+            self._client = httpx.AsyncClient(timeout=timeout)
+            self._owns_client = True
 
     @property
     def endpoint(self) -> str:
@@ -48,18 +61,6 @@ class HuaweiFaceClient:
     @property
     def project_id(self) -> str:
         return self._settings.huawei_project_id
-
-    async def _get_client(self) -> httpx.AsyncClient:
-        if self._client is not None:
-            return self._client
-        timeout = httpx.Timeout(
-            connect=self._settings.huawei_face_connect_timeout_seconds,
-            read=self._settings.huawei_face_timeout_seconds,
-            write=self._settings.huawei_face_timeout_seconds,
-            pool=self._settings.huawei_face_timeout_seconds,
-        )
-        self._client = httpx.AsyncClient(timeout=timeout)
-        return self._client
 
     async def aclose(self) -> None:
         if self._owns_client and self._client is not None:
@@ -82,9 +83,8 @@ class HuaweiFaceClient:
             headers["Content-Type"] = "application/json; charset=utf-8"
 
         signed_headers = self._signer.sign(method, url, headers, body=body_bytes)
-        client = await self._get_client()
         try:
-            resp = await client.request(
+            resp = await self._client.request(
                 method,
                 url,
                 headers=signed_headers,
@@ -98,9 +98,10 @@ class HuaweiFaceClient:
             ) from exc
 
         if resp.status_code >= 500:
+            logger.debug("FRS 5xx body: %s", resp.text[:500])
             raise VisionUnavailableError(
                 f"FRS 返回 {resp.status_code}",
-                details={"status": resp.status_code, "body": resp.text[:500]},
+                details={"status": resp.status_code},
             )
         if resp.status_code in (401, 403):
             raise VisionError(
@@ -108,9 +109,10 @@ class HuaweiFaceClient:
                 details={"status": resp.status_code},
             )
         if resp.status_code >= 400:
+            logger.debug("FRS 4xx body: %s", resp.text[:500])
             raise VisionError(
                 f"FRS 返回异常状态码 {resp.status_code}",
-                details={"status": resp.status_code, "body": resp.text[:500]},
+                details={"status": resp.status_code},
             )
         return resp
 
@@ -120,9 +122,10 @@ class HuaweiFaceClient:
         try:
             return resp.json()
         except (json.JSONDecodeError, ValueError) as exc:
+            logger.debug("FRS 非 JSON body: %s", resp.text[:500])
             raise VisionError(
                 "FRS 返回非 JSON 响应",
-                details={"status": resp.status_code, "body": resp.text[:500]},
+                details={"status": resp.status_code},
             ) from exc
 
     # ---- 人脸检测 ----
@@ -154,12 +157,17 @@ class HuaweiFaceClient:
         return self._parse_json(resp)
 
     async def delete_face_set(self, face_set_name: str) -> None:
-        """删除人脸库（幂等：不存在时记录日志不报错）。"""
+        """删除人脸库（幂等：不存在时记录日志不报错，失败重试 3 次）。"""
         path = f"/v2/{self.project_id}/face-sets/{face_set_name}"
-        try:
-            await self._request("DELETE", path)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("删除人脸库 %s 失败（忽略）: %s", face_set_name, exc)
+        for attempt in range(3):
+            try:
+                await self._request("DELETE", path)
+                return
+            except (VisionError, httpx.HTTPError) as exc:
+                if attempt < 2:
+                    await asyncio.sleep(0.1 * (attempt + 1))
+                else:
+                    logger.warning("删除人脸库 %s 重试耗尽（忽略）: %s", face_set_name, exc)
 
     async def add_face_by_url(
         self,
