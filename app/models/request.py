@@ -56,6 +56,20 @@ class SearchRequest(BaseModel):
     include_metadata_fields: list[str] = Field(default_factory=lambda: list(DEFAULT_METADATA_FIELDS))
     include_original_url: bool = True
 
+    @field_validator("asset_ids")
+    @classmethod
+    def _validate_asset_ids(cls, value: list[str]) -> list[str]:
+        seen: set[str] = set()
+        for aid in value:
+            if not aid or not aid.strip():
+                raise ValueError("asset_id 不能为空字符串")
+            if len(aid) > 128:
+                raise ValueError(f"asset_id 长度不能超过 128 字符: {aid[:20]}...")
+            if aid in seen:
+                raise ValueError(f"asset_id 重复: {aid}")
+            seen.add(aid)
+        return value
+
     @field_validator("query")
     @classmethod
     def _query_not_blank(cls, value: str) -> str:

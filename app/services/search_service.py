@@ -5,7 +5,7 @@ import asyncio
 import logging
 
 from ..core.config import Settings
-from ..core.errors import UpstreamTimeoutError, UpstreamUnavailableError
+from ..core.errors import UpstreamTimeoutError, UpstreamUnavailableError, VisionError
 from ..models.request import SearchRequest
 from ..models.response import SearchResultItem, SearchResponse
 from ..scene.analyzer import SceneAnalyzer
@@ -81,7 +81,7 @@ class SearchService:
         return SearchResponse(
             query=request.query,
             total=len(results),
-            degraded=any("不可用" in w or "降级" in w for w in warnings),
+            degraded=bool(warnings),
             warnings=warnings,
             results=results,
             enriched_query=enriched_query if enriched_query != request.query else None,
@@ -97,7 +97,7 @@ class SearchService:
                 try:
                     result = await self._vision.analyze(url)
                     return result.keywords()
-                except Exception as exc:  # 视觉识别失败不应导致整体失败
+                except (VisionError, ValueError, AttributeError, TypeError) as exc:
                     logger.warning("视觉识别失败，url=%s err=%s", url, exc)
                     return []
 
@@ -127,7 +127,7 @@ class SearchService:
             async with semantic:
                 try:
                     tags = await self._scene_analyzer.analyze(asset)
-                except Exception as exc:  # 场景分析异常不应导致搜索失败
+                except (asyncio.TimeoutError, ValueError, KeyError, TypeError) as exc:
                     logger.warning("场景分析失败，asset_id=%s err=%s", asset.get("id"), exc)
                     return
                 asset["scene_tags"] = tags

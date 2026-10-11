@@ -32,6 +32,8 @@ class ErrorCode(str, Enum):
     AI_ANALYZER_UNAVAILABLE = "AI_ANALYZER_UNAVAILABLE"
     # AI 分析器上游请求超时
     AI_ANALYZER_TIMEOUT = "AI_ANALYZER_TIMEOUT"
+    # 服务功能未启用（如人脸识别未配置）
+    SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE"
     # 服务内部错误
     INTERNAL_ERROR = "INTERNAL_ERROR"
 
@@ -48,6 +50,7 @@ STATUS_CODE_MAP: dict[ErrorCode, int] = {
     ErrorCode.UNAUTHORIZED: 401,
     ErrorCode.AI_ANALYZER_UNAVAILABLE: 502,
     ErrorCode.AI_ANALYZER_TIMEOUT: 504,
+    ErrorCode.SERVICE_UNAVAILABLE: 503,
     ErrorCode.INTERNAL_ERROR: 500,
 }
 
@@ -114,3 +117,7 @@ class AIAnalyzerUnavailableError(AppError):
 class AIAnalyzerTimeoutError(AppError):
     def __init__(self, message: str, details: Any = None) -> None:
         super().__init__(ErrorCode.AI_ANALYZER_TIMEOUT, message, details)
+
+class ServiceUnavailableError(AppError):
+    def __init__(self, message: str, details: Any = None) -> None:
+        super().__init__(ErrorCode.SERVICE_UNAVAILABLE, message, details)

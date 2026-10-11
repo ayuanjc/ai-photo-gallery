@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import field_validator
+from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -69,7 +69,7 @@ class Settings(BaseSettings):
     # ---- 华为云图像识别（预留扩展，默认关闭）----
     huawei_enabled: bool = False
     huawei_ak: str = ""
-    huawei_sk: str = ""
+    huawei_sk: SecretStr = SecretStr("")
     huawei_project_id: str = ""
 
     # ---- 华为云人脸识别 FRS（用于人脸分类，默认关闭）----

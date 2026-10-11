@@ -20,7 +20,7 @@ class SearchResultItem(BaseModel):
     captured_at_source: str = Field(default="default", description="拍摄时间来源: exif | file_created | default")
     similarity_score: float = Field(ge=0.0, le=1.0, description="语义相似度分数（归一化到 0~1）")
     time_freshness: float = Field(ge=0.0, le=1.0, description="时间新鲜度（归一化到 0~1）")
-    final_score: float = Field(description="加权融合后的最终排序分数")
+    final_score: float = Field(ge=0.0, le=1.0, description="加权融合后的最终排序分数")
     metadata: dict[str, Any] = Field(default_factory=dict, description="所选元数据字段")
     scene: SceneTags | None = Field(default=None, description="多标签场景分析结果")
 

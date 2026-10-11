@@ -143,7 +143,7 @@ def fuse_multimodal_query(
     if lam <= 0.0:
         return " ".join(unique_tags)
 
-    text_repeat = max(1, round(lam / (1.0 - lam)))
+    text_repeat = min(5, max(1, round(lam / (1.0 - lam))))
     text_part = " ".join([query] * text_repeat)
     return f"{text_part} {' '.join(unique_tags)}"
 
