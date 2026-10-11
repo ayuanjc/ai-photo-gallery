@@ -37,15 +37,7 @@ class VisionProvider(ABC):
     async def analyze(self, image_url: str) -> VisionResult:
         """对单个图片 URL 执行识别，返回结构化结果。"""
 
-    def build_enriched_query(self, query: str, keywords: list[str]) -> str:
-        """默认查询增强策略：原始 query + 去重后的识别关键词。
 
-        各实现可覆盖此方法定制融合逻辑。
-        """
-        unique = [k for k in keywords if k and k not in query]
-        if not unique:
-            return query
-        return f"{query} {' '.join(unique[:10])}"
 
 class NullVisionProvider(VisionProvider):
     """默认空实现：不增强查询，仅透传。用于未启用视觉识别时的兜底。"""

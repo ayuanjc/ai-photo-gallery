@@ -1,7 +1,7 @@
 """EXIF / 文件创建时间解析与时间新鲜度计算工具。"""
 from __future__ import annotations
 
-import math
+
 from datetime import datetime, timezone
 
 # Immich 的 fileCreatedAt / updatedAt / localDateTime 常见时间格式集合。

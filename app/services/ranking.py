@@ -9,13 +9,9 @@
 """
 from __future__ import annotations
 
-import logging
 from datetime import datetime, timezone
 
-
 from ..utils.time_parsing import DEFAULT_SOURCE, parse_datetime, time_freshness
-
-logger = logging.getLogger(__name__)
 
 # 各主场景动态排序权重表（alpha=时间权重，beta=语义权重，和为 1）。
 # 未命中主场景时回退到调用方传入的默认权重（来源为环境变量 time_weight / similarity_weight）。

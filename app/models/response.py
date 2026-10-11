@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from ..core.errors import ErrorCode
+
 from ..scene.models import SceneTags
 
 
@@ -36,15 +36,6 @@ class SearchResponse(BaseModel):
     enriched_query: str | None = Field(default=None, description="经视觉识别增强后的实际查询词")
 
 
-class ErrorDetail(BaseModel):
-    code: ErrorCode
-    message: str
-    request_id: str | None = None
-    details: Any = None
-
-
-class ErrorResponse(BaseModel):
-    error: ErrorDetail
 
 class MultiConditionResultItem(BaseModel):
     """复合条件搜索单条结果。"""
