@@ -111,10 +111,10 @@ async def test_visual_attr_kept_when_infer_fails(scene_dict):
     inferrer = FakeInferrer(fail=True)
     analyzer = SceneAnalyzer(scene_dict, inferrer=inferrer)
 
-    tags = await analyzer.analyze(_asset("a", smart_tags=["night"]))
+    tags = await analyzer.analyze(_asset("a", smart_tags=["sunset"]))
 
     assert tags.primary_scene is None
-    assert tags.visual_attrs.get("time") == "night"
+    assert tags.visual_attrs.get("time") == "sunset"
 
 
 async def test_scene_tags_defaults():
