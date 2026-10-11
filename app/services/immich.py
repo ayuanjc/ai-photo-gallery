@@ -190,6 +190,32 @@ class ImmichClient:
                 return [p for p in people if isinstance(p, dict)]
         return []
 
+    async def get_assets_by_person(self, person_id: str) -> list[dict]:
+        """调用 GET /api/people/{id}/assets 获取某人物的所有资产。"""
+        resp = await self._request_with_retry("GET", f"/api/people/{person_id}/assets")
+        if resp.status_code != 200:
+            raise UpstreamError(
+                "Immich 获取人物资产失败",
+                details={"status": resp.status_code, "body": resp.text[:500]},
+            )
+        data = self._parse_json(resp)
+        return self._fill_missing_score(self._extract_items(data))
+
+    async def search_by_location(self, location: str, k: int = 200) -> list[dict]:
+        """调用 POST /api/search/metadata 按 EXIF 城市/国家搜索资产。"""
+        resp = await self._request_with_retry(
+            "POST",
+            "/api/search/metadata",
+            json={"city": location, "country": location, "size": k},
+        )
+        if resp.status_code != 200:
+            raise UpstreamError(
+                "Immich 地点搜索失败",
+                details={"status": resp.status_code, "body": resp.text[:500]},
+            )
+        data = self._parse_json(resp)
+        return self._fill_missing_score(self._extract_items(data))
+
     @staticmethod
     def _extract_items(data: Any) -> list[dict]:
         if isinstance(data, list):

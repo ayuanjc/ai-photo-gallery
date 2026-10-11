@@ -45,3 +45,27 @@ class ErrorDetail(BaseModel):
 
 class ErrorResponse(BaseModel):
     error: ErrorDetail
+
+class MultiConditionResultItem(BaseModel):
+    """复合条件搜索单条结果。"""
+
+    asset_id: str
+    thumbnail_url: str
+    multi_score: float = Field(description="加权综合评分 Score_multi = Σ(wi * Si)")
+    matched_conditions: list[str] = Field(description="命中的条件列表")
+    person_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    location_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    query_score: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class MultiConditionSearchResponse(BaseModel):
+    """复合条件搜索响应。"""
+
+    total: int
+    degraded: bool = Field(default=False, description="是否触发了贝叶斯降级检索")
+    degraded_conditions: list[str] = Field(
+        default_factory=list,
+        description="降级时放宽的条件列表（按权重从低到高排序）",
+    )
+    warnings: list[str] = Field(default_factory=list)
+    results: list[MultiConditionResultItem] = Field(default_factory=list)

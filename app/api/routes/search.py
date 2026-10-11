@@ -3,9 +3,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from ...models.request import SearchRequest
-from ...models.response import SearchResponse
-from ..deps import get_search_service, verify_api_key
+from ...models.request import MultiConditionSearchRequest, SearchRequest
+from ...models.response import MultiConditionSearchResponse, SearchResponse
+from ..deps import get_multi_condition_service, get_search_service, verify_api_key
+from ...services.multi_condition_service import MultiConditionSearchService
 from ...services.search_service import SearchService
 
 router = APIRouter(tags=["search"], dependencies=[Depends(verify_api_key)])
@@ -21,4 +22,17 @@ async def smart_search(
     request: SearchRequest,
     service: SearchService = Depends(get_search_service),
 ) -> SearchResponse:
+    return await service.search(request)
+
+
+@router.post(
+    "/search/multi-condition",
+    response_model=MultiConditionSearchResponse,
+    summary="复合条件搜索（贝叶斯降级检索）",
+    description="按 person_id + location + query 复合搜索，严格交集为空时自动降级为加权评分合并。",
+)
+async def multi_condition_search(
+    request: MultiConditionSearchRequest,
+    service: MultiConditionSearchService = Depends(get_multi_condition_service),
+) -> MultiConditionSearchResponse:
     return await service.search(request)
