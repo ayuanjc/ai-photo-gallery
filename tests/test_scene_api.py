@@ -104,6 +104,17 @@ def test_scene_dict_endpoint():
         resp = c.get("/api/v1/scene/dict")
     assert resp.status_code == 200
     body = resp.json()
-    assert set(body["scenes"]) == {"nature", "city", "people", "life", "event"}
-    assert set(body["visual_attrs"]) == {"time", "people", "indoor"}
+    assert set(body["scenes"]) == {
+        "nature",
+        "city",
+        "people",
+        "life",
+        "event",
+        "animal",
+        "architecture",
+        "night",
+        "vehicle",
+        "art",
+    }
+    assert set(body["visual_attrs"]) == {"time", "people", "indoor", "weather"}
     assert body["scenes"]["nature"]["label"] == "自然"
