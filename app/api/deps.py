@@ -13,6 +13,7 @@ from ..scene.analyzer import SceneAnalyzer
 from ..scene.dictionary import SceneDict
 from ..services.face_service import FaceService
 from ..services.immich import ImmichClient
+from ..services.importer import BatchImporter
 from ..services.multi_condition_service import MultiConditionSearchService
 from ..services.search_service import SearchService
 from ..services.vision.base import VisionProvider
@@ -110,3 +111,7 @@ def get_face_service(request: Request) -> FaceService:
 def get_ai_analyzer(request: Request) -> ImageAnalyzer:
     """返回 AI 图像分析器（同一个人 vs 相似图片）。"""
     return request.app.state.ai_analyzer
+
+def get_batch_importer(request: Request) -> BatchImporter:
+    """返回批量导入编排服务。"""
+    return request.app.state.batch_importer
