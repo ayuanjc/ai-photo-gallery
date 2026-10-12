@@ -96,6 +96,11 @@ class Settings(BaseSettings):
     redis_timeout_seconds: float = 2.0
     redis_key_prefix: str = "imgsearch:"
 
+    # ---- 令牌桶限流（Redis 不可用时自动放行）----
+    rate_limit_enabled: bool = True
+    rate_limit_qps: int = 50
+    rate_limit_burst: int = 100
+
     @field_validator("immich_base_url")
     @classmethod
     def _strip_trailing_slash(cls, value: str) -> str:
