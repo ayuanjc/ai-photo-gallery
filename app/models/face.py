@@ -55,12 +55,15 @@ class FaceClassifyRequest(BaseModel):
     @field_validator("image_urls")
     @classmethod
     def _dedup_urls(cls, value: list[HttpUrl]) -> list[HttpUrl]:
-        seen: list[HttpUrl] = []
+        seen: set[str] = set()
+        result: list[HttpUrl] = []
         for url in value:
-            if url not in seen:
-                validate_url_or_raise(str(url))
-                seen.append(url)
-        return seen
+            key = str(url)
+            if key not in seen:
+                validate_url_or_raise(key)
+                seen.add(key)
+                result.append(url)
+        return result
 
 
 class FaceClassifyResponse(BaseModel):

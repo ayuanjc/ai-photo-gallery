@@ -19,7 +19,7 @@ import httpx
 
 from ..core.cache import CacheBackend
 from ..utils.cache import TimeDecayedLFUCache
-from .dictionary import SceneDict, _normalize
+from .dictionary import SceneDict, normalize
 from .models import SceneTags
 
 logger = logging.getLogger(__name__)
@@ -69,7 +69,7 @@ class HttpSceneInferrer(SceneInferrer):
             self._client = client
             self._owns_client = False
         else:
-            self._client = httpx.AsyncClient()
+            self._client = httpx.AsyncClient(timeout=httpx.Timeout(5.0))
             self._owns_client = True
 
     async def infer_scenes(self, asset: dict) -> list[str]:
@@ -125,7 +125,7 @@ class SceneAnalyzer:
             if inflight is not None and not inflight.done():
                 return await inflight
 
-        task = asyncio.ensure_future(self._compute(asset, asset_id))
+        task = asyncio.create_task(self._compute(asset, asset_id))
         if asset_id:
             self._inflight[asset_id] = task
         try:
@@ -133,6 +133,11 @@ class SceneAnalyzer:
         finally:
             if asset_id:
                 self._inflight.pop(asset_id, None)
+
+    async def aclose(self) -> None:
+        """关闭底层推理器持有的资源。"""
+        if hasattr(self._inferrer, "aclose"):
+            await self._inferrer.aclose()
 
     async def _compute(self, asset: dict, asset_id: str) -> SceneTags:
         """实际推理逻辑（不含缓存检查），由 analyze 通过 singleflight 调度。"""
@@ -198,7 +203,7 @@ class SceneAnalyzer:
 
         alias_map = self._dict.scene_alias_map
         for raw in raw_tags:
-            token = _normalize(raw)
+            token = normalize(raw)
             if not token:
                 continue
 
@@ -255,7 +260,7 @@ class SceneAnalyzer:
         valid_scenes: list[str] = []
         confidence: dict[str, float] = {}
         for key in scenes or []:
-            key = _normalize(key)
+            key = normalize(key)
             if self._dict.is_valid_scene(key) and key not in valid_scenes:
                 valid_scenes.append(key)
                 confidence[key] = _INFER_CONFIDENCE

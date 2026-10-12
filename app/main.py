@@ -112,7 +112,7 @@ async def lifespan(app: FastAPI):
         await immich.aclose()
         if face_client is not None:
             await face_client.aclose()
-        if scene_analyzer is not None and hasattr(scene_analyzer, "aclose"):
+        if scene_analyzer is not None:
             await scene_analyzer.aclose()
         logger.info("应用关闭")
 

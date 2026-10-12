@@ -26,7 +26,7 @@ from ..core.config import Settings
 from ..models.request import MultiConditionSearchRequest
 from ..models.response import MultiConditionResultItem, MultiConditionSearchResponse
 from .immich import ImmichClient
-from .ranking import _safe_float, clamp
+from .ranking import clamp, safe_float
 
 logger = logging.getLogger(__name__)
 
@@ -192,9 +192,9 @@ class MultiConditionSearchService:
         )
 
         # 构建每个条件的 asset_id → score 映射
-        person_scores = {a["id"]: clamp(_safe_float(a.get("score", 0.0))) for a in person_assets if "id" in a}
-        location_scores = {a["id"]: clamp(_safe_float(a.get("score", 0.0))) for a in location_assets if "id" in a}
-        query_scores = {a["id"]: clamp(_safe_float(a.get("score", 0.0))) for a in query_assets if "id" in a}
+        person_scores = {a["id"]: clamp(safe_float(a.get("score", 0.0))) for a in person_assets if "id" in a}
+        location_scores = {a["id"]: clamp(safe_float(a.get("score", 0.0))) for a in location_assets if "id" in a}
+        query_scores = {a["id"]: clamp(safe_float(a.get("score", 0.0))) for a in query_assets if "id" in a}
 
         # 合并所有 asset_id
         all_ids = set(person_scores) | set(location_scores) | set(query_scores)
@@ -268,7 +268,7 @@ class MultiConditionSearchService:
             asset_id = asset.get("id", "")
             if not asset_id:
                 continue
-            score = clamp(_safe_float(asset.get("score", 0.0)))
+            score = clamp(safe_float(asset.get("score", 0.0)))
             matched: list[str] = []
             if request.person_id and asset_id in person_ids:
                 matched.append("person")
@@ -297,8 +297,8 @@ class MultiConditionSearchService:
         location_assets: list[dict],
     ) -> list[MultiConditionResultItem]:
         """无 query 时直接从候选 asset_id 构建结果。"""
-        person_scores = {a["id"]: clamp(_safe_float(a.get("score", 0.0))) for a in person_assets if "id" in a}
-        location_scores = {a["id"]: clamp(_safe_float(a.get("score", 0.0))) for a in location_assets if "id" in a}
+        person_scores = {a["id"]: clamp(safe_float(a.get("score", 0.0))) for a in person_assets if "id" in a}
+        location_scores = {a["id"]: clamp(safe_float(a.get("score", 0.0))) for a in location_assets if "id" in a}
 
         results: list[MultiConditionResultItem] = []
         for asset_id in candidate_ids:

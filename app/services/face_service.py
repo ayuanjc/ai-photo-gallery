@@ -318,13 +318,16 @@ class FaceService:
         request: FaceClassifyRequest,
     ) -> FaceClassifyResponse:
         face_groups: list[FaceGroup] = []
+        unclassified_set: set[str] = set(unclassified)
         unclassified_images: list[str] = list(unclassified)
         sorted_groups = sorted(groups.values(), key=len, reverse=True)
 
         for gid, indices in enumerate(sorted_groups, 1):
-            # 入库失败的人脸（无 face_id）会各自成孤立分组，归入 unclassified，避免误导性单成员分组。
             if len(indices) == 1 and not all_faces[indices[0]].face_id:
-                unclassified_images.append(all_faces[indices[0]].image_url)
+                url = all_faces[indices[0]].image_url
+                if url not in unclassified_set:
+                    unclassified_set.add(url)
+                    unclassified_images.append(url)
                 continue
             rep_idx = next((i for i in indices if all_faces[i].face_id), indices[0])
             rep_face = all_faces[rep_idx]

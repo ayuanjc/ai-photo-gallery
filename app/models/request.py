@@ -104,6 +104,13 @@ class MultiConditionSearchRequest(BaseModel):
     query: str | None = Field(default=None, description="语义搜索关键词")
     limit: int = Field(default=50, ge=1, le=200, description="返回结果数量上限")
 
+    @field_validator("person_id")
+    @classmethod
+    def _validate_person_id(cls, v: str | None) -> str | None:
+        if v is not None and not v.replace("-", "").isalnum():
+            raise ValueError("person_id 仅允许字母、数字和连字符")
+        return v
+
     @model_validator(mode="after")
     def _at_least_one_condition(self) -> MultiConditionSearchRequest:
         if not any([self.person_id, self.location, self.query]):
