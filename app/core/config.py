@@ -96,6 +96,10 @@ class Settings(BaseSettings):
     redis_timeout_seconds: float = 2.0
     redis_key_prefix: str = "imgsearch:"
 
+    # ---- 缓存 TTL（秒）----
+    scene_cache_ttl_seconds: int = 86400
+    search_cache_ttl_seconds: int = 300
+
     @field_validator("immich_base_url")
     @classmethod
     def _strip_trailing_slash(cls, value: str) -> str:
