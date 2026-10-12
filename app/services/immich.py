@@ -109,7 +109,7 @@ class ImmichClient:
         except (json.JSONDecodeError, ValueError) as exc:
             raise UpstreamError(
                 "Immich 返回非 JSON 响应",
-                details={"status": resp.status_code, "body": resp.text[:500]},
+                details={"status": resp.status_code},
             ) from exc
 
     async def smart_search(self, query: str, k: int = 50, asset_ids: list[str] | None = None) -> list[dict]:
@@ -134,7 +134,7 @@ class ImmichClient:
         if resp.status_code == 400:
             raise UpstreamError(
                 "Immich 语义搜索请求被拒绝",
-                details={"status": resp.status_code, "body": resp.text[:500]},
+                details={"status": resp.status_code},
             )
         if resp.status_code in (401, 403):
             raise UpstreamError(
@@ -143,7 +143,7 @@ class ImmichClient:
         if resp.status_code != 200:
             raise UpstreamError(
                 "Immich 返回异常状态码",
-                details={"status": resp.status_code, "body": resp.text[:500]},
+                details={"status": resp.status_code},
             )
 
         data = self._parse_json(resp)
@@ -156,7 +156,7 @@ class ImmichClient:
         if resp.status_code != 200:
             raise UpstreamError(
                 "Immich 获取资产失败",
-                details={"status": resp.status_code, "body": resp.text[:500]},
+                details={"status": resp.status_code},
             )
         return self._parse_json(resp)
 
@@ -170,7 +170,7 @@ class ImmichClient:
         if resp.status_code != 200:
             raise UpstreamError(
                 "Immich 相似搜索失败",
-                details={"status": resp.status_code, "body": resp.text[:500]},
+                details={"status": resp.status_code},
             )
         data = self._parse_json(resp)
         return self._fill_missing_score(self._extract_items(data))
@@ -181,7 +181,7 @@ class ImmichClient:
         if resp.status_code != 200:
             raise UpstreamError(
                 "Immich 获取人物列表失败",
-                details={"status": resp.status_code, "body": resp.text[:500]},
+                details={"status": resp.status_code},
             )
         data = self._parse_json(resp)
         if isinstance(data, dict):
@@ -196,7 +196,7 @@ class ImmichClient:
         if resp.status_code != 200:
             raise UpstreamError(
                 "Immich 获取人物资产失败",
-                details={"status": resp.status_code, "body": resp.text[:500]},
+                details={"status": resp.status_code},
             )
         data = self._parse_json(resp)
         return self._fill_missing_score(self._extract_items(data))
@@ -211,7 +211,7 @@ class ImmichClient:
         if resp.status_code != 200:
             raise UpstreamError(
                 "Immich 地点搜索失败",
-                details={"status": resp.status_code, "body": resp.text[:500]},
+                details={"status": resp.status_code},
             )
         data = self._parse_json(resp)
         return self._fill_missing_score(self._extract_items(data))

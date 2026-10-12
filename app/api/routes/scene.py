@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from ..deps import get_scene_dictionary
 from ...scene.dictionary import SceneDict
+from ..deps import get_scene_dictionary
 
 router = APIRouter(tags=["scene"])
 

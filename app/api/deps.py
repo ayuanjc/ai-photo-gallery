@@ -101,7 +101,9 @@ def get_scene_dictionary(request: Request) -> SceneDict:
 def get_face_service(request: Request) -> FaceService:
     service = getattr(request.app.state, "face_service", None)
     if service is None:
-        raise ServiceUnavailableError("人脸分类功能未启用，请配置 HUAWEI_FACE_ENABLED=true 及 AK/SK/PROJECT_ID")
+        raise ServiceUnavailableError(
+            "人脸分类功能未启用，请配置 HUAWEI_FACE_ENABLED=true 及 AK/SK/PROJECT_ID"
+        )
     return service
 
 

@@ -15,7 +15,6 @@ import asyncio
 import logging
 from abc import ABC, abstractmethod
 
-
 import httpx
 
 from ..core.cache import CacheBackend

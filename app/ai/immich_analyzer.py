@@ -139,6 +139,7 @@ class ImmichAnalyzer(ImageAnalyzer):
             await self._immich.list_people()
             return True
         except Exception:
+            logger.warning("AI 分析器健康检查失败", exc_info=True)
             return False
 
     @staticmethod

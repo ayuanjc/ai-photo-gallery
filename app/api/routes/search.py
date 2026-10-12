@@ -5,14 +5,14 @@ from fastapi import APIRouter, Depends
 
 from ...models.request import MultiConditionSearchRequest, SearchRequest
 from ...models.response import MultiConditionSearchResponse, SearchResponse
+from ...services.multi_condition_service import MultiConditionSearchService
+from ...services.search_service import SearchService
 from ..deps import (
     get_multi_condition_service,
     get_search_service,
     rate_limit_guard,
     verify_api_key,
 )
-from ...services.multi_condition_service import MultiConditionSearchService
-from ...services.search_service import SearchService
 
 router = APIRouter(
     tags=["search"],
