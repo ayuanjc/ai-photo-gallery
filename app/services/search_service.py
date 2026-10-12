@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 
+from ..core.cache import CacheBackend
 from ..core.config import Settings
 from ..core.errors import UpstreamTimeoutError, UpstreamUnavailableError, VisionError
 from ..models.request import SearchRequest
@@ -25,13 +28,31 @@ class SearchService:
         immich: ImmichClient,
         vision: VisionProvider,
         scene_analyzer: SceneAnalyzer | None = None,
+        cache: CacheBackend | None = None,
+        cache_ttl_seconds: float = 300.0,
     ) -> None:
         self._settings = settings
         self._immich = immich
         self._vision = vision
         self._scene_analyzer = scene_analyzer
+        self._cache = cache
+        self._cache_ttl = cache_ttl_seconds
 
     async def search(self, request: SearchRequest) -> SearchResponse:
+        # 0. 查缓存：命中直接返回（cached=true），不调 Immich。
+        cache_key: str | None = None
+        if self._cache is not None:
+            try:
+                cache_key = self._cache_key(request)
+                raw = await self._cache.get(cache_key)
+                if raw is not None:
+                    response = SearchResponse(**raw)
+                    response.cached = True
+                    return response
+            except Exception as exc:
+                logger.warning("搜索缓存读取失败，降级不缓存：err=%s", exc)
+                cache_key = None
+
         # 1. 并发调用视觉识别，从图片 URL 提取标签，用于增强语义查询。
         enriched_query, warnings = await self._enrich_query(request)
 
@@ -78,7 +99,7 @@ class SearchService:
             for asset, final, similarity, freshness, captured_at, source in ranked[: request.limit]
         ]
 
-        return SearchResponse(
+        response = SearchResponse(
             query=request.query,
             total=len(results),
             degraded=bool(warnings),
@@ -86,6 +107,35 @@ class SearchService:
             results=results,
             enriched_query=enriched_query if enriched_query != request.query else None,
         )
+
+        # 写缓存：仅非降级结果写入，降级结果不缓存。
+        if cache_key is not None and not response.degraded:
+            try:
+                await self._cache.set(
+                    cache_key, response.model_dump(mode="json"), ttl=self._cache_ttl
+                )
+            except Exception as exc:
+                logger.warning("搜索缓存写入失败，不影响结果：err=%s", exc)
+
+        return response
+
+    def _cache_key(self, request: SearchRequest) -> str:
+        """生成搜索缓存 key，包含所有影响结果的参数。"""
+        payload = json.dumps(
+            {
+                "query": request.query,
+                "asset_ids": request.asset_ids,
+                "limit": request.limit,
+                "time_weight": request.time_weight,
+                "similarity_weight": request.similarity_weight,
+                "include_metadata_fields": request.include_metadata_fields,
+                "include_original_url": request.include_original_url,
+            },
+            sort_keys=True,
+            ensure_ascii=False,
+        )
+        digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        return f"search:{digest}"
 
     async def _enrich_query(self, request: SearchRequest) -> tuple[str, list[str]]:
         """并发调用视觉识别，失败不阻塞主流程（降级记录 warning）。"""
