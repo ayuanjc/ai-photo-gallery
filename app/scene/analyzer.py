@@ -18,6 +18,7 @@ from abc import ABC, abstractmethod
 
 import httpx
 
+from ..core.cache import CacheBackend
 from ..utils.cache import TimeDecayedLFUCache
 from .dictionary import SceneDict, _normalize
 from .models import SceneTags
@@ -96,9 +97,13 @@ class SceneAnalyzer:
         cache_size: int = 2000,
         cache_halflife_seconds: float = 604800.0,
         infer_timeout_seconds: float = 3.0,
+        cache: CacheBackend | None = None,
+        cache_ttl_seconds: float = 86400.0,
     ) -> None:
         self._dict = dictionary
         self._inferrer = inferrer or NullSceneInferrer()
+        self._cache_backend = cache
+        self._cache_ttl = cache_ttl_seconds
         self._cache: TimeDecayedLFUCache = TimeDecayedLFUCache(
             maxsize=max(1, cache_size),
             halflife_seconds=max(1.0, cache_halflife_seconds),
@@ -114,7 +119,7 @@ class SceneAnalyzer:
         """
         asset_id = str(asset.get("id", "") or "")
         if asset_id:
-            cached = self._cache.get(asset_id)
+            cached = await self._get_cached(asset_id)
             if cached is not None:
                 return cached
             inflight = self._inflight.get(asset_id)
@@ -135,7 +140,7 @@ class SceneAnalyzer:
         # 第一级：基于 Immich smartInfo / tags 的确定性映射。
         base = self._analyze_smartinfo(asset)
         if base.scenes:
-            self._store(asset_id, base)
+            await self._store(asset_id, base)
             return base
 
         # 第二级：零样本推理大场景（带超时），保留第一级的视觉属性映射结果。
@@ -157,7 +162,7 @@ class SceneAnalyzer:
             visual_attrs=base.visual_attrs,
             confidence={**base.confidence, **inferred.confidence},
         )
-        self._store(asset_id, merged)
+        await self._store(asset_id, merged)
         return merged
 
     # ---- 第一级：smartInfo / tags 白名单映射 ----
@@ -264,9 +269,31 @@ class SceneAnalyzer:
             confidence=confidence,
         )
 
-    def _store(self, asset_id: str, tags: SceneTags) -> None:
-        if asset_id:
-            self._cache[asset_id] = tags
+    async def _get_cached(self, asset_id: str) -> SceneTags | None:
+        """读缓存：优先 CacheBackend，后备进程内 LRU。异常降级返回 None。"""
+        if self._cache_backend is not None:
+            try:
+                raw = await self._cache_backend.get(f"scene:{asset_id}")
+                if raw is not None:
+                    return SceneTags(**raw)
+            except Exception as exc:
+                logger.warning("场景缓存读取失败，降级直算：asset_id=%s err=%s", asset_id, exc)
+            return None
+        return self._cache.get(asset_id)
+
+    async def _store(self, asset_id: str, tags: SceneTags) -> None:
+        """写缓存：优先 CacheBackend，后备进程内 LRU。异常不影响结果。"""
+        if not asset_id:
+            return
+        if self._cache_backend is not None:
+            try:
+                await self._cache_backend.set(
+                    f"scene:{asset_id}", tags.model_dump(), ttl=self._cache_ttl
+                )
+            except Exception as exc:
+                logger.warning("场景缓存写入失败，不影响结果：asset_id=%s err=%s", asset_id, exc)
+            return
+        self._cache[asset_id] = tags
 
 
 

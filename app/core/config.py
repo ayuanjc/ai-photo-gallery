@@ -101,6 +101,10 @@ class Settings(BaseSettings):
     rate_limit_qps: int = 50
     rate_limit_burst: int = 100
 
+    # ---- 缓存 TTL（秒）----
+    scene_cache_ttl_seconds: int = 86400
+    search_cache_ttl_seconds: int = 300
+
     @field_validator("immich_base_url")
     @classmethod
     def _strip_trailing_slash(cls, value: str) -> str:

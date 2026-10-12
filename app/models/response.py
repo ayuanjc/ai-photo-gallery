@@ -34,6 +34,7 @@ class SearchResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     results: list[SearchResultItem] = Field(default_factory=list)
     enriched_query: str | None = Field(default=None, description="经视觉识别增强后的实际查询词")
+    cached: bool = Field(default=False, description="是否命中缓存")
 
 
 
