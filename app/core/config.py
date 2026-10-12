@@ -105,6 +105,16 @@ class Settings(BaseSettings):
     scene_cache_ttl_seconds: int = 86400
     search_cache_ttl_seconds: int = 300
 
+    # ---- 搜索建议与纠错 ----
+    # 开启后 /api/v1/search/suggest 和 /correct 可用；关闭后返回空结构，不报错。
+    suggest_enabled: bool = True
+    # 建议接口返回的默认条数上限。
+    suggest_limit: int = 10
+    # 热门搜索词内存 LRU 计数容量。
+    suggest_stats_cache_size: int = 1000
+    # 纠错接口的 Levenshtein 编辑距离上限（距离 <= 此值才返回纠正建议）。
+    suggest_edit_distance_max: int = 2
+
     @field_validator("immich_base_url")
     @classmethod
     def _strip_trailing_slash(cls, value: str) -> str:
