@@ -26,7 +26,9 @@ import asyncio
 import json
 import math
 import os
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -1130,6 +1132,271 @@ class TestSecurityAttacks:
                 assert body["error"]["code"] == "INVALID_PARAMS"
         finally:
             app.dependency_overrides = original_overrides
+
+
+# ============================================================================
+# EXIF 统计接口 — 破坏性测试
+# ============================================================================
+
+
+class TestStatsExifBrute:
+    """EXIF 统计接口的混沌工程与安全渗透测试。
+
+    攻击场景：
+    1. 输入畸形：date_from/date_to 格式错误、超长时间范围
+    2. 数据污染：EXIF make/model 含特殊字符、超长字符串
+    3. 数学边界：total=0 时分布不除零
+    4. 安全攻击：SQL 注入样式字符串传入 date_from
+    5. 空值/负值：EXIF 字段为 null 或负数
+    """
+
+    class _FakeResp:
+        def __init__(self, data):
+            self.status_code = 200
+            self._data = data
+
+        def json(self):
+            return self._data
+
+    class _FakeImmich:
+        def __init__(self, assets):
+            self._all = assets
+            self.calls = 0
+
+        async def _request_with_retry(self, method, path, **kw):
+            self.calls += 1
+            p = kw.get("params", {})
+            skip = int(p.get("skip", 0))
+            take = int(p.get("take", 100))
+            return TestStatsExifBrute._FakeResp(self._all[skip : skip + take])
+
+        @staticmethod
+        def _parse_json(resp):
+            return resp._data
+
+        @staticmethod
+        def _extract_items(data):
+            return [x for x in data if isinstance(x, dict)] if isinstance(data, list) else []
+
+    @contextmanager
+    def _client(self, immich, **settings_kw):
+        from app.api.deps import get_settings_dep
+        from app.core.cache import MemoryCache
+
+        defaults = dict(search_api_key="", rate_limit_enabled=False)
+        defaults.update(settings_kw)
+        settings = SimpleNamespace(**defaults)
+
+        app.dependency_overrides[get_settings_dep] = lambda: settings
+        try:
+            with TestClient(app) as c:
+                app.state.immich_client = immich
+                app.state.rate_limiter = None
+                app.state.cache = MemoryCache()
+                yield c
+        finally:
+            app.dependency_overrides.clear()
+
+    # ---- 输入畸形 ----
+
+    def test_malformed_date_from_not_crash(self):
+        """date_from 格式错误（非 ISO 8601）不崩溃，正常返回。"""
+        immich = self._FakeImmich([])
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif", params={"date_from": "not-a-date"})
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 0
+
+    def test_malformed_date_to_not_crash(self):
+        """date_to 格式错误（非法月份/日期）不崩溃。"""
+        immich = self._FakeImmich([])
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif", params={"date_to": "9999-99-99"})
+        assert resp.status_code == 200
+
+    def test_extremely_long_date_range_not_crash(self):
+        """超长时间范围（0001~9999 年）不崩溃。"""
+        immich = self._FakeImmich([])
+        with self._client(immich) as c:
+            resp = c.get(
+                "/api/v1/stats/exif",
+                params={
+                    "date_from": "0001-01-01T00:00:00Z",
+                    "date_to": "9999-12-31T23:59:59Z",
+                },
+            )
+        assert resp.status_code == 200
+
+    # ---- 数据污染 ----
+
+    def test_exif_make_special_chars_not_crash(self):
+        """EXIF make/model 含 XSS/SQL 注入特殊字符不崩溃，原样保留在分布中。"""
+        assets = [
+            {
+                "id": "1",
+                "exifInfo": {
+                    "make": "Canon<script>alert(1)</script>",
+                    "model": "EOS'; DROP TABLE--",
+                },
+            },
+            {
+                "id": "2",
+                "exifInfo": {
+                    "make": "<img src=x onerror=alert(1)>",
+                    "model": 'test"quote\\backslash',
+                },
+            },
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 2
+        names = {b["name"] for b in body["camera_brands"]}
+        assert "Canon<script>alert(1)</script>" in names
+        assert "<img src=x onerror=alert(1)>" in names
+
+    def test_exif_make_super_long_not_crash(self):
+        """EXIF make 超长字符串（10000 字符）不崩溃。"""
+        long_make = "A" * 10000
+        assets = [{"id": "1", "exifInfo": {"make": long_make, "model": "X"}}]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 1
+        assert body["camera_brands"][0]["name"] == long_make
+
+    def test_exif_unicode_extreme_not_crash(self):
+        """EXIF 含极端 Unicode（零宽字符、emoji、RTL 标记）不崩溃。"""
+        assets = [
+            {
+                "id": "1",
+                "exifInfo": {
+                    "make": "Canon\u200b\u200c\u200d",  # 零宽字符
+                    "model": "EOS R5\U0001f4f7",  # emoji
+                    "lensModel": "\u202eRF 24-70",  # RTL 覆盖
+                },
+            },
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif")
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 1
+
+    # ---- 数学边界 ----
+
+    def test_total_zero_no_division_error(self):
+        """total=0 时所有分布为空，不触发除零异常。"""
+        immich = self._FakeImmich([])
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 0
+        assert body["camera_brands"] == []
+        assert body["aperture_distribution"] == []
+        assert body["iso_distribution"] == []
+        assert body["focal_length_distribution"] == []
+        assert body["shutter_speed_distribution"] == []
+
+    def test_single_asset_no_crash(self):
+        """仅 1 条资产时聚合不崩溃（边界：most_common 列表长度=1）。"""
+        assets = [
+            {"id": "1", "exifInfo": {"make": "Canon", "model": "EOS R5", "fNumber": 2.8, "iso": 100}},
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 1
+        assert body["camera_brands"] == [{"name": "Canon", "count": 1}]
+
+    # ---- 安全攻击 ----
+
+    def test_sql_injection_in_date_from_not_crash(self):
+        """SQL 注入字符串传入 date_from 不崩溃、不注入。"""
+        immich = self._FakeImmich([])
+        with self._client(immich) as c:
+            resp = c.get(
+                "/api/v1/stats/exif",
+                params={"date_from": "' OR 1=1; DROP TABLE assets; --"},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 0
+
+    def test_path_traversal_in_date_from_not_crash(self):
+        """路径遍历字符串传入 date_from 不崩溃。"""
+        immich = self._FakeImmich([])
+        with self._client(immich) as c:
+            resp = c.get(
+                "/api/v1/stats/exif",
+                params={"date_from": "../../../etc/passwd"},
+            )
+        assert resp.status_code == 200
+
+    # ---- 空值/负值 ----
+
+    def test_exif_null_fields_not_crash(self):
+        """EXIF 字段值为 null 不崩溃，跳过对应分布。"""
+        assets = [
+            {"id": "1", "exifInfo": {"make": None, "model": None, "fNumber": None, "iso": None}},
+            {"id": "2", "exifInfo": {"make": "Canon", "model": "EOS R5", "fNumber": 2.8, "iso": 100}},
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 2
+        assert body["camera_brands"] == [{"name": "Canon", "count": 1}]
+
+    def test_exif_negative_and_zero_values_not_crash(self):
+        """EXIF 数值字段为负数/零不崩溃，跳过对应分布。"""
+        assets = [
+            {
+                "id": "1",
+                "exifInfo": {"fNumber": -1, "iso": 0, "focalLength": -50, "exposureTime": 0},
+            },
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 1
+        assert body["aperture_distribution"] == []
+        assert body["iso_distribution"] == []
+        assert body["focal_length_distribution"] == []
+        assert body["shutter_speed_distribution"] == []
+
+    def test_exif_non_numeric_strings_not_crash(self):
+        """EXIF 数值字段为非数字字符串不崩溃，跳过对应分布。"""
+        assets = [
+            {
+                "id": "1",
+                "exifInfo": {
+                    "fNumber": "abc",
+                    "iso": "NaN",
+                    "focalLength": "undefined",
+                    "exposureTime": "null",
+                },
+            },
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 1
+        assert body["aperture_distribution"] == []
+        assert body["iso_distribution"] == []
+        assert body["focal_length_distribution"] == []
+        assert body["shutter_speed_distribution"] == []
 
 
 # ============================================================================
