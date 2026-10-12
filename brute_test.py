@@ -2339,6 +2339,280 @@ class TestStatsProviderBrute:
 
 
 # ============================================================================
+# 第九类：搜索结果去重 — 数学边界 / 数据污染 / 并发一致性
+# ============================================================================
+
+class TestDedupBrute:
+    """对 dedup_items 执行攻击性测试：极端参数、畸形数据、并发安全。"""
+
+    # ---- 辅助 ----
+
+    @staticmethod
+    def _item(
+        aid: str = "a",
+        final: float = 0.5,
+        similarity: float = 0.5,
+        captured_at=None,
+        width=4000,
+        height=3000,
+    ):
+        from datetime import datetime, timezone
+        exif = {}
+        if width is not None:
+            exif["exifImageWidth"] = width
+        if height is not None:
+            exif["exifImageHeight"] = height
+        return {
+            "asset": {"id": aid, "exifInfo": exif},
+            "final_score": final,
+            "similarity": similarity,
+            "captured_at": captured_at,
+            "freshness": 0.5,
+            "source": "exif",
+        }
+
+    # ---- 数学边界攻击 ----
+
+    def test_time_window_zero_only_exact_match(self):
+        """time_window_sec=0：只有完全相同时间才去重。"""
+        from app.services.dedup import dedup_items
+        from datetime import datetime, timezone
+
+        t = datetime(2023, 6, 15, 10, 0, 0, tzinfo=timezone.utc)
+        items = [
+            self._item("a", final=0.9, captured_at=t),
+            self._item("b", final=0.8, captured_at=t),  # 完全相同 → 去重
+        ]
+        result, removed = dedup_items(items, time_window_sec=0)
+        assert len(result) == 1
+        assert removed == 1
+
+    def test_time_window_zero_different_times_kept(self):
+        """time_window_sec=0：时间差 1 秒不去重。"""
+        from app.services.dedup import dedup_items
+        from datetime import datetime, timezone
+
+        t1 = datetime(2023, 6, 15, 10, 0, 0, tzinfo=timezone.utc)
+        t2 = datetime(2023, 6, 15, 10, 0, 1, tzinfo=timezone.utc)
+        items = [
+            self._item("a", final=0.9, captured_at=t1),
+            self._item("b", final=0.8, captured_at=t2),
+        ]
+        result, removed = dedup_items(items, time_window_sec=0)
+        assert len(result) == 2
+        assert removed == 0
+
+    def test_time_window_negative_treated_as_zero(self):
+        """time_window_sec 负数：当作 0 处理，不崩溃。"""
+        from app.services.dedup import dedup_items
+
+        items = [self._item("a", final=0.9), self._item("b", final=0.8)]
+        result, removed = dedup_items(items, time_window_sec=-100)
+        assert isinstance(result, list)
+        assert isinstance(removed, int)
+
+    def test_time_window_huge_all_burst_deduped(self):
+        """time_window_sec 超大值：所有同尺寸的都视为连拍。"""
+        from app.services.dedup import dedup_items
+        from datetime import datetime, timezone
+
+        t1 = datetime(2023, 1, 1, tzinfo=timezone.utc)
+        t2 = datetime(2023, 12, 31, tzinfo=timezone.utc)
+        items = [
+            self._item("a", final=0.9, captured_at=t1),
+            self._item("b", final=0.8, captured_at=t2),
+        ]
+        result, removed = dedup_items(items, time_window_sec=999999999)
+        assert len(result) == 1
+        assert removed == 1
+
+    def test_similarity_threshold_zero_all_deduped(self):
+        """similarity_threshold=0：同尺寸的都去重。"""
+        from app.services.dedup import dedup_items
+
+        items = [
+            self._item("a", final=0.9, similarity=0.01, captured_at=None),
+            self._item("b", final=0.8, similarity=0.01, captured_at=None),
+        ]
+        result, removed = dedup_items(items, similarity_threshold=0.0)
+        assert len(result) == 1
+        assert removed == 1
+
+    def test_similarity_threshold_one_no_dedup(self):
+        """similarity_threshold=1.0：几乎不去重（除非分数恰好 1.0）。"""
+        from app.services.dedup import dedup_items
+
+        items = [
+            self._item("a", final=0.9, similarity=0.99, captured_at=None),
+            self._item("b", final=0.8, similarity=0.98, captured_at=None),
+        ]
+        result, removed = dedup_items(items, similarity_threshold=1.0)
+        assert len(result) == 2
+        assert removed == 0
+
+    def test_similarity_threshold_negative_clamped(self):
+        """similarity_threshold 负数：clamp 到 0，不崩溃。"""
+        from app.services.dedup import dedup_items
+
+        items = [self._item("a", final=0.9), self._item("b", final=0.8)]
+        result, removed = dedup_items(items, similarity_threshold=-1.0)
+        assert isinstance(result, list)
+
+    def test_similarity_threshold_above_one_clamped(self):
+        """similarity_threshold > 1：clamp 到 1，不崩溃。"""
+        from app.services.dedup import dedup_items
+
+        items = [self._item("a", final=0.9), self._item("b", final=0.8)]
+        result, removed = dedup_items(items, similarity_threshold=42.0)
+        assert isinstance(result, list)
+
+    # ---- 数据污染攻击 ----
+
+    def test_exif_time_malformed_no_crash(self):
+        """EXIF 时间格式异常：captured_at 为 None，不崩溃。"""
+        from app.services.dedup import dedup_items
+
+        items = [
+            self._item("a", final=0.9, captured_at=None),
+            self._item("b", final=0.8, captured_at=None),
+        ]
+        result, removed = dedup_items(items, time_window_sec=3)
+        assert len(result) == 2
+        assert removed == 0
+
+    def test_dimensions_missing_no_crash(self):
+        """尺寸缺失：跳过连拍检测，不崩溃。"""
+        from app.services.dedup import dedup_items
+        from datetime import datetime, timezone
+
+        t1 = datetime(2023, 6, 15, 10, 0, 0, tzinfo=timezone.utc)
+        t2 = datetime(2023, 6, 15, 10, 0, 1, tzinfo=timezone.utc)
+        items = [
+            self._item("a", final=0.9, captured_at=t1, width=None, height=None),
+            self._item("b", final=0.8, captured_at=t2, width=None, height=None),
+        ]
+        result, removed = dedup_items(items, time_window_sec=3)
+        assert len(result) == 2
+        assert removed == 0
+
+    def test_dimensions_non_numeric_no_crash(self):
+        """尺寸为非数字字符串：不崩溃。"""
+        from app.services.dedup import dedup_items
+        from datetime import datetime, timezone
+
+        t1 = datetime(2023, 6, 15, 10, 0, 0, tzinfo=timezone.utc)
+        t2 = datetime(2023, 6, 15, 10, 0, 1, tzinfo=timezone.utc)
+        items = [
+            self._item("a", final=0.9, captured_at=t1, width="not_a_number", height="bad"),
+            self._item("b", final=0.8, captured_at=t2, width="not_a_number", height="bad"),
+        ]
+        result, removed = dedup_items(items, time_window_sec=3)
+        assert len(result) == 2
+        assert removed == 0
+
+    def test_asset_id_empty_string(self):
+        """asset_id 为空字符串：不去重（空 id 不参与比较）。"""
+        from app.services.dedup import dedup_items
+
+        items = [
+            self._item("", final=0.9),
+            self._item("", final=0.8),
+        ]
+        result, removed = dedup_items(items)
+        assert len(result) == 2
+        assert removed == 0
+
+    def test_asset_missing_id_field(self):
+        """asset 缺少 id 字段：不崩溃。"""
+        from app.services.dedup import dedup_items
+
+        items = [
+            {"asset": {}, "final_score": 0.9, "similarity": 0.5, "captured_at": None},
+            {"asset": {}, "final_score": 0.8, "similarity": 0.5, "captured_at": None},
+        ]
+        result, removed = dedup_items(items)
+        assert len(result) == 2
+
+    def test_asset_none(self):
+        """asset 为 None：不崩溃。"""
+        from app.services.dedup import dedup_items
+
+        items = [
+            {"asset": None, "final_score": 0.9, "similarity": 0.5, "captured_at": None},
+            {"asset": None, "final_score": 0.8, "similarity": 0.5, "captured_at": None},
+        ]
+        result, removed = dedup_items(items)
+        assert len(result) == 2
+
+    def test_exifinfo_none(self):
+        """exifInfo 为 None：不崩溃。"""
+        from app.services.dedup import dedup_items
+
+        items = [
+            {"asset": {"id": "a", "exifInfo": None}, "final_score": 0.9, "similarity": 0.5, "captured_at": None},
+            {"asset": {"id": "b", "exifInfo": None}, "final_score": 0.8, "similarity": 0.5, "captured_at": None},
+        ]
+        result, removed = dedup_items(items)
+        assert len(result) == 2
+
+    def test_final_score_nan_no_crash(self):
+        """final_score 为 NaN：不崩溃。"""
+        from app.services.dedup import dedup_items
+
+        items = [
+            self._item("a", final=float("nan"), similarity=0.5, captured_at=None),
+            self._item("b", final=0.8, similarity=0.5, captured_at=None),
+        ]
+        result, removed = dedup_items(items)
+        assert isinstance(result, list)
+
+    def test_similarity_nan_no_crash(self):
+        """similarity 为 NaN：不崩溃。"""
+        from app.services.dedup import dedup_items
+
+        items = [
+            self._item("a", final=0.9, similarity=float("nan"), captured_at=None),
+            self._item("b", final=0.8, similarity=float("nan"), captured_at=None),
+        ]
+        result, removed = dedup_items(items)
+        assert isinstance(result, list)
+
+    # ---- 并发一致性 ----
+
+    def test_concurrent_calls_produce_same_result(self):
+        """同一输入并发调用，去重结果一致（函数是纯函数，无共享状态）。"""
+        from app.services.dedup import dedup_items
+        from datetime import datetime, timezone
+
+        t1 = datetime(2023, 6, 15, 10, 0, 0, tzinfo=timezone.utc)
+        t2 = datetime(2023, 6, 15, 10, 0, 10, tzinfo=timezone.utc)
+        items = [
+            self._item("a", final=0.9, captured_at=t1),
+            self._item("b", final=0.8, captured_at=t2),
+            self._item("c", final=0.7, captured_at=t2),  # 与 b 连拍（同时间同尺寸）
+        ]
+
+        results = []
+        for _ in range(100):
+            r, _ = dedup_items(items, time_window_sec=3)
+            results.append(tuple(i["asset"]["id"] for i in r))
+
+        # 所有结果应完全一致
+        assert all(r == results[0] for r in results)
+        assert results[0] == ("a", "b")  # c 被去重
+
+    # ---- 极端规模 ----
+
+    def test_large_input_no_crash(self):
+        """大量输入（10000 条）：不崩溃。"""
+        from app.services.dedup import dedup_items
+
+        items = [self._item(f"id_{i}", final=1.0 - i * 0.0001) for i in range(10000)]
+        result, removed = dedup_items(items)
+        assert len(result) + removed == 10000
+
+
+# ============================================================================
 # 防御性测试报告
 # ============================================================================
 

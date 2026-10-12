@@ -34,6 +34,7 @@ class SearchResponse(BaseModel):
     results: list[SearchResultItem] = Field(default_factory=list)
     enriched_query: str | None = Field(default=None, description="经视觉识别增强后的实际查询词")
     cached: bool = Field(default=False, description="是否命中缓存")
+    dedup_removed: int = Field(default=0, description="去重移除的结果数量")
 
 
 

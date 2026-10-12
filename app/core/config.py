@@ -118,6 +118,14 @@ class Settings(BaseSettings):
     # 统计结果缓存 TTL（秒），供后续统计模块使用。
     stats_cache_ttl_seconds: int = 600
 
+    # ---- 搜索结果去重（连拍/相似图只保留一张）----
+    # 开启后排序结果中相似度极高的条目被去重，保留 final_score 最高的一张。
+    dedup_enabled: bool = True
+    # 拍摄时间窗口（秒），在此范围内 + 尺寸相同视为连拍。
+    dedup_time_window_seconds: int = 3
+    # 画面相似度阈值，超过此值 + 尺寸相同视为重复。
+    dedup_similarity_threshold: float = 0.95
+
     @field_validator("immich_base_url")
     @classmethod
     def _strip_trailing_slash(cls, value: str) -> str:
