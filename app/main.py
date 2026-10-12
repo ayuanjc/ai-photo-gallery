@@ -22,6 +22,7 @@ from .core.cache import get_cache
 from .core.config import get_settings
 from .core.errors import AppError, ErrorCode
 from .core.logging import setup_logging
+from .core.rate_limit import TokenBucketRateLimiter
 from .core.redis_client import RedisClient
 from .scene.analyzer import NullSceneInferrer, SceneAnalyzer
 from .scene.dictionary import get_scene_dict
@@ -89,6 +90,11 @@ async def lifespan(app: FastAPI):
     app.state.redis_client = redis_client
     app.state.cache = await get_cache(settings, redis_client)
 
+    # 令牌桶限流器：基于 Redis 原子操作，不可用时降级放行
+    app.state.rate_limiter = TokenBucketRateLimiter(
+        settings, redis=redis_client.redis
+    )
+
     logger.info("应用启动：env=%s immich=%s", settings.app_env, settings.immich_base_url)
     try:
         yield
@@ -139,6 +145,7 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
                 "details": exc.details,
             }
         },
+        headers=exc.headers,
     )
 
 

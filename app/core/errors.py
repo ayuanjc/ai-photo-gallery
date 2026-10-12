@@ -34,6 +34,8 @@ class ErrorCode(str, Enum):
     AI_ANALYZER_TIMEOUT = "AI_ANALYZER_TIMEOUT"
     # 服务功能未启用（如人脸识别未配置）
     SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE"
+    # 请求过于频繁（触发限流）
+    RATE_LIMITED = "RATE_LIMITED"
     # 服务内部错误
     INTERNAL_ERROR = "INTERNAL_ERROR"
 
@@ -51,6 +53,7 @@ STATUS_CODE_MAP: dict[ErrorCode, int] = {
     ErrorCode.AI_ANALYZER_UNAVAILABLE: 502,
     ErrorCode.AI_ANALYZER_TIMEOUT: 504,
     ErrorCode.SERVICE_UNAVAILABLE: 503,
+    ErrorCode.RATE_LIMITED: 429,
     ErrorCode.INTERNAL_ERROR: 500,
 }
 
@@ -63,11 +66,13 @@ class AppError(Exception):
         code: ErrorCode,
         message: str,
         details: Any = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         super().__init__(message)
         self.code = code
         self.message = message
         self.details = details
+        self.headers = headers
 
     @property
     def status_code(self) -> int:
