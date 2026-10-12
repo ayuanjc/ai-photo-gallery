@@ -105,6 +105,16 @@ class Settings(BaseSettings):
     scene_cache_ttl_seconds: int = 86400
     search_cache_ttl_seconds: int = 300
 
+    # ---- 统计大屏（数据 Provider 基础层）----
+    # 统计功能总开关，关闭后 iter_assets 返回空。
+    stats_enabled: bool = True
+    # 单次拉取资产上限，防止内存溢出。
+    stats_max_items: int = 10000
+    # 分页大小，每页向 Immich 请求的资产数。
+    stats_page_size: int = 100
+    # 统计结果缓存 TTL（秒），供后续统计模块使用。
+    stats_cache_ttl_seconds: int = 600
+
     @field_validator("immich_base_url")
     @classmethod
     def _strip_trailing_slash(cls, value: str) -> str:
