@@ -60,3 +60,10 @@ class MultiConditionSearchResponse(BaseModel):
     )
     warnings: list[str] = Field(default_factory=list)
     results: list[MultiConditionResultItem] = Field(default_factory=list)
+
+class FeedbackResponse(BaseModel):
+    """搜索反馈响应。"""
+
+    recorded: bool = Field(default=True, description="是否成功记录")
+    degraded: bool = Field(default=False, description="是否发生降级")
+    warnings: list[str] = Field(default_factory=list)

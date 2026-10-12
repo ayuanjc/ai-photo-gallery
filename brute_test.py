@@ -2339,6 +2339,226 @@ class TestStatsProviderBrute:
 
 
 # ============================================================================
+# 搜索反馈闭环 — 破坏性测试
+# ============================================================================
+
+class TestFeedbackBrute:
+    """搜索反馈接口的混沌工程与安全渗透测试。"""
+
+    def test_feedback_invalid_action_rejected(self):
+        """action 非 click/skip → 400，不记录。"""
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/feedback",
+                json={"asset_id": "a1", "query": "test", "action": "delete"},
+            )
+            assert resp.status_code == 400
+            assert resp.json()["error"]["code"] == "INVALID_PARAMS"
+
+    def test_feedback_empty_asset_id_rejected(self):
+        """asset_id 空字符串 → 400。"""
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/feedback",
+                json={"asset_id": "", "query": "test", "action": "click"},
+            )
+            assert resp.status_code == 400
+
+    def test_feedback_whitespace_asset_id_rejected(self):
+        """asset_id 纯空白 → 400。"""
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/feedback",
+                json={"asset_id": "   ", "query": "test", "action": "click"},
+            )
+            assert resp.status_code == 400
+
+    def test_feedback_empty_query_rejected(self):
+        """query 空字符串 → 400。"""
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/feedback",
+                json={"asset_id": "a1", "query": "", "action": "click"},
+            )
+            assert resp.status_code == 400
+
+    def test_feedback_oversized_query_rejected(self):
+        """query 超长（>500 字符）→ 400。"""
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/feedback",
+                json={"asset_id": "a1", "query": "x" * 501, "action": "click"},
+            )
+            assert resp.status_code == 400
+
+    def test_feedback_oversized_asset_id_rejected(self):
+        """asset_id 超长（>128 字符）→ 400。"""
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/feedback",
+                json={"asset_id": "a" * 129, "query": "test", "action": "click"},
+            )
+            assert resp.status_code == 400
+
+    def test_feedback_missing_action_rejected(self):
+        """缺少 action 字段 → 400。"""
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/feedback",
+                json={"asset_id": "a1", "query": "test"},
+            )
+            assert resp.status_code == 400
+
+    def test_feedback_missing_asset_id_rejected(self):
+        """缺少 asset_id 字段 → 400。"""
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/feedback",
+                json={"query": "test", "action": "click"},
+            )
+            assert resp.status_code == 400
+
+    def test_feedback_null_action_rejected(self):
+        """action 为 null → 400。"""
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/feedback",
+                json={"asset_id": "a1", "query": "test", "action": None},
+            )
+            assert resp.status_code == 400
+
+    def test_feedback_action_injection_attempt(self):
+        """action 含注入字符串 → 400。"""
+        with TestClient(app) as client:
+            for malicious in [
+                "click; DROP TABLE feedback",
+                "click\n--",
+                "skip' OR '1'='1",
+                "click<script>alert(1)</script>",
+            ]:
+                resp = client.post(
+                    "/api/v1/search/feedback",
+                    json={"asset_id": "a1", "query": "test", "action": malicious},
+                )
+                assert resp.status_code == 400, f"未拒绝恶意 action: {malicious}"
+
+    def test_feedback_concurrent_100_clicks_no_crash(self):
+        """同一 asset 并发 100 次 click → 不崩溃，boost 为正且不超过 max。"""
+        import asyncio
+
+        from app.core.cache import MemoryCache
+        from app.services.feedback_service import FeedbackService
+
+        async def run():
+            cache = MemoryCache()
+            svc = FeedbackService(cache, Settings(feedback_enabled=True, feedback_boost_max=0.05))
+            await asyncio.gather(
+                *[svc.record_feedback("a1", "test", "click") for _ in range(100)]
+            )
+            boost = await svc.get_feedback_boost("a1", "test")
+            assert 0.0 < boost <= 0.05, f"boost 异常: {boost}"
+
+        asyncio.run(run())
+
+    def test_feedback_concurrent_mixed_actions_no_crash(self):
+        """并发混合 click/skip → 不崩溃，boost 在 [-max, +max] 内。"""
+        import asyncio
+
+        from app.core.cache import MemoryCache
+        from app.services.feedback_service import FeedbackService
+
+        async def run():
+            cache = MemoryCache()
+            svc = FeedbackService(cache, Settings(feedback_enabled=True, feedback_boost_max=0.05))
+            tasks = []
+            for _ in range(50):
+                tasks.append(svc.record_feedback("a1", "test", "click"))
+            for _ in range(30):
+                tasks.append(svc.record_feedback("a1", "test", "skip"))
+            await asyncio.gather(*tasks)
+            boost = await svc.get_feedback_boost("a1", "test")
+            assert -0.05 <= boost <= 0.05, f"boost 越界: {boost}"
+
+        asyncio.run(run())
+
+    def test_feedback_query_special_chars_no_crash(self):
+        """query 含特殊字符（SQL/JSON/路径注入）→ 200，不崩溃。"""
+        with TestClient(app) as client:
+            for polluted_query in [
+                "'; DROP TABLE--",
+                '{"$ne": null}',
+                "../../../etc/passwd",
+                "海边\x00null",
+                "日本語🎉🚀",
+                "a" * 500,
+            ]:
+                resp = client.post(
+                    "/api/v1/search/feedback",
+                    json={"asset_id": "a1", "query": polluted_query, "action": "click"},
+                )
+                assert resp.status_code == 200, f"特殊字符 query 被拒: {polluted_query!r}"
+
+    def test_feedback_asset_id_special_chars_no_crash(self):
+        """asset_id 含特殊字符 → 200 或 400，不崩溃。"""
+        with TestClient(app) as client:
+            for polluted_id in [
+                "asset-001",
+                "a/b/c",
+                "asset'OR'1",
+            ]:
+                resp = client.post(
+                    "/api/v1/search/feedback",
+                    json={"asset_id": polluted_id, "query": "test", "action": "click"},
+                )
+                assert resp.status_code in (200, 400), f"崩溃 on asset_id: {polluted_id!r}"
+
+    def test_feedback_disabled_still_accepts_request(self):
+        """feedback_enabled=False → 接口仍 200，但 boost=0。"""
+        import asyncio
+
+        from app.core.cache import MemoryCache
+        from app.services.feedback_service import FeedbackService
+
+        async def run():
+            cache = MemoryCache()
+            svc = FeedbackService(cache, Settings(feedback_enabled=False))
+            await svc.record_feedback("a1", "test", "click")
+            boost = await svc.get_feedback_boost("a1", "test")
+            assert boost == 0.0
+
+        asyncio.run(run())
+
+    def test_feedback_boost_extreme_max_setting(self):
+        """feedback_boost_max=1.0 极端值 → boost 不超过 1.0。"""
+        import asyncio
+
+        from app.core.cache import MemoryCache
+        from app.services.feedback_service import FeedbackService
+
+        async def run():
+            cache = MemoryCache()
+            svc = FeedbackService(cache, Settings(feedback_enabled=True, feedback_boost_max=1.0))
+            for _ in range(10):
+                await svc.record_feedback("a1", "test", "click")
+            boost = await svc.get_feedback_boost("a1", "test")
+            assert boost <= 1.0
+
+        asyncio.run(run())
+
+    def test_feedback_apply_boost_nan_safe(self):
+        """apply_feedback_boost 传入 NaN → 不崩溃。"""
+        from app.services.ranking import apply_feedback_boost
+        result = apply_feedback_boost(0.5, float("nan"))
+        assert 0.0 <= result <= 1.0 or result != result  # NaN 比较特殊
+
+    def test_feedback_apply_boost_inf_safe(self):
+        """apply_feedback_boost 传入 inf → 裁切到 [0,1]。"""
+        from app.services.ranking import apply_feedback_boost
+        assert apply_feedback_boost(0.5, float("inf")) == 1.0
+        assert apply_feedback_boost(0.5, float("-inf")) == 0.0
+
+
+# ============================================================================
 # 防御性测试报告
 # ============================================================================
 

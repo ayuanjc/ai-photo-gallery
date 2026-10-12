@@ -118,6 +118,11 @@ class Settings(BaseSettings):
     # 统计结果缓存 TTL（秒），供后续统计模块使用。
     stats_cache_ttl_seconds: int = 600
 
+    # ---- 搜索反馈闭环 ----
+    feedback_enabled: bool = True
+    feedback_ttl_seconds: int = 604800
+    feedback_boost_max: float = 0.05
+
     @field_validator("immich_base_url")
     @classmethod
     def _strip_trailing_slash(cls, value: str) -> str:

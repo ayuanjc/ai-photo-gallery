@@ -123,3 +123,41 @@ class MultiConditionSearchRequest(BaseModel):
         if value and len(value) > 500:
             raise ValueError("查询关键词长度不能超过 500 字符")
         return value
+
+class FeedbackRequest(BaseModel):
+    """搜索反馈请求。
+
+    - asset_id: 被反馈的资产 ID。
+    - query: 触发该结果的搜索关键词。
+    - action: 用户行为，click（点击）或 skip（跳过）。
+    """
+
+    asset_id: str = Field(..., min_length=1, max_length=128, description="资产 ID")
+    query: str = Field(..., description="搜索关键词")
+    action: str = Field(..., description="用户行为: click | skip")
+
+    @field_validator("asset_id")
+    @classmethod
+    def _validate_asset_id(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("asset_id 不能为空")
+        return value
+
+    @field_validator("query")
+    @classmethod
+    def _query_not_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("查询关键词不能为空")
+        if len(value) > 500:
+            raise ValueError("查询关键词长度不能超过 500 字符")
+        return value
+
+    @field_validator("action")
+    @classmethod
+    def _validate_action(cls, value: str) -> str:
+        value = value.strip().lower()
+        if value not in ("click", "skip"):
+            raise ValueError("action 仅允许 click 或 skip")
+        return value

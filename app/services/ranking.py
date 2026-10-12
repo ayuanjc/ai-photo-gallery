@@ -202,3 +202,12 @@ def rank_assets(
 
     scored.sort(key=lambda item: item[1], reverse=True)
     return scored
+
+def apply_feedback_boost(final_score: float, boost: float) -> float:
+    """将反馈加权值叠加到最终排序分数上，结果裁切到 [0, 1]。
+
+    - boost > 0（用户点击多）→ 分数微升。
+    - boost < 0（用户跳过多）→ 分数微降。
+    - boost == 0 → 分数不变（与无反馈时行为完全一致）。
+    """
+    return clamp(final_score + boost)

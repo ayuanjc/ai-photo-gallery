@@ -1,10 +1,16 @@
 """搜索相关路由。"""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
-from ...models.request import MultiConditionSearchRequest, SearchRequest
-from ...models.response import MultiConditionSearchResponse, SearchResponse
+from ...core.config import get_settings
+from ...models.request import FeedbackRequest, MultiConditionSearchRequest, SearchRequest
+from ...models.response import (
+    FeedbackResponse,
+    MultiConditionSearchResponse,
+    SearchResponse,
+)
+from ...services.feedback_service import FeedbackService
 from ...services.multi_condition_service import MultiConditionSearchService
 from ...services.search_service import SearchService
 from ..deps import (
@@ -44,3 +50,28 @@ async def multi_condition_search(
     service: MultiConditionSearchService = Depends(get_multi_condition_service),
 ) -> MultiConditionSearchResponse:
     return await service.search(request)
+
+@router.post(
+    "/search/feedback",
+    response_model=FeedbackResponse,
+    summary="搜索反馈记录",
+    description="记录用户对搜索结果的点击/跳过行为，供排序时做微加权。",
+)
+async def record_feedback(
+    body: FeedbackRequest,
+    request: Request,
+) -> FeedbackResponse:
+    cache = getattr(request.app.state, "cache", None)
+    if cache is None:
+        return FeedbackResponse(
+            recorded=False, degraded=True, warnings=["缓存不可用，反馈未记录"]
+        )
+    service = FeedbackService(cache, get_settings())
+    warnings: list[str] = []
+    degraded = False
+    try:
+        await service.record_feedback(body.asset_id, body.query, body.action)
+    except Exception:
+        degraded = True
+        warnings.append("反馈记录异常，已降级")
+    return FeedbackResponse(recorded=not degraded, degraded=degraded, warnings=warnings)
