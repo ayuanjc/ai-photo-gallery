@@ -105,6 +105,10 @@ class Settings(BaseSettings):
     scene_cache_ttl_seconds: int = 86400
     search_cache_ttl_seconds: int = 300
 
+    # ---- 搜索结果可解释性（为什么排在这里）----
+    # 开启后每条搜索结果附带 explanation 字段；关闭后 explanation 为 None，不影响主流程。
+    explain_enabled: bool = True
+
     @field_validator("immich_base_url")
     @classmethod
     def _strip_trailing_slash(cls, value: str) -> str:

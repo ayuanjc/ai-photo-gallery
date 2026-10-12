@@ -1133,6 +1133,269 @@ class TestSecurityAttacks:
 
 
 # ============================================================================
+# 第七类：搜索结果可解释性 — 数学边界 / 数据污染 / 异常注入
+# ============================================================================
+
+class TestExplainBrute:
+    """对 build_explanation 与 explanation 组装链路执行攻击性测试。
+
+    覆盖：
+        - 数学边界：semantic_score / time_score 为 NaN / Infinity / 负数
+        - 数据污染：scene_tags 含未知场景、空字典、非预期类型
+        - 异常注入：build_explanation 抛异常时搜索仍正常返回
+    """
+
+    # ---- 数学边界攻击 ----
+
+    def test_semantic_score_nan_treated_as_zero(self):
+        """semantic_score=NaN → 降级为 0.0，不崩溃。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, float("nan"), 0.5, (0.3, 0.7), None)
+        assert exp["semantic_score"] == 0.0
+        assert exp["reasons"] == ["综合得分"]
+
+    def test_semantic_score_infinity_treated_as_zero(self):
+        """semantic_score=Infinity → 降级为 0.0。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, float("inf"), 0.5, (0.3, 0.7), None)
+        assert exp["semantic_score"] == 0.0
+
+    def test_semantic_score_negative_infinity_treated_as_zero(self):
+        """semantic_score=-Infinity → 降级为 0.0。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, float("-inf"), 0.5, (0.3, 0.7), None)
+        assert exp["semantic_score"] == 0.0
+
+    def test_time_score_nan_treated_as_zero(self):
+        """time_score=NaN → 降级为 0.0。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 0.85, float("nan"), (0.3, 0.7), None)
+        assert exp["time_score"] == 0.0
+        assert "拍摄时间较新" not in exp["reasons"]
+
+    def test_both_scores_nan_no_crash(self):
+        """两个分数都是 NaN → 不崩溃，返回降级解释。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation(
+            {}, float("nan"), float("nan"), (0.3, 0.7), None
+        )
+        assert exp["semantic_score"] == 0.0
+        assert exp["time_score"] == 0.0
+        assert exp["reasons"] == ["综合得分"]
+
+    def test_negative_scores_no_high_reasons(self):
+        """负数分数 → 不触发高分 reason，降级为"综合得分"。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, -0.5, -10.0, (0.3, 0.7), None)
+        assert "语义相似度高" not in exp["reasons"]
+        assert "拍摄时间较新" not in exp["reasons"]
+        assert exp["reasons"] == ["综合得分"]
+
+    def test_weights_nan_treated_as_zero(self):
+        """weights 含 NaN → 降级为 0.0。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 0.5, 0.5, (float("nan"), 0.7), None)
+        assert exp["weights_used"]["alpha"] == 0.0
+        assert exp["weights_used"]["beta"] == 0.7
+
+    def test_weights_infinity_treated_as_zero(self):
+        """weights 含 Infinity → 降级为 0.0。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 0.5, 0.5, (0.3, float("inf")), None)
+        assert exp["weights_used"]["alpha"] == 0.3
+        assert exp["weights_used"]["beta"] == 0.0
+
+    def test_scores_extremely_large_clamped_by_safe_score(self):
+        """极大分数 → safe_score 不崩溃（float 转换成功但 isinf 检测）。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 1e308, 1e308, (0.3, 0.7), None)
+        # 1e308 不是 inf，safe_score 直接返回
+        assert exp["semantic_score"] == round(1e308, 4)
+
+    # ---- 数据污染攻击 ----
+
+    def test_scene_tags_unknown_scene_filtered(self):
+        """scene_tags 含未知场景 → 被过滤，不出现在 matched_scenes。"""
+        from app.services.explain import build_explanation
+
+        scene_tags = {"scenes": ["totally_fake_scene", "nature"]}
+        exp = build_explanation({}, 0.3, 0.2, (0.3, 0.7), scene_tags)
+        assert "totally_fake_scene" not in exp["matched_scenes"]
+        assert exp["matched_scenes"] == ["nature"]
+
+    def test_scene_tags_empty_dict(self):
+        """scene_tags 为空字典 → 不崩溃，无场景 reason。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 0.3, 0.2, (0.3, 0.7), {})
+        assert exp["matched_scenes"] == []
+        assert exp["reasons"] == ["综合得分"]
+
+    def test_scene_tags_none(self):
+        """scene_tags 为 None → 不崩溃。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 0.3, 0.2, (0.3, 0.7), None)
+        assert exp["matched_scenes"] == []
+
+    def test_scene_tags_wrong_type(self):
+        """scene_tags 为非预期类型（int）→ 不崩溃。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 0.3, 0.2, (0.3, 0.7), 42)
+        assert exp["matched_scenes"] == []
+
+    def test_asset_none_no_crash(self):
+        """asset 为 None → 不崩溃。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation(None, 0.3, 0.2, (0.3, 0.7), None)
+        assert "reasons" in exp
+
+    def test_asset_with_garbage_scenes(self):
+        """asset 的 scenes 含非字符串元素 → 不崩溃。"""
+        from app.services.explain import build_explanation
+
+        asset = {"scenes": [123, None, "nature", "", "default"]}
+        exp = build_explanation(asset, 0.3, 0.2, (0.3, 0.7), None)
+        assert exp["matched_scenes"] == ["nature"]
+
+    def test_weights_wrong_type(self):
+        """weights 为非预期类型（int）→ 降级为 (0.0, 0.0)。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 0.5, 0.5, 42, None)
+        assert exp["weights_used"] == {"alpha": 0.0, "beta": 0.0}
+
+    def test_weights_none(self):
+        """weights 为 None → 降级为 (0.0, 0.0)。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 0.5, 0.5, None, None)
+        assert exp["weights_used"] == {"alpha": 0.0, "beta": 0.0}
+
+    def test_weights_empty_tuple(self):
+        """weights 为空 tuple → 降级为 (0.0, 0.0)。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 0.5, 0.5, (), None)
+        assert exp["weights_used"] == {"alpha": 0.0, "beta": 0.0}
+
+    def test_semantic_score_string_type(self):
+        """semantic_score 为字符串 → safe_score 降级为 0.0。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, "not_a_number", 0.5, (0.3, 0.7), None)
+        assert exp["semantic_score"] == 0.0
+
+    def test_semantic_score_none_type(self):
+        """semantic_score 为 None → safe_score 降级为 0.0。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, None, 0.5, (0.3, 0.7), None)
+        assert exp["semantic_score"] == 0.0
+
+    # ---- 异常注入攻击 ----
+
+    async def test_build_explanation_exception_does_not_block_search(
+        self, settings, monkeypatch
+    ):
+        """monkeypatch build_explanation 抛异常 → 搜索仍正常返回。"""
+        from app.core.errors import VisionError
+        from app.models.request import SearchRequest
+        from app.services.search_service import SearchService
+        from app.services.vision.base import VisionProvider, VisionResult
+
+        class FakeImmich:
+            async def smart_search(self, query, k=50, asset_ids=None):
+                return [{
+                    "id": "a",
+                    "score": 0.9,
+                    "exifInfo": {"dateTimeOriginal": "2023-06-15T10:00:00Z"},
+                }]
+
+            def thumbnail_url(self, asset_id, size="preview"):
+                return f"http://immich.test/{asset_id}/thumb"
+
+            def original_url(self, asset_id):
+                return f"http://immich.test/{asset_id}/orig"
+
+        class FakeVision(VisionProvider):
+            name = "fake"
+
+            async def analyze(self, image_url):
+                return VisionResult(labels=[])
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("injected explosion")
+
+        monkeypatch.setattr(
+            "app.services.search_service.build_explanation", boom
+        )
+
+        immich = FakeImmich()
+        vision = FakeVision()
+        svc = SearchService(settings, immich, vision)
+        resp = await svc.search(SearchRequest(query="test", asset_ids=["a1"]))
+
+        assert resp.total == 1
+        assert resp.results[0].explanation is None
+        assert resp.degraded is False
+
+    async def test_blend_scene_weights_exception_does_not_block_search(
+        self, settings, monkeypatch
+    ):
+        """monkeypatch blend_scene_weights 抛异常 → 搜索仍正常返回。"""
+        from app.models.request import SearchRequest
+        from app.services.search_service import SearchService
+        from app.services.vision.base import VisionProvider, VisionResult
+
+        class FakeImmich:
+            async def smart_search(self, query, k=50, asset_ids=None):
+                return [{
+                    "id": "a",
+                    "score": 0.9,
+                    "exifInfo": {"dateTimeOriginal": "2023-06-15T10:00:00Z"},
+                }]
+
+            def thumbnail_url(self, asset_id, size="preview"):
+                return f"http://immich.test/{asset_id}/thumb"
+
+            def original_url(self, asset_id):
+                return f"http://immich.test/{asset_id}/orig"
+
+        class FakeVision(VisionProvider):
+            name = "fake"
+
+            async def analyze(self, image_url):
+                return VisionResult(labels=[])
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("blend explosion")
+
+        monkeypatch.setattr(
+            "app.services.search_service.blend_scene_weights", boom
+        )
+
+        immich = FakeImmich()
+        vision = FakeVision()
+        svc = SearchService(settings, immich, vision)
+        resp = await svc.search(SearchRequest(query="test", asset_ids=["a1"]))
+
+        assert resp.total == 1
+        assert resp.results[0].explanation is None
+
+
+# ============================================================================
 # 防御性测试报告
 # ============================================================================
 
