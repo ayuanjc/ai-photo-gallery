@@ -26,7 +26,9 @@ import asyncio
 import json
 import math
 import os
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -1130,6 +1132,241 @@ class TestSecurityAttacks:
                 assert body["error"]["code"] == "INVALID_PARAMS"
         finally:
             app.dependency_overrides = original_overrides
+
+
+# ============================================================================
+# 地图足迹接口 — 破坏性测试
+# ============================================================================
+
+
+class TestStatsMapBrute:
+    """地图足迹接口的混沌工程与安全渗透测试。
+
+    攻击场景：
+    1. 数学边界：经纬度 NaN / Infinity / 超出 ±90 / ±180
+    2. 数据污染：city / country 含特殊字符、超长字符串
+    3. 并发：相同参数并发请求，验证缓存只拉一次上游
+    """
+
+    class _FakeResp:
+        def __init__(self, status_code, data):
+            self.status_code = status_code
+            self._data = data
+
+        def json(self):
+            return self._data
+
+    class _FakeImmich:
+        def __init__(self, assets, status_code=200):
+            self._all = assets
+            self._status_code = status_code
+            self.call_count = 0
+
+        async def _request_with_retry(self, method, path, **kw):
+            self.call_count += 1
+            if self._status_code != 200:
+                from app.core.errors import UpstreamUnavailableError
+                raise UpstreamUnavailableError("Immich 服务不可用")
+            p = kw.get("params", {})
+            skip = int(p.get("skip", 0))
+            take = int(p.get("take", 100))
+            return TestStatsMapBrute._FakeResp(200, self._all[skip : skip + take])
+
+        @staticmethod
+        def _parse_json(resp):
+            return resp._data
+
+        @staticmethod
+        def _extract_items(data):
+            return [x for x in data if isinstance(x, dict)] if isinstance(data, list) else []
+
+    @contextmanager
+    def _client(self, immich, **settings_kw):
+        from app.api.deps import get_settings_dep
+        from app.core.cache import MemoryCache
+
+        defaults = dict(search_api_key="", rate_limit_enabled=False)
+        defaults.update(settings_kw)
+        settings = SimpleNamespace(**defaults)
+
+        app.dependency_overrides[get_settings_dep] = lambda: settings
+        try:
+            with TestClient(app) as c:
+                app.state.immich_client = immich
+                app.state.rate_limiter = None
+                app.state.cache = MemoryCache()
+                yield c
+        finally:
+            app.dependency_overrides.clear()
+
+    def _asset(self, aid="x", lat=None, lng=None, city=None, country=None):
+        exif = {}
+        if lat is not None:
+            exif["latitude"] = lat
+        if lng is not None:
+            exif["longitude"] = lng
+        if city is not None:
+            exif["city"] = city
+        if country is not None:
+            exif["country"] = country
+        asset = {"id": aid}
+        if exif:
+            asset["exifInfo"] = exif
+        return asset
+
+    # ---- 数学边界 ----
+
+    def test_nan_latlng_not_crash(self):
+        """纬度为 NaN：跳过并记 warnings，不崩溃。"""
+        assets = [
+            self._asset("1", lat=10.0, lng=20.0),
+            self._asset("2", lat=math.nan, lng=20.0),
+            self._asset("3", lat=10.0, lng=math.nan),
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/map", params={"cluster": "raw"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total_with_gps"] == 1
+        assert len(body["warnings"]) == 1
+        assert "2" in body["warnings"][0]
+
+    def test_infinity_latlng_not_crash(self):
+        """经纬度为 Infinity / -Infinity：跳过，不崩溃。"""
+        assets = [
+            self._asset("1", lat=10.0, lng=20.0),
+            self._asset("2", lat=math.inf, lng=20.0),
+            self._asset("3", lat=10.0, lng=-math.inf),
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/map", params={"cluster": "raw"})
+        assert resp.status_code == 200
+        assert resp.json()["total_with_gps"] == 1
+
+    def test_out_of_range_latlng_not_crash(self):
+        """经纬度超出 ±90 / ±180：跳过，不崩溃。"""
+        assets = [
+            self._asset("1", lat=90.0001, lng=0.0),
+            self._asset("2", lat=-90.0001, lng=0.0),
+            self._asset("3", lat=0.0, lng=180.0001),
+            self._asset("4", lat=0.0, lng=-180.0001),
+            self._asset("5", lat=0.0, lng=0.0),
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/map", params={"cluster": "raw"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total_with_gps"] == 1
+        assert len(body["warnings"]) == 1
+        assert "4" in body["warnings"][0]
+
+    def test_boundary_latlng_valid(self):
+        """恰好边界值 ±90 / ±180 视为合法，不崩溃。"""
+        assets = [
+            self._asset("1", lat=90.0, lng=180.0),
+            self._asset("2", lat=-90.0, lng=-180.0),
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/map", params={"cluster": "raw"})
+        assert resp.status_code == 200
+        assert resp.json()["total_with_gps"] == 2
+
+    # ---- 数据污染 ----
+
+    def test_city_country_special_chars_not_crash(self):
+        """city/country 含 XSS/SQL 注入特殊字符：不崩溃，原样保留。"""
+        assets = [
+            self._asset("1", lat=10.0, lng=20.0, city="<script>alert(1)</script>", country="'; DROP TABLE--"),
+            self._asset("2", lat=30.0, lng=40.0, city='test"quote\\backslash', country="<img src=x>"),
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/map", params={"cluster": "city"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total_with_gps"] == 2
+        cities = {x["city"] for x in body["cities"]}
+        assert "<script>alert(1)</script>" in cities
+        assert 'test"quote\\backslash' in cities
+
+    def test_city_super_long_not_crash(self):
+        """city 超长字符串（10000 字符）：不崩溃。"""
+        long_city = "京" * 10000
+        assets = [self._asset("1", lat=10.0, lng=20.0, city=long_city, country="中国")]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/map", params={"cluster": "city"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total_with_gps"] == 1
+        assert body["cities"][0]["city"] == long_city
+
+    # ---- 并发 ----
+
+    async def test_concurrent_same_params_cache_once(self):
+        """20 个相同参数并发请求：上游只被拉取一次（缓存去重）。"""
+        from app.api.routes.stats import map_stats
+        from app.core.cache import MemoryCache
+
+        assets = [self._asset("1", lat=10.0, lng=20.0, city="北京", country="中国")]
+        immich = self._FakeImmich(assets)
+        cache = MemoryCache()
+        settings = SimpleNamespace(
+            immich_base_url="http://immich.test",
+            immich_api_key="test-key",
+            stats_enabled=True,
+            stats_cache_ttl_seconds=600,
+            stats_max_items=10000,
+            stats_page_size=100,
+        )
+        request = SimpleNamespace(
+            app=SimpleNamespace(state=SimpleNamespace(immich_client=immich, cache=cache))
+        )
+
+        async def call():
+            return await map_stats(
+                request=request,
+                settings=settings,
+                date_from=None,
+                date_to=None,
+                cluster="city",
+                show_ids=False,
+            )
+
+        results = await asyncio.gather(*(call() for _ in range(20)))
+        assert all(r.total_with_gps == 1 for r in results)
+        assert immich.call_count == 1, "⚠️ 并发相同参数应通过缓存只拉取一次上游"
+
+    async def test_concurrent_aggregate_consistency(self):
+        """并发聚合含边界值的大量资产：结果一致，不崩溃。"""
+        from app.api.routes.stats import _aggregate_map
+
+        assets = []
+        for i in range(500):
+            r = i % 5
+            if r == 0:
+                assets.append(self._asset(str(i), lat=math.nan, lng=0.0))
+            elif r == 1:
+                assets.append(self._asset(str(i), lat=0.0, lng=math.inf))
+            elif r == 2:
+                assets.append(self._asset(str(i), lat=100.0, lng=0.0))
+            elif r == 3:
+                assets.append(self._asset(str(i)))
+            else:
+                assets.append(self._asset(str(i), lat=10.0, lng=20.0, city="c", country="C"))
+
+        async def run():
+            warnings = []
+            return _aggregate_map(assets, cluster="raw", show_ids=True, warnings=warnings)
+
+        results = await asyncio.gather(*(run() for _ in range(30)))
+        assert all(r["total_with_gps"] == 100 for r in results)
+        assert all(len(r["points"]) == 1 for r in results)
+        assert all(r["points"][0].count == 100 for r in results)
 
 
 # ============================================================================
