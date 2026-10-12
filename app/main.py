@@ -17,7 +17,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from .ai.factory import build_ai_analyzer
-from .api.routes import ai, faces, scene, search
+from .api.routes import ai, faces, scene, search, stats
 from .core.cache import get_cache
 from .core.config import get_settings
 from .core.errors import AppError, ErrorCode
@@ -127,6 +127,7 @@ app.include_router(search.router, prefix="/api/v1")
 app.include_router(scene.router, prefix="/api/v1")
 app.include_router(faces.router, prefix="/api/v1")
 app.include_router(ai.router, prefix="/api/v1")
+app.include_router(stats.router, prefix="/api/v1")
 
 
 @app.middleware("http")
