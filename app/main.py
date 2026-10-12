@@ -59,6 +59,14 @@ async def lifespan(app: FastAPI):
         HuaweiVisionProvider(settings) if settings.huawei_enabled else NullVisionProvider()
     )
     scene_dictionary = get_scene_dict()
+
+    # Redis 缓存后端：启动时连接（失败不阻塞），先于 scene_analyzer / search_service 创建。
+    redis_client = RedisClient(settings)
+    await redis_client.connect()
+    app.state.redis_client = redis_client
+    cache = await get_cache(settings, redis_client)
+    app.state.cache = cache
+
     scene_analyzer = (
         SceneAnalyzer(
             scene_dictionary,
@@ -66,6 +74,8 @@ async def lifespan(app: FastAPI):
             cache_size=settings.scene_cache_size,
             cache_halflife_seconds=settings.scene_cache_halflife_days * 86400,
             infer_timeout_seconds=settings.scene_infer_timeout_seconds,
+            cache=cache,
+            cache_ttl_seconds=settings.scene_cache_ttl_seconds,
         )
         if settings.scene_enabled
         else None
@@ -79,15 +89,14 @@ async def lifespan(app: FastAPI):
     app.state.face_service = FaceService(settings, face_client) if face_client else None
     app.state.ai_analyzer = build_ai_analyzer(settings, immich)
     app.state.search_service = SearchService(
-        settings, immich, vision, scene_analyzer=scene_analyzer
+        settings,
+        immich,
+        vision,
+        scene_analyzer=scene_analyzer,
+        cache=cache,
+        cache_ttl_seconds=settings.search_cache_ttl_seconds,
     )
     app.state.multi_condition_service = MultiConditionSearchService(settings, immich)
-
-    # Redis 缓存后端：启动时连接（失败不阻塞），注入 app.state.cache
-    redis_client = RedisClient(settings)
-    await redis_client.connect()
-    app.state.redis_client = redis_client
-    app.state.cache = await get_cache(settings, redis_client)
 
     logger.info("应用启动：env=%s immich=%s", settings.app_env, settings.immich_base_url)
     try:
