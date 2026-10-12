@@ -117,16 +117,22 @@ class HuaweiFaceClient:
         return resp
 
     @staticmethod
-    def _parse_json(resp: httpx.Response) -> Any:
-        """安全解析 JSON 响应，非 JSON 时抛 VisionError。"""
+    def _parse_json(resp: httpx.Response) -> dict[str, Any]:
+        """安全解析 JSON 响应，非 JSON 或非对象时抛 VisionError。"""
         try:
-            return resp.json()
+            data = resp.json()
         except (json.JSONDecodeError, ValueError) as exc:
             logger.debug("FRS 非 JSON body: %s", resp.text[:500])
             raise VisionError(
                 "FRS 返回非 JSON 响应",
                 details={"status": resp.status_code},
             ) from exc
+        if not isinstance(data, dict):
+            raise VisionError(
+                "FRS 返回非对象 JSON",
+                details={"status": resp.status_code},
+            )
+        return data
 
     # ---- 人脸检测 ----
 
@@ -142,7 +148,7 @@ class HuaweiFaceClient:
             json_body={"image_url": image_url, "max_face": max_face},
         )
         data = self._parse_json(resp)
-        return list(data.get("faces", []))
+        return [f for f in data.get("faces", []) if isinstance(f, dict)]
 
     # ---- 人脸库管理 ----
 
@@ -209,4 +215,4 @@ class HuaweiFaceClient:
             json_body={"face_id": face_id, "top_n": top_n, "threshold": threshold},
         )
         data = self._parse_json(resp)
-        return list(data.get("faces", []))
+        return [f for f in data.get("faces", []) if isinstance(f, dict)]

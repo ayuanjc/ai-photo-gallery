@@ -16,8 +16,8 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from .api.routes import ai, faces, scene, search
 from .ai.factory import build_ai_analyzer
+from .api.routes import ai, faces, scene, search
 from .core.cache import get_cache
 from .core.config import get_settings
 from .core.errors import AppError, ErrorCode
@@ -28,8 +28,8 @@ from .scene.analyzer import NullSceneInferrer, SceneAnalyzer
 from .scene.dictionary import get_scene_dict
 from .services.face_service import FaceService
 from .services.immich import ImmichClient
-from .services.search_service import SearchService
 from .services.multi_condition_service import MultiConditionSearchService
+from .services.search_service import SearchService
 from .services.vision.base import NullVisionProvider, VisionProvider
 from .services.vision.huawei import HuaweiVisionProvider
 from .services.vision.huawei_face import HuaweiFaceClient
@@ -112,6 +112,8 @@ async def lifespan(app: FastAPI):
         await immich.aclose()
         if face_client is not None:
             await face_client.aclose()
+        if scene_analyzer is not None and hasattr(scene_analyzer, "aclose"):
+            await scene_analyzer.aclose()
         logger.info("应用关闭")
 
 

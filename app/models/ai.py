@@ -1,7 +1,9 @@
 """AI 分析请求模型。"""
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, field_validator
+
+from ..utils.url_safety import validate_url_or_raise
 
 
 class AIAnalyzeRequest(BaseModel):
@@ -11,3 +13,16 @@ class AIAnalyzeRequest(BaseModel):
     candidate_urls: list[HttpUrl] = Field(
         ..., min_length=1, max_length=20, description="候选图片 URL 列表（1~20 条）"
     )
+
+    @field_validator("reference_url")
+    @classmethod
+    def _validate_reference_url(cls, v: HttpUrl) -> HttpUrl:
+        validate_url_or_raise(str(v))
+        return v
+
+    @field_validator("candidate_urls")
+    @classmethod
+    def _validate_candidate_urls(cls, v: list[HttpUrl]) -> list[HttpUrl]:
+        for url in v:
+            validate_url_or_raise(str(url))
+        return v

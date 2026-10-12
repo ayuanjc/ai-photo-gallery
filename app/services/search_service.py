@@ -10,9 +10,8 @@ from ..core.cache import CacheBackend
 from ..core.config import Settings
 from ..core.errors import UpstreamTimeoutError, UpstreamUnavailableError, VisionError
 from ..models.request import SearchRequest
-from ..models.response import SearchResultItem, SearchResponse
+from ..models.response import SearchResponse, SearchResultItem
 from ..scene.analyzer import SceneAnalyzer
-
 from .immich import ImmichClient
 from .ranking import calculate_dynamic_weights, clamp, fuse_multimodal_query, rank_assets
 from .vision.base import VisionProvider
