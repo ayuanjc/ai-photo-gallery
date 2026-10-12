@@ -18,9 +18,11 @@ from fastapi.responses import JSONResponse
 
 from .api.routes import ai, faces, scene, search
 from .ai.factory import build_ai_analyzer
+from .core.cache import get_cache
 from .core.config import get_settings
 from .core.errors import AppError, ErrorCode
 from .core.logging import setup_logging
+from .core.redis_client import RedisClient
 from .scene.analyzer import NullSceneInferrer, SceneAnalyzer
 from .scene.dictionary import get_scene_dict
 from .services.face_service import FaceService
@@ -81,10 +83,17 @@ async def lifespan(app: FastAPI):
     )
     app.state.multi_condition_service = MultiConditionSearchService(settings, immich)
 
+    # Redis 缓存后端：启动时连接（失败不阻塞），注入 app.state.cache
+    redis_client = RedisClient(settings)
+    await redis_client.connect()
+    app.state.redis_client = redis_client
+    app.state.cache = await get_cache(settings, redis_client)
+
     logger.info("应用启动：env=%s immich=%s", settings.app_env, settings.immich_base_url)
     try:
         yield
     finally:
+        await redis_client.aclose()
         await immich.aclose()
         if face_client is not None:
             await face_client.aclose()

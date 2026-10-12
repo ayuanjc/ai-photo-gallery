@@ -90,6 +90,12 @@ class Settings(BaseSettings):
     multi_condition_weight_location: float = 0.3
     multi_condition_weight_query: float = 0.2
 
+    # ---- Redis 缓存后端（默认关闭，不可用时自动降级到内存）----
+    redis_enabled: bool = False
+    redis_url: str = "redis://localhost:6379/0"
+    redis_timeout_seconds: float = 2.0
+    redis_key_prefix: str = "imgsearch:"
+
     @field_validator("immich_base_url")
     @classmethod
     def _strip_trailing_slash(cls, value: str) -> str:
