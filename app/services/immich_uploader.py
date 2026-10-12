@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import mimetypes
@@ -69,7 +70,7 @@ class ImmichAssetUploader:
     @staticmethod
     def _gen_device_asset_id(file_path: str, mtime_ns: int) -> str:
         """基于路径与修改时间生成稳定 deviceAssetId（幂等去重）。"""
-        raw = f"{file_path}:{mtime_ns}".encode("utf-8")
+        raw = f"{file_path}:{mtime_ns}".encode()
         return hashlib.sha256(raw).hexdigest()[:32]
 
     @staticmethod
@@ -77,6 +78,13 @@ class ImmichAssetUploader:
         """推断文件 MIME 类型，未知时回退 application/octet-stream。"""
         mime, _ = mimetypes.guess_type(file_path)
         return mime or "application/octet-stream"
+
+    @staticmethod
+    def _read_file(file_path: str) -> tuple[os.stat_result, bytes]:
+        """同步读取文件元信息与内容（供 asyncio.to_thread 包装，避免阻塞事件循环）。"""
+        st = os.stat(file_path)
+        with open(file_path, "rb") as fh:
+            return st, fh.read()
 
     async def upload(
         self,
@@ -102,12 +110,9 @@ class ImmichAssetUploader:
             UpstreamTimeoutError: 请求超时。
             UpstreamError: 上传被拒绝或响应异常。
         """
-        st = os.stat(file_path)
+        st, file_data = await asyncio.to_thread(self._read_file, file_path)
         file_name = os.path.basename(file_path)
         device_asset_id = self._gen_device_asset_id(file_path, st.st_mtime_ns)
-
-        with open(file_path, "rb") as fh:
-            file_data = fh.read()
 
         mime = self._guess_mime(file_path)
         files = {"fileData": (file_name, file_data, mime)}

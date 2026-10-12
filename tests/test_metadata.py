@@ -7,14 +7,13 @@ from datetime import datetime, timezone
 import pytest
 
 from app.services.metadata import (
+    MetadataExtractor,
     _format_exposure,
     dms_to_decimal,
     extract_exif_metadata,
     extract_taken_at,
     parse_exif_datetime,
-    MetadataExtractor,
 )
-
 
 # ---- dms_to_decimal ----
 
