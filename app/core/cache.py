@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from .config import Settings
     from .redis_client import RedisClient
 
-from .redis_client import _sanitize_url as _sanitize_redis_url
+from .redis_client import sanitize_url
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +147,7 @@ async def get_cache(settings: Settings, redis_client: RedisClient) -> CacheBacke
     default_ttl = 300.0
 
     if settings.redis_enabled and await redis_client.health_check():
-        logger.info("缓存后端：RedisCache（url=%s）", _sanitize_redis_url(settings.redis_url))
+        logger.info("缓存后端：RedisCache（url=%s）", sanitize_url(settings.redis_url))
         return RedisCache(
             redis=redis_client.redis,
             key_prefix=settings.redis_key_prefix,

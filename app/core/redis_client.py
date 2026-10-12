@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _sanitize_url(url: str) -> str:
+def sanitize_url(url: str) -> str:
     """遮蔽 Redis URL 中的密码，防止日志泄露。"""
     return re.sub(r"://([^:/@]+):([^@/]+)@", r"://\1:***@", url)
 
@@ -62,7 +62,7 @@ class RedisClient:
             )
             await self._redis.ping()
             self._connected = True
-            logger.info("Redis 连接成功：url=%s", _sanitize_url(self._settings.redis_url))
+            logger.info("Redis 连接成功：url=%s", sanitize_url(self._settings.redis_url))
         except Exception as exc:
             logger.warning("Redis 连接失败，将降级使用内存缓存：err=%s", exc)
             self._redis = None

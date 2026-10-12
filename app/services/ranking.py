@@ -57,7 +57,7 @@ def clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
     return max(low, min(high, value))
 
 
-def _safe_float(value: object, default: float = 0.0) -> float:
+def safe_float(value: object, default: float = 0.0) -> float:
     """安全转换为 float，非数字时返回 default。"""
     try:
         return float(value)  # type: ignore[arg-type]
@@ -194,7 +194,7 @@ def rank_assets(
             default_alpha=time_weight,
             default_beta=similarity_weight,
         )
-        similarity = clamp(_safe_float(asset.get("score", 1.0), default=1.0))
+        similarity = clamp(safe_float(asset.get("score", 1.0), default=1.0))
         captured_at, source = resolve_captured_at(asset, default_iso)
         freshness = time_freshness(captured_at, now=now, half_life_days=half_life_days)
         final = alpha * freshness + beta * similarity

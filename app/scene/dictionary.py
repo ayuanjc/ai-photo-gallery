@@ -30,34 +30,39 @@ class SceneDict:
     scenes: dict[str, dict[str, Any]]
     visual_attrs: dict[str, list[str]]
 
+    def __post_init__(self) -> None:
+        keys: set[str] = set()
+        alias: dict[str, str] = {}
+        parent_map: dict[str, str] = {}
+        for key, entry in self.scenes.items():
+            alias[normalize(key)] = key
+            label = entry.get("label")
+            if isinstance(label, str) and label:
+                alias[normalize(label)] = key
+            for child in entry.get("children", []):
+                keys.add(child)
+                parent_map[child] = key
+        object.__setattr__(self, "_scene_keys", frozenset(self.scenes))
+        object.__setattr__(self, "_sub_scene_keys", frozenset(keys))
+        object.__setattr__(self, "_alias_map", alias)
+        object.__setattr__(self, "_parent_map", parent_map)
+
     @property
     def scene_keys(self) -> frozenset[str]:
-        return frozenset(self.scenes)
+        return self._scene_keys
 
     @property
     def sub_scene_keys(self) -> frozenset[str]:
-        keys: set[str] = set()
-        for entry in self.scenes.values():
-            keys.update(entry.get("children", []))
-        return frozenset(keys)
+        return self._sub_scene_keys
 
     @property
     def scene_alias_map(self) -> dict[str, str]:
         """归一化 token -> 大场景 key 的别名映射（含中文 label）。"""
-        alias: dict[str, str] = {}
-        for key, entry in self.scenes.items():
-            alias[_normalize(key)] = key
-            label = entry.get("label")
-            if isinstance(label, str) and label:
-                alias[_normalize(label)] = key
-        return alias
+        return self._alias_map
 
     def parent_of(self, sub_scene: str) -> str | None:
         """返回小场景所属的大场景 key，未收录返回 None。"""
-        for key, entry in self.scenes.items():
-            if sub_scene in entry.get("children", []):
-                return key
-        return None
+        return self._parent_map.get(sub_scene)
 
     def is_valid_scene(self, key: str) -> bool:
         """校验是否为白名单内的大场景 key。"""
@@ -76,7 +81,7 @@ class SceneDict:
         return {"scenes": self.scenes, "visual_attrs": self.visual_attrs}
 
 
-def _normalize(token: str) -> str:
+def normalize(token: str) -> str:
     """归一化自由文本标签：小写 + 连字符/空格统一为下划线。"""
     return token.strip().lower().replace("-", "_").replace(" ", "_")
 
