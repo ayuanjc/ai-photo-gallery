@@ -67,6 +67,10 @@ class Settings(BaseSettings):
     ai_retry_backoff_seconds: float = 0.5
     ai_max_concurrent: int = 10
 
+    # ---- 批量导入（本地文件 → 提取 EXIF → 上传 Immich）----
+    import_max_concurrent: int = 3
+    import_default_device_id: str = "batch-import"
+
     # ---- 华为云图像识别（预留扩展，默认关闭）----
     huawei_enabled: bool = False
     huawei_ak: str = ""

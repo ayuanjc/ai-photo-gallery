@@ -17,7 +17,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from .ai.factory import build_ai_analyzer
-from .api.routes import ai, faces, scene, search
+from .api.routes import ai, batch_import, faces, scene, search
 from .core.cache import get_cache
 from .core.config import get_settings
 from .core.errors import AppError, ErrorCode
@@ -28,6 +28,9 @@ from .scene.analyzer import NullSceneInferrer, SceneAnalyzer
 from .scene.dictionary import get_scene_dict
 from .services.face_service import FaceService
 from .services.immich import ImmichClient
+from .services.immich_uploader import ImmichAssetUploader
+from .services.importer import BatchImporter
+from .services.metadata import MetadataExtractor
 from .services.multi_condition_service import MultiConditionSearchService
 from .services.search_service import SearchService
 from .services.vision.base import NullVisionProvider, VisionProvider
@@ -99,6 +102,12 @@ async def lifespan(app: FastAPI):
     )
     app.state.multi_condition_service = MultiConditionSearchService(settings, immich)
 
+    # 批量导入：元数据提取 → 上传 Immich
+    metadata_extractor = MetadataExtractor(settings.default_datetime_iso)
+    immich_uploader = ImmichAssetUploader(settings)
+    app.state.immich_uploader = immich_uploader
+    app.state.batch_importer = BatchImporter(settings, metadata_extractor, immich_uploader)
+
     # 令牌桶限流器：基于 Redis 原子操作，不可用时降级放行
     app.state.rate_limiter = TokenBucketRateLimiter(
         settings, redis=redis_client.redis
@@ -110,6 +119,7 @@ async def lifespan(app: FastAPI):
     finally:
         await redis_client.aclose()
         await immich.aclose()
+        await immich_uploader.aclose()
         if face_client is not None:
             await face_client.aclose()
         if scene_analyzer is not None:
@@ -127,6 +137,7 @@ app.include_router(search.router, prefix="/api/v1")
 app.include_router(scene.router, prefix="/api/v1")
 app.include_router(faces.router, prefix="/api/v1")
 app.include_router(ai.router, prefix="/api/v1")
+app.include_router(batch_import.router, prefix="/api/v1")
 
 
 @app.middleware("http")
