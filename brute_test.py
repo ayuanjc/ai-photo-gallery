@@ -1714,21 +1714,21 @@ class TestStatsProviderBrute:
         """page_size=0 钳制为 1，不崩溃。"""
         fake = self._FakeImmich([self._asset("a1")])
         provider = StatsProvider(self._settings(), fake)
-        items = await self._collect(provider.iter_assets(page_size=0, max_items=10))
+        items, _w = await provider.fetch_assets(page_size=0, max_items=10)
         assert len(items) == 1
 
     async def test_page_size_negative_clamped_to_one(self):
         """page_size 负数钳制为 1，不崩溃。"""
         fake = self._FakeImmich([self._asset("a1")])
         provider = StatsProvider(self._settings(), fake)
-        items = await self._collect(provider.iter_assets(page_size=-99, max_items=10))
+        items, _w = await provider.fetch_assets(page_size=-99, max_items=10)
         assert len(items) == 1
 
     async def test_max_items_zero_returns_empty(self):
         """max_items=0 返回空，不拉取。"""
         fake = self._FakeImmich([self._asset("a1"), self._asset("a2")])
         provider = StatsProvider(self._settings(), fake)
-        items = await self._collect(provider.iter_assets(page_size=100, max_items=0))
+        items, _w = await provider.fetch_assets(page_size=100, max_items=0)
         assert items == []
 
     async def test_date_from_after_date_to_returns_empty(self):
@@ -1741,8 +1741,8 @@ class TestStatsProviderBrute:
         provider = StatsProvider(self._settings(), fake)
         date_from = datetime(2025, 1, 1, tzinfo=timezone.utc)
         date_to = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        items = await self._collect(
-            provider.iter_assets(page_size=100, date_from=date_from, date_to=date_to)
+        items, _w = await provider.fetch_assets(
+            page_size=100, date_from=date_from, date_to=date_to
         )
         assert items == []
 
@@ -1753,26 +1753,26 @@ class TestStatsProviderBrute:
         items = [self._asset(f"a{i}") for i in range(200)]
         fake = self._FakeImmich(items, fail_status=2)
         provider = StatsProvider(self._settings(), fake)
-        result = await self._collect(provider.iter_assets(page_size=100))
+        result, warnings = await provider.fetch_assets(page_size=100)
         assert len(result) == 100
-        assert len(provider.warnings) == 1
+        assert len(warnings) == 1
 
     async def test_immich_timeout_degrades_gracefully(self):
         """Immich 超时（模拟异常），不抛，返回已拉到的部分。"""
         items = [self._asset(f"a{i}") for i in range(200)]
         fake = self._FakeImmich(items, fail_on_call=2)
         provider = StatsProvider(self._settings(), fake)
-        result = await self._collect(provider.iter_assets(page_size=100))
+        result, warnings = await provider.fetch_assets(page_size=100)
         assert len(result) == 100
-        assert len(provider.warnings) == 1
+        assert len(warnings) == 1
 
     async def test_immich_connection_failure_first_page_returns_empty(self):
         """第一页就连接失败，返回空，不抛。"""
         fake = self._FakeImmich([self._asset("a1")], fail_on_call=1)
         provider = StatsProvider(self._settings(), fake)
-        items = await self._collect(provider.iter_assets(page_size=100))
+        items, warnings = await provider.fetch_assets(page_size=100)
         assert items == []
-        assert len(provider.warnings) == 1
+        assert len(warnings) == 1
 
     # ---- 并发与资源耗尽 ----
 
@@ -1782,11 +1782,11 @@ class TestStatsProviderBrute:
         fake = self._FakeImmich(items)
         provider = StatsProvider(self._settings(), fake)
 
-        coros = [self._collect(provider.iter_assets(page_size=100)) for _ in range(100)]
+        coros = [provider.fetch_assets(page_size=100) for _ in range(100)]
         results = await asyncio.gather(*coros)
 
         assert fake.call_count == 1
-        for r in results:
+        for r, _w in results:
             assert len(r) == 50
 
     # ---- 数据污染 ----
@@ -1816,7 +1816,7 @@ class TestStatsProviderBrute:
         ]
         fake = self._FakeImmich(items)
         provider = StatsProvider(self._settings(), fake)
-        result = await self._collect(provider.iter_assets(page_size=100))
+        result, _w = await provider.fetch_assets(page_size=100)
         assert len(result) == 2
 
     async def test_super_long_filename_not_crash(self):
@@ -1831,7 +1831,7 @@ class TestStatsProviderBrute:
         ]
         fake = self._FakeImmich(items)
         provider = StatsProvider(self._settings(), fake)
-        result = await self._collect(provider.iter_assets(page_size=100))
+        result, _w = await provider.fetch_assets(page_size=100)
         assert len(result) == 1
 
     # ---- 安全攻击 ----
@@ -1841,8 +1841,8 @@ class TestStatsProviderBrute:
         items = [self._asset(f"a{i}") for i in range(10)]
         fake = self._FakeImmich(items)
         provider = StatsProvider(self._settings(), fake)
-        result = await self._collect(
-            provider.iter_assets(page_size=100, max_items=10)
+        result, _w = await provider.fetch_assets(
+            page_size=100, max_items=10
         )
         assert len(result) == 10
         assert fake.call_count == 1
@@ -1851,8 +1851,8 @@ class TestStatsProviderBrute:
         """STATS_ENABLED=false 完全阻断拉取，即使参数恶意。"""
         fake = self._FakeImmich([self._asset("a1")])
         provider = StatsProvider(self._settings(stats_enabled=False), fake)
-        items = await self._collect(
-            provider.iter_assets(page_size=-1, max_items=999999)
+        items, _w = await provider.fetch_assets(
+            page_size=-1, max_items=999999
         )
         assert items == []
         assert fake.call_count == 0
@@ -1865,7 +1865,7 @@ class TestStatsProviderBrute:
 
 
     class _FakeResp:
-    class _FakeResp:
+
         def __init__(self, data):
             self.status_code = 200
             self._data = data
@@ -1889,7 +1889,7 @@ class TestStatsProviderBrute:
 # ============================================================================
 
     class _FakeResponse:
-    class _FakeResponse:
+
         def __init__(self, status_code: int, data: list | dict) -> None:
             self.status_code = status_code
             self._data = data
@@ -2182,21 +2182,21 @@ class TestStatsProviderBrute:
         """page_size=0 钳制为 1，不崩溃。"""
         fake = self._FakeImmich([self._asset("a1")])
         provider = StatsProvider(self._settings(), fake)
-        items = await self._collect(provider.iter_assets(page_size=0, max_items=10))
+        items, _w = await provider.fetch_assets(page_size=0, max_items=10)
         assert len(items) == 1
 
     async def test_page_size_negative_clamped_to_one(self):
         """page_size 负数钳制为 1，不崩溃。"""
         fake = self._FakeImmich([self._asset("a1")])
         provider = StatsProvider(self._settings(), fake)
-        items = await self._collect(provider.iter_assets(page_size=-99, max_items=10))
+        items, _w = await provider.fetch_assets(page_size=-99, max_items=10)
         assert len(items) == 1
 
     async def test_max_items_zero_returns_empty(self):
         """max_items=0 返回空，不拉取。"""
         fake = self._FakeImmich([self._asset("a1"), self._asset("a2")])
         provider = StatsProvider(self._settings(), fake)
-        items = await self._collect(provider.iter_assets(page_size=100, max_items=0))
+        items, _w = await provider.fetch_assets(page_size=100, max_items=0)
         assert items == []
 
     async def test_date_from_after_date_to_returns_empty(self):
@@ -2209,8 +2209,8 @@ class TestStatsProviderBrute:
         provider = StatsProvider(self._settings(), fake)
         date_from = datetime(2025, 1, 1, tzinfo=timezone.utc)
         date_to = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        items = await self._collect(
-            provider.iter_assets(page_size=100, date_from=date_from, date_to=date_to)
+        items, _w = await provider.fetch_assets(
+            page_size=100, date_from=date_from, date_to=date_to
         )
         assert items == []
 
@@ -2221,26 +2221,26 @@ class TestStatsProviderBrute:
         items = [self._asset(f"a{i}") for i in range(200)]
         fake = self._FakeImmich(items, fail_status=2)
         provider = StatsProvider(self._settings(), fake)
-        result = await self._collect(provider.iter_assets(page_size=100))
+        result, warnings = await provider.fetch_assets(page_size=100)
         assert len(result) == 100
-        assert len(provider.warnings) == 1
+        assert len(warnings) == 1
 
     async def test_immich_timeout_degrades_gracefully(self):
         """Immich 超时（模拟异常），不抛，返回已拉到的部分。"""
         items = [self._asset(f"a{i}") for i in range(200)]
         fake = self._FakeImmich(items, fail_on_call=2)
         provider = StatsProvider(self._settings(), fake)
-        result = await self._collect(provider.iter_assets(page_size=100))
+        result, warnings = await provider.fetch_assets(page_size=100)
         assert len(result) == 100
-        assert len(provider.warnings) == 1
+        assert len(warnings) == 1
 
     async def test_immich_connection_failure_first_page_returns_empty(self):
         """第一页就连接失败，返回空，不抛。"""
         fake = self._FakeImmich([self._asset("a1")], fail_on_call=1)
         provider = StatsProvider(self._settings(), fake)
-        items = await self._collect(provider.iter_assets(page_size=100))
+        items, warnings = await provider.fetch_assets(page_size=100)
         assert items == []
-        assert len(provider.warnings) == 1
+        assert len(warnings) == 1
 
     # ---- 并发与资源耗尽 ----
 
@@ -2250,11 +2250,11 @@ class TestStatsProviderBrute:
         fake = self._FakeImmich(items)
         provider = StatsProvider(self._settings(), fake)
 
-        coros = [self._collect(provider.iter_assets(page_size=100)) for _ in range(100)]
+        coros = [provider.fetch_assets(page_size=100) for _ in range(100)]
         results = await asyncio.gather(*coros)
 
         assert fake.call_count == 1
-        for r in results:
+        for r, _w in results:
             assert len(r) == 50
 
     # ---- 数据污染 ----
@@ -2284,7 +2284,7 @@ class TestStatsProviderBrute:
         ]
         fake = self._FakeImmich(items)
         provider = StatsProvider(self._settings(), fake)
-        result = await self._collect(provider.iter_assets(page_size=100))
+        result, _w = await provider.fetch_assets(page_size=100)
         assert len(result) == 2
 
     async def test_super_long_filename_not_crash(self):
@@ -2299,7 +2299,7 @@ class TestStatsProviderBrute:
         ]
         fake = self._FakeImmich(items)
         provider = StatsProvider(self._settings(), fake)
-        result = await self._collect(provider.iter_assets(page_size=100))
+        result, _w = await provider.fetch_assets(page_size=100)
         assert len(result) == 1
 
     # ---- 安全攻击 ----
@@ -2309,8 +2309,8 @@ class TestStatsProviderBrute:
         items = [self._asset(f"a{i}") for i in range(10)]
         fake = self._FakeImmich(items)
         provider = StatsProvider(self._settings(), fake)
-        result = await self._collect(
-            provider.iter_assets(page_size=100, max_items=10)
+        result, _w = await provider.fetch_assets(
+            page_size=100, max_items=10
         )
         assert len(result) == 10
         assert fake.call_count == 1
@@ -2319,8 +2319,8 @@ class TestStatsProviderBrute:
         """STATS_ENABLED=false 完全阻断拉取，即使参数恶意。"""
         fake = self._FakeImmich([self._asset("a1")])
         provider = StatsProvider(self._settings(stats_enabled=False), fake)
-        items = await self._collect(
-            provider.iter_assets(page_size=-1, max_items=999999)
+        items, _w = await provider.fetch_assets(
+            page_size=-1, max_items=999999
         )
         assert items == []
         assert fake.call_count == 0

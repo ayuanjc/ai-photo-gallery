@@ -82,15 +82,16 @@ async def test_import_file_not_found(settings):
 
 
 async def test_import_extract_error(settings):
-    """元数据提取异常降级为逐项失败。"""
+    """元数据提取异常降级为警告，上传仍成功。"""
     extractor = FakeExtractor(raise_on={"a.jpg": RuntimeError("corrupt exif")})
     uploader = FakeUploader()
     importer = BatchImporter(settings, extractor, uploader)
 
     resp = await importer.import_files(_request(["a.jpg"]))
 
-    assert resp.failed == 1
-    assert "元数据提取失败" in resp.results[0].error
+    assert resp.succeeded == 1
+    assert resp.failed == 0
+    assert any("元数据提取失败" in w for w in resp.warnings)
 
 
 async def test_import_upload_error(settings):

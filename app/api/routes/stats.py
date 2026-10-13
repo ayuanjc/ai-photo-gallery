@@ -625,9 +625,12 @@ async def map_stats(
     try:
         if _HAS_STATS_PROVIDER:
             provider = StatsProvider(settings, immich)
-            async for asset in provider.iter_assets():
-                assets.append(asset)
-            provider_warnings = getattr(provider, "warnings", [])
+            assets, provider_warnings = await provider.fetch_assets(
+                page_size=page_size,
+                max_items=max_items,
+                date_from=date_from,
+                date_to=date_to,
+            )
             if provider_warnings:
                 degraded = True
                 warnings.append("上游拉取失败: " + "; ".join(provider_warnings))
@@ -713,9 +716,12 @@ async def exif_stats(
     try:
         if _HAS_STATS_PROVIDER:
             provider = StatsProvider(settings, immich)
-            async for asset in provider.iter_assets():
-                assets.append(asset)
-            provider_warnings = getattr(provider, "warnings", [])
+            assets, provider_warnings = await provider.fetch_assets(
+                page_size=page_size,
+                max_items=max_items,
+                date_from=date_from,
+                date_to=date_to,
+            )
             if provider_warnings:
                 degraded = True
                 warnings.append("上游拉取失败: " + "; ".join(provider_warnings))
@@ -805,9 +811,12 @@ async def gear_stats(
     try:
         if _HAS_STATS_PROVIDER:
             provider = StatsProvider(settings, immich)
-            async for asset in provider.iter_assets():
-                assets.append(asset)
-            provider_warnings = getattr(provider, "warnings", [])
+            assets, provider_warnings = await provider.fetch_assets(
+                page_size=page_size,
+                max_items=max_items,
+                date_from=date_from,
+                date_to=date_to,
+            )
             if provider_warnings:
                 degraded = True
                 warnings.append("上游拉取失败: " + "; ".join(provider_warnings))

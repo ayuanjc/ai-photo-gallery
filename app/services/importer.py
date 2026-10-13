@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 from ..core.config import Settings
@@ -57,9 +58,16 @@ class BatchImporter:
         device_id = request.device_id or self._default_device_id
         sem = asyncio.Semaphore(self._max_concurrent)
 
+        if len(request.file_paths) > self._settings.import_max_files:
+            raise ValueError(
+                f"文件数量 {len(request.file_paths)} 超过上限 {self._settings.import_max_files}"
+            )
+
+        collected_warnings: list[str] = []
+
         async def _one(file_path: str) -> ImportResultItem:
             async with sem:
-                return await self._import_single(file_path, device_id, request.is_favorite)
+                return await self._import_single(file_path, device_id, request.is_favorite, collected_warnings)
 
         results = await asyncio.gather(*(_one(p) for p in request.file_paths))
 
@@ -70,6 +78,7 @@ class BatchImporter:
             succeeded=succeeded,
             failed=failed,
             results=list(results),
+            warnings=collected_warnings,
         )
 
     async def _import_single(
@@ -77,25 +86,27 @@ class BatchImporter:
         file_path: str,
         device_id: str,
         is_favorite: bool,
+        warnings: list[str],
     ) -> ImportResultItem:
         """导入单个文件：提取元数据 + 上传，失败降级为逐项错误。"""
+        metadata = None
         try:
             metadata = await asyncio.to_thread(self._extractor.extract, file_path)
         except FileNotFoundError:
             return ImportResultItem(
                 file_path=file_path, success=False, error="文件不存在"
             )
-        except Exception as exc:  # noqa: BLE001 - 提取失败降级为逐项错误
+        except Exception as exc:  # noqa: BLE001 - 提取失败降级为警告，继续上传
             logger.warning("元数据提取失败 file=%s err=%s", file_path, exc)
-            return ImportResultItem(
-                file_path=file_path, success=False, error=f"元数据提取失败: {exc}"
-            )
+            warnings.append(f"元数据提取失败（已降级继续上传）: {file_path}: {exc}")
+
+        taken_at = metadata.taken_at if metadata is not None else datetime.now(timezone.utc)
 
         try:
             asset = await self._uploader.upload(
                 file_path,
                 device_id=device_id,
-                taken_at=metadata.taken_at,
+                taken_at=taken_at,
                 is_favorite=is_favorite,
             )
         except AppError as exc:
