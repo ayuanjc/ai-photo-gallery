@@ -3856,6 +3856,302 @@ class TestImageSearchBrute:
 
 
 # ============================================================================
+# 否定语义搜索 — 混沌工程与安全渗透测试
+# ============================================================================
+
+class TestNegationBrute:
+    """否定语义搜索的破坏性测试：畸形输入、注入攻击、边界条件。"""
+
+    # ---- parse_negations 输入畸形攻击 ----
+
+    def test_parse_empty_string_not_crash(self):
+        from app.services.negation_parser import parse_negations
+        q, neg = parse_negations("")
+        assert q == ""
+        assert neg == []
+
+    def test_parse_none_like_not_crash(self):
+        from app.services.negation_parser import parse_negations
+        q, neg = parse_negations("   ")
+        assert neg == []
+
+    def test_parse_very_long_query_not_crash(self):
+        from app.services.negation_parser import parse_negations
+        query = "海边" + "不要人" * 10000
+        q, neg = parse_negations(query)
+        assert q == "海边"
+        assert len(neg) == 10000
+
+    def test_parse_only_prefixes_no_token(self):
+        from app.services.negation_parser import parse_negations
+        for payload in ["不要", "不要 不要 不要", "- - -", "排除 没有不含"]:
+            q, neg = parse_negations(payload)
+            assert neg == []
+
+    def test_parse_null_byte_in_query(self):
+        from app.services.negation_parser import parse_negations
+        q, neg = parse_negations("海边\x00不要人")
+        assert "人" in neg
+
+    def test_parse_sql_injection_in_negation_token(self):
+        from app.services.negation_parser import parse_negations
+        q, neg = parse_negations("海边 不要' OR 1=1 --")
+        assert len(neg) > 0
+
+    def test_parse_xss_in_negation_token(self):
+        from app.services.negation_parser import parse_negations
+        q, neg = parse_negations("海边 不要<script>alert(1)</script>")
+        assert len(neg) > 0
+
+    def test_parse_emoji_in_negation_token(self):
+        from app.services.negation_parser import parse_negations
+        q, neg = parse_negations("海边 不要🐱🐶")
+        assert neg == ["🐱🐶"]
+
+    def test_parse_nested_prefixes(self):
+        from app.services.negation_parser import parse_negations
+        q, neg = parse_negations("海边 不要不要人")
+        assert len(neg) >= 1
+
+    def test_parse_prefix_at_boundary(self):
+        from app.services.negation_parser import parse_negations
+        q, neg = parse_negations("不要")
+        assert neg == []
+
+    def test_parse_custom_empty_prefixes(self):
+        from app.services.negation_parser import parse_negations
+        q, neg = parse_negations("海边 不要人", prefixes=[])
+        assert q == "海边 不要人"
+        assert neg == []
+
+    def test_parse_duplicate_prefixes_deduplicated(self):
+        from app.services.negation_parser import parse_negations
+        q, neg = parse_negations("海边 不要人", prefixes=["不要", "不要", "不要"])
+        assert neg == ["人"]
+
+    # ---- filter_by_negations 边界攻击 ----
+
+    def test_filter_empty_negations_returns_same_list(self):
+        from app.services.negation_parser import filter_by_negations
+        assets = [{"id": "a"}, {"id": "b"}]
+        result = filter_by_negations(assets, [])
+        assert result is assets
+
+    def test_filter_empty_assets_not_crash(self):
+        from app.services.negation_parser import filter_by_negations
+        result = filter_by_negations([], ["人"])
+        assert result == []
+
+    def test_filter_very_long_negation_list(self):
+        from app.services.negation_parser import filter_by_negations
+        assets = [{"id": "a", "primary_scene": "nature"}]
+        negations = [f"token_{i}" for i in range(10000)]
+        result = filter_by_negations(assets, negations)
+        assert len(result) == 1
+
+    def test_filter_none_scene_tags_not_crash(self):
+        from app.services.negation_parser import filter_by_negations
+        assets = [{"id": "a", "scene_tags": None, "primary_scene": None}]
+        result = filter_by_negations(assets, ["人"])
+        assert len(result) == 1
+
+    def test_filter_malformed_scene_tags_not_crash(self):
+        from app.services.negation_parser import filter_by_negations
+        assets = [{"id": "a", "scene_tags": "not_a_object"}]
+        result = filter_by_negations(assets, ["人"])
+        assert len(result) == 1
+
+    def test_filter_unicode_negation_token(self):
+        from app.services.negation_parser import filter_by_negations
+        from app.scene.models import SceneTags
+        tags = SceneTags(primary_scene="people", scenes=["people"])
+        assets = [{"id": "a", "scene_tags": tags, "primary_scene": "people"}]
+        result = filter_by_negations(assets, ["人物"])
+        assert len(result) == 0
+
+    # ---- SearchRequest.negations 字段校验 ----
+
+    def test_negations_field_default_empty(self):
+        req = SearchRequest(query="海边", asset_ids=["a1"])
+        assert req.negations == []
+
+    def test_negations_field_max_length_exceeded(self):
+        with pytest.raises(Exception):
+            SearchRequest(query="海边", asset_ids=["a1"], negations=["x"] * 51)
+
+    def test_negations_field_max_length_boundary(self):
+        req = SearchRequest(query="海边", asset_ids=["a1"], negations=["x"] * 50)
+        assert len(req.negations) == 50
+
+    def test_negations_field_empty_string_element(self):
+        req = SearchRequest(query="海边", asset_ids=["a1"], negations=[""])
+        assert req.negations == [""]
+
+    def test_negations_field_sql_injection_accepted(self):
+        req = SearchRequest(
+            query="海边", asset_ids=["a1"], negations=["' OR 1=1 --"]
+        )
+        assert req.negations == ["' OR 1=1 --"]
+
+    def test_negations_field_xss_accepted(self):
+        req = SearchRequest(
+            query="海边", asset_ids=["a1"], negations=["<script>alert(1)</script>"]
+        )
+        assert req.negations == ["<script>alert(1)</script>"]
+
+    # ---- SearchService 否定搜索降级与容错 ----
+
+    def test_search_service_negation_parse_failure_degrades(self, settings):
+        from app.services.search_service import SearchService
+        from app.services.vision.base import VisionProvider, VisionResult
+
+        class _FakeVision(VisionProvider):
+            name = "fake"
+            async def analyze(self, url):
+                return VisionResult(labels=[])
+
+        class _FakeImmich:
+            async def smart_search(self, query, k=50, asset_ids=None):
+                return [{"id": "a", "score": 0.9, "exifInfo": {}}]
+            def thumbnail_url(self, aid, size="preview"):
+                return f"http://t/{aid}"
+            def original_url(self, aid):
+                return f"http://o/{aid}"
+
+        svc = SearchService(settings, _FakeImmich(), _FakeVision())
+        req = SearchRequest(query="海边 不要人", asset_ids=["a1"])
+
+        result = asyncio.run(svc.search(req))
+        assert result.applied_negations == ["人"]
+        assert result.total == 1
+
+    def test_search_service_negation_disabled_no_filter(self, settings):
+        from app.services.search_service import SearchService
+        from app.services.vision.base import VisionProvider, VisionResult
+        from app.scene.models import SceneTags
+
+        settings.negation_enabled = False
+
+        class _FakeVision(VisionProvider):
+            name = "fake"
+            async def analyze(self, url):
+                return VisionResult(labels=[])
+
+        class _FakeImmich:
+            async def smart_search(self, query, k=50, asset_ids=None):
+                return [
+                    {"id": "a", "score": 0.9, "exifInfo": {},
+                     "scene_tags": SceneTags(primary_scene="people", scenes=["people"]),
+                     "primary_scene": "people"},
+                ]
+            def thumbnail_url(self, aid, size="preview"):
+                return f"http://t/{aid}"
+            def original_url(self, aid):
+                return f"http://o/{aid}"
+
+        svc = SearchService(settings, _FakeImmich(), _FakeVision())
+        req = SearchRequest(query="海边 不要人", asset_ids=["a1"])
+
+        result = asyncio.run(svc.search(req))
+        assert result.total == 1
+        assert result.applied_negations == []
+
+    def test_search_service_all_negated_returns_empty(self, settings):
+        from app.services.search_service import SearchService
+        from app.services.vision.base import VisionProvider, VisionResult
+        from app.scene.models import SceneTags
+
+        class _FakeVision(VisionProvider):
+            name = "fake"
+            async def analyze(self, url):
+                return VisionResult(labels=[])
+
+        class _FakeImmich:
+            async def smart_search(self, query, k=50, asset_ids=None):
+                return [
+                    {"id": "a", "score": 0.9, "exifInfo": {},
+                     "scene_tags": SceneTags(primary_scene="people", scenes=["people"]),
+                     "primary_scene": "people"},
+                    {"id": "b", "score": 0.8, "exifInfo": {},
+                     "scene_tags": SceneTags(primary_scene="people", scenes=["people"]),
+                     "primary_scene": "people"},
+                ]
+            def thumbnail_url(self, aid, size="preview"):
+                return f"http://t/{aid}"
+            def original_url(self, aid):
+                return f"http://o/{aid}"
+
+        svc = SearchService(settings, _FakeImmich(), _FakeVision())
+        req = SearchRequest(query="海边 不要人", asset_ids=["a1"])
+
+        result = asyncio.run(svc.search(req))
+        assert result.total == 0
+        assert result.applied_negations == ["人"]
+
+    def test_search_service_query_only_negation_prefix(self, settings):
+        from app.services.search_service import SearchService
+        from app.services.vision.base import VisionProvider, VisionResult
+
+        class _FakeVision(VisionProvider):
+            name = "fake"
+            async def analyze(self, url):
+                return VisionResult(labels=[])
+
+        class _FakeImmich:
+            async def smart_search(self, query, k=50, asset_ids=None):
+                return [{"id": "a", "score": 0.9, "exifInfo": {}}]
+            def thumbnail_url(self, aid, size="preview"):
+                return f"http://t/{aid}"
+            def original_url(self, aid):
+                return f"http://o/{aid}"
+
+        svc = SearchService(settings, _FakeImmich(), _FakeVision())
+        req = SearchRequest(query="不要人", asset_ids=["a1"])
+
+        result = asyncio.run(svc.search(req))
+        assert result.applied_negations == ["人"]
+        assert result.total == 1
+
+    # ---- API 层否定搜索 ----
+
+    def test_api_negation_in_query_accepted(self):
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/smart",
+                json={"query": "海边 不要人", "asset_ids": ["a-001"]},
+            )
+            assert resp.status_code in (200, 502, 503)
+
+    def test_api_explicit_negations_field_accepted(self):
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/smart",
+                json={"query": "海边", "asset_ids": ["a-001"], "negations": ["人"]},
+            )
+            assert resp.status_code in (200, 502, 503)
+
+    def test_api_negations_too_many_rejected(self):
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/smart",
+                json={"query": "海边", "asset_ids": ["a-001"], "negations": ["x"] * 51},
+            )
+            assert resp.status_code in (400, 422)
+
+    def test_api_negations_with_special_chars_accepted(self):
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/smart",
+                json={
+                    "query": "海边",
+                    "asset_ids": ["a-001"],
+                    "negations": ["<script>", "' OR 1=1--", "日本語"],
+                },
+            )
+            assert resp.status_code in (200, 502, 503)
+
+
+# ============================================================================
 # 防御性测试报告
 # ============================================================================
 

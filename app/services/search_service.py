@@ -24,6 +24,7 @@ from .ranking import (
 )
 from .dedup import dedup_items
 from .image_query_service import ImageQueryService
+from .negation_parser import filter_by_negations, parse_negations
 from .vision.base import VisionProvider
 
 logger = logging.getLogger(__name__)
@@ -63,7 +64,26 @@ class SearchService:
                 cache_key = None
 
         # 1. 并发调用视觉识别，从图片 URL 提取标签，用于增强语义查询。
-        enriched_query, warnings = await self._enrich_query(request)
+        #    否定语义搜索：先从 query 中解析否定前缀，用清理后的正向 query 走搜索。
+        cleaned_query = request.query
+        applied_negations: list[str] = list(request.negations)
+        if runtime_enabled("negation_enabled", self._settings.negation_enabled):
+            try:
+                cleaned_query, parsed_negations = parse_negations(
+                    request.query, self._settings.negation_prefixes
+                )
+                if parsed_negations:
+                    for tok in parsed_negations:
+                        if tok not in applied_negations:
+                            applied_negations.append(tok)
+            except Exception as exc:
+                logger.warning("否定解析失败，降级为原 query: %s", exc)
+                cleaned_query = request.query
+
+        if not cleaned_query.strip():
+            cleaned_query = request.query
+
+        enriched_query, warnings = await self._enrich_query(request, base_query=cleaned_query)
 
         # 1b. 以图搜图：若请求携带 image_urls，从参考图提取相似 asset_id 并合并到候选集。
         image_query_used = False
@@ -104,6 +124,15 @@ class SearchService:
 
         # 3. 为每条 asset 生成场景标签（失败不阻塞），并把 primary_scene 附加到 asset。
         await self._attach_scenes(assets)
+
+        # 3b. 否定语义过滤：在排序之前过滤掉场景标签命中否定词的结果。
+        negation_removed = 0
+        if applied_negations and runtime_enabled(
+            "negation_enabled", self._settings.negation_enabled
+        ):
+            before = len(assets)
+            assets = filter_by_negations(assets, applied_negations)
+            negation_removed = before - len(assets)
 
         # 4. 解析单次请求的权重覆盖（否则用全局配置）。
         time_weight, similarity_weight = self._resolve_weights(request)
@@ -187,9 +216,10 @@ class SearchService:
             degraded=bool(warnings),
             warnings=warnings,
             results=results,
-            enriched_query=enriched_query if enriched_query != request.query else None,
+            enriched_query=enriched_query if enriched_query != cleaned_query else None,
             dedup_removed=dedup_removed,
             image_query_used=image_query_used,
+            applied_negations=applied_negations if applied_negations else [],
         )
 
         # 写缓存：仅非降级结果写入，降级结果不缓存。
@@ -210,6 +240,7 @@ class SearchService:
                 "query": request.query,
                 "asset_ids": request.asset_ids,
                 "image_urls": request.image_urls,
+                "negations": request.negations,
                 "limit": request.limit,
                 "time_weight": request.time_weight,
                 "similarity_weight": request.similarity_weight,
@@ -222,9 +253,11 @@ class SearchService:
         digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
         return f"search:{digest}"
 
-    async def _enrich_query(self, request: SearchRequest) -> tuple[str, list[str]]:
+    async def _enrich_query(
+        self, request: SearchRequest, base_query: str | None = None
+    ) -> tuple[str, list[str]]:
         """并发调用视觉识别，失败不阻塞主流程（降级记录 warning）。"""
-        base = request.query
+        base = base_query if base_query is not None else request.query
         semantic = asyncio.Semaphore(self._settings.search_max_concurrent_vision)
 
         async def _analyze(url: str) -> list[str]:

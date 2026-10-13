@@ -175,6 +175,12 @@ class Settings(BaseSettings):
     # 相册结果缓存 TTL（秒）。
     album_cache_ttl_seconds: int = 600
 
+    # ---- 否定语义搜索（query 中否定前缀解析 + 场景标签过滤）----
+    # 开启后解析 query 中的否定前缀（不要/没有/不含/排除/-），过滤掉命中否定词的结果。
+    negation_enabled: bool = True
+    # 否定前缀列表，可通过环境变量自定义。
+    negation_prefixes: list[str] = ["不要", "没有", "不含", "排除", "-"]
+
     @field_validator("immich_base_url")
     @classmethod
     def _strip_trailing_slash(cls, value: str) -> str:

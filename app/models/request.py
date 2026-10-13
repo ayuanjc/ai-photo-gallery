@@ -60,6 +60,11 @@ class SearchRequest(BaseModel):
         max_length=200,
         description="参考图 URL 列表，用于以图搜图（Immich 风格 URL）",
     )
+    negations: list[str] = Field(
+        default_factory=list,
+        max_length=50,
+        description="显式传入的否定词列表，与 query 中解析出的否定词合并使用",
+    )
 
     @field_validator("image_urls")
     @classmethod
