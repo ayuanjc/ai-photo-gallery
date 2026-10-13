@@ -161,6 +161,16 @@ class Settings(BaseSettings):
     # 以图搜图单次请求超时（秒）。
     image_query_timeout_seconds: float = 5.0
 
+    # ---- 自动相册（按场景 + 时间聚类）----
+    # 开启后 GET /api/v1/search/albums 可用；关闭后返回 503。
+    album_enabled: bool = True
+    # 同一场景内相邻照片时间差超过此天数则切分为新相册。
+    album_time_gap_days: int = 3
+    # 相册数上限，防止生成过多相册。
+    album_max_count: int = 100
+    # 相册结果缓存 TTL（秒）。
+    album_cache_ttl_seconds: int = 600
+
     @field_validator("immich_base_url")
     @classmethod
     def _strip_trailing_slash(cls, value: str) -> str:

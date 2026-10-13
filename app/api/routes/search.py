@@ -1,7 +1,11 @@
 """搜索相关路由。"""
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, Request
+
+logger = logging.getLogger(__name__)
 
 from ...core.config import get_settings
 from ...models.request import FeedbackRequest, MultiConditionSearchRequest, SearchRequest
@@ -120,3 +124,80 @@ async def correct(
     service = get_suggest_service(settings)
     corrected, degraded, warnings = service.correct(q)
     return CorrectResponse(corrected=corrected, degraded=degraded, warnings=warnings)
+
+# ---- 自动相册（末尾追加，挂在同一个 router 下）----
+from datetime import datetime as _datetime
+
+from ...core.errors import ServiceUnavailableError
+from ...models.response import AlbumListResponse
+from ...services.album_service import AlbumService
+from ...services.immich import ImmichClient
+
+
+@router.get(
+    "/search/albums",
+    response_model=AlbumListResponse,
+    summary="自动相册生成",
+    description="按场景 + 时间聚类，自动生成相册分组。无场景/无时间资产优雅跳过。",
+)
+async def list_albums(
+    request: Request,
+    date_from: _datetime | None = Query(default=None, description="起始时间（含）"),
+    date_to: _datetime | None = Query(default=None, description="结束时间（含）"),
+    settings: Settings = Depends(get_settings_dep),
+) -> AlbumListResponse:
+    if not settings.album_enabled:
+        raise ServiceUnavailableError(
+            "自动相册功能未启用，请配置 ALBUM_ENABLED=true"
+        )
+
+    cache = getattr(request.app.state, "cache", None)
+    cache_key = (
+        f"albums:{date_from.isoformat() if date_from else 'none'}:"
+        f"{date_to.isoformat() if date_to else 'none'}"
+    )
+
+    if cache is not None:
+        try:
+            raw = await cache.get(cache_key)
+            if raw is not None:
+                resp = AlbumListResponse(**raw)
+                resp.cached = True
+                return resp
+        except Exception as exc:
+            logger.warning("相册缓存读取失败: %s", exc)
+
+    immich_client = ImmichClient(settings)
+    scene_analyzer = getattr(request.app.state, "scene_analyzer", None)
+    service = AlbumService(settings, immich_client, scene_analyzer)
+
+    try:
+        albums, warnings = await service.generate_albums(
+            date_from=date_from, date_to=date_to
+        )
+    except Exception as exc:
+        return AlbumListResponse(
+            total_albums=0,
+            degraded=True,
+            warnings=[f"相册生成异常，已降级: {exc}"],
+        )
+    finally:
+        await immich_client.aclose()
+
+    response = AlbumListResponse(
+        total_albums=len(albums),
+        degraded=bool(warnings),
+        warnings=warnings,
+        albums=albums,
+    )
+
+    if cache is not None and not response.degraded:
+        try:
+            await cache.set(
+                cache_key, response.model_dump(mode="json"),
+                ttl=settings.album_cache_ttl_seconds,
+            )
+        except Exception as exc:
+            logger.warning("相册缓存写入失败: %s", exc)
+
+    return response
