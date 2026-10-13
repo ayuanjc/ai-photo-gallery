@@ -127,19 +127,19 @@ class StatsProvider:
         """
         results: list[dict] = []
         warnings: list[str] = []
-        skip = 0
+        page = 1
 
         while len(results) < max_items:
             try:
                 resp = await self._immich._request_with_retry(
-                    "GET",
-                    "/api/assets",
-                    params={"skip": skip, "take": page_size, "withExif": "true"},
+                    "POST",
+                    "/api/search/metadata",
+                    json={"page": page, "size": page_size, "withExif": True},
                 )
                 if resp.status_code != 200:
                     msg = (
                         f"Immich 资产拉取失败: "
-                        f"status={resp.status_code}, skip={skip}"
+                        f"status={resp.status_code}, page={page}"
                     )
                     logger.warning(msg)
                     warnings.append(msg)
@@ -172,7 +172,7 @@ class StatsProvider:
 
                 results.append(item)
 
-            skip += len(items)
+            page += 1
             if len(items) < page_size:
                 return results, warnings
 

@@ -123,7 +123,7 @@ class ImmichClient:
             k: 返回结果数量上限。
             asset_ids: 图库中已有的资产 ID 列表，用于以图搜图（可选）。
         """
-        payload: dict[str, Any] = {"query": query, "k": k, "withExif": True}
+        payload: dict[str, Any] = {"query": query, "size": k, "withExif": True}
         if asset_ids:
             payload["assetIds"] = asset_ids
         resp = await self._request_with_retry(
@@ -161,11 +161,11 @@ class ImmichClient:
         return self._parse_json(resp)
 
     async def similar_assets(self, asset_id: str, k: int = 50) -> list[dict]:
-        """调用 POST /api/search/smart 以图搜图（query 传 asset id），返回带 score 的相似资产。"""
+        """调用 POST /api/search/smart 以图搜图（queryAssetId 传 asset id），返回带 score 的相似资产。"""
         resp = await self._request_with_retry(
             "POST",
             "/api/search/smart",
-            json={"query": asset_id, "k": k, "withExif": False},
+            json={"queryAssetId": asset_id, "size": k, "withExif": False},
         )
         if resp.status_code != 200:
             raise UpstreamError(
@@ -191,8 +191,12 @@ class ImmichClient:
         return []
 
     async def get_assets_by_person(self, person_id: str) -> list[dict]:
-        """调用 GET /api/people/{id}/assets 获取某人物的所有资产。"""
-        resp = await self._request_with_retry("GET", f"/api/people/{person_id}/assets")
+        """调用 POST /api/search/metadata 按 personIds 搜索某人物的所有资产。"""
+        resp = await self._request_with_retry(
+            "POST",
+            "/api/search/metadata",
+            json={"personIds": [person_id], "size": 1000, "withExif": True},
+        )
         if resp.status_code != 200:
             raise UpstreamError(
                 "Immich 获取人物资产失败",
