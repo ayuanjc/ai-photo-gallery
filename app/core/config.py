@@ -49,7 +49,6 @@ class Settings(BaseSettings):
     multimodal_lambda: float = 0.7
     # 时间新鲜度指数衰减的半衰期（天）。半衰期越小，越“喜新厌旧”。
     time_decay_half_life_days: float = 365.0
-    # EXIF 与文件创建时间都缺失时的回退时间。
     default_datetime_iso: str = "1970-01-01T00:00:00+00:00"
 
     # ---- 智能场景分析（多标签体系）----
@@ -66,6 +65,10 @@ class Settings(BaseSettings):
     ai_analyzer_max_retries: int = 2
     ai_retry_backoff_seconds: float = 0.5
     ai_max_concurrent: int = 10
+
+    # ---- 批量导入（本地文件 → 提取 EXIF → 上传 Immich）----
+    import_max_concurrent: int = 3
+    import_default_device_id: str = "batch-import"
 
     # ---- 华为云图像识别（预留扩展，默认关闭）----
     huawei_enabled: bool = False
@@ -108,6 +111,16 @@ class Settings(BaseSettings):
     # ---- 搜索结果可解释性（为什么排在这里）----
     # 开启后每条搜索结果附带 explanation 字段；关闭后 explanation 为 None，不影响主流程。
     explain_enabled: bool = True
+
+    # ---- 统计大屏（数据 Provider 基础层）----
+    # 统计功能总开关，关闭后 iter_assets 返回空。
+    stats_enabled: bool = True
+    # 单次拉取资产上限，防止内存溢出。
+    stats_max_items: int = 10000
+    # 分页大小，每页向 Immich 请求的资产数。
+    stats_page_size: int = 100
+    # 统计结果缓存 TTL（秒），供后续统计模块使用。
+    stats_cache_ttl_seconds: int = 600
 
     @field_validator("immich_base_url")
     @classmethod
