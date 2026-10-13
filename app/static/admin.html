@@ -2,462 +2,1278 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AI 图库助手 · 管理控制台</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="referrer" content="no-referrer" />
+  <title>AI 图库助手 · 管理控制中心</title>
   <style>
+    /* =========================================================================
+       设计系统（Linear Aesthetic：深色精密工作台）
+       - 近黑画布 + 极细描边 + 玻璃质感 + 低饱和蓝紫强调色
+       - 所有颜色/间距/圆角/动效统一走 CSS 变量，便于后续扩展
+       ========================================================================= */
     :root {
-      --bg: #0a0b0f;
-      --bg-grad: radial-gradient(ellipse at top, #12141c 0%, #0a0b0f 60%);
-      --card: #14161c;
-      --card-2: #1a1d26;
-      --card-hover: #1e2230;
-      --border: #262a36;
-      --border-light: #333846;
-      --text: #e8eaef;
-      --text-dim: #8b919e;
-      --text-faint: #5a5f6e;
-      --accent: #5b6cff;
-      --accent-2: #7c8bff;
-      --accent-glow: rgba(91, 108, 255, 0.15);
-      --green: #34d399;
-      --green-glow: rgba(52, 211, 153, 0.12);
-      --red: #f87171;
-      --amber: #fbbf24;
-      --radius: 14px;
-      --radius-sm: 10px;
+      color-scheme: dark;
+
+      /* 画布与表面 */
+      --canvas: #050506;
+      --canvas-2: #08080a;
+      --surface: #0c0d10;
+      --surface-2: #121319;
+      --surface-hover: #171922;
+
+      /* 描边（极细、近乎隐形） */
+      --border: rgba(255, 255, 255, 0.08);
+      --border-strong: rgba(255, 255, 255, 0.14);
+
+      /* 文字（不用纯白，降低刺眼） */
+      --text: #ededf0;
+      --text-dim: #a1a1aa;
+      --text-faint: #6b6f78;
+      --text-invert: #0b0b0f;
+
+      /* 品牌强调（低饱和蓝紫） */
+      --accent: #6366f1;
+      --accent-2: #818cf8;
+      --accent-soft: rgba(99, 102, 241, 0.12);
+      --accent-glow: rgba(99, 102, 241, 0.30);
+
+      /* 语义色 */
+      --ok: #34d399;
+      --warn: #fbbf24;
+      --err: #f87171;
+      --ok-soft: rgba(52, 211, 153, 0.12);
+      --warn-soft: rgba(251, 191, 36, 0.12);
+      --err-soft: rgba(248, 113, 113, 0.12);
+
+      /* 圆角（统一梯度） */
+      --r-sm: 8px;
+      --r-md: 12px;
+      --r-lg: 16px;
+      --r-pill: 999px;
+
+      /* 阴影（层次） */
+      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
+      --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.45);
+      --shadow-lg: 0 28px 70px rgba(0, 0, 0, 0.6);
+
+      /* 间距（4px 体系） */
+      --sp-1: 4px;
+      --sp-2: 8px;
+      --sp-3: 12px;
+      --sp-4: 16px;
+      --sp-5: 20px;
+      --sp-6: 24px;
+      --sp-8: 32px;
+      --sp-10: 40px;
+
+      /* 字号 */
+      --fs-xs: 12px;
+      --fs-sm: 13px;
+      --fs-md: 14px;
+      --fs-lg: 16px;
+      --fs-xl: 20px;
+      --fs-2xl: 26px;
+
+      /* 动效 */
+      --dur-fast: 120ms;
+      --dur: 180ms;
+      --dur-slow: 280ms;
+      --ease: cubic-bezier(0.16, 1, 0.3, 1);
+
+      --sidebar-w: 244px;
+      --content-max: 1180px;
     }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
     body {
-      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-      background: var(--bg-grad); color: var(--text);
-      min-height: 100vh; -webkit-font-smoothing: antialiased;
+      font-family: "Inter", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: var(--canvas);
+      color: var(--text);
+      min-height: 100vh;
+      font-size: var(--fs-md);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+    /* 环境氛围光：避免纯色平铺 */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      background:
+        radial-gradient(60% 50% at 18% 0%, rgba(99, 102, 241, 0.10), transparent 70%),
+        radial-gradient(50% 40% at 100% 0%, rgba(129, 140, 248, 0.06), transparent 70%),
+        linear-gradient(180deg, var(--canvas-2), var(--canvas));
+    }
+    a { color: var(--accent-2); text-decoration: none; }
+    ::selection { background: var(--accent-glow); }
+
+    /* 统一焦点可见样式（键盘无障碍） */
+    :focus-visible {
+      outline: 2px solid var(--accent-2);
+      outline-offset: 2px;
+      border-radius: var(--r-sm);
     }
 
-    /* ---- Header ---- */
-    .header {
-      background: rgba(10, 11, 15, 0.82); backdrop-filter: blur(12px);
-      border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 50;
-    }
-    .header-inner {
-      max-width: 920px; margin: 0 auto; padding: 14px 20px;
-      display: flex; align-items: center; gap: 14px;
-    }
-    .logo {
-      width: 40px; height: 40px; border-radius: 12px;
-      background: linear-gradient(135deg, #fa2921, #ffb400 40%, #1e83f7 75%, #18c249);
-      display: flex; align-items: center; justify-content: center;
-      font-size: 18px; font-weight: 800; color: #fff; flex-shrink: 0;
-      box-shadow: 0 2px 12px rgba(30, 131, 247, 0.25);
-    }
-    .header-title h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
-    .header-title .sub { color: var(--text-dim); font-size: 12px; margin-top: 1px; }
-    .header .spacer { flex: 1; }
+    /* 滚动条（克制） */
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.10); border-radius: var(--r-pill); border: 3px solid transparent; background-clip: content-box; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.18); background-clip: content-box; }
 
-    /* ---- Buttons ---- */
-    .btn {
+    /* =========================================================================
+       布局骨架：侧边栏 + 工作区
+       ========================================================================= */
+    .app { display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr); min-height: 100vh; }
+
+    /* ---- 侧边栏 ---- */
+    .sidebar {
+      position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column;
+      background: rgba(8, 8, 10, 0.72);
+      backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+      border-right: 1px solid var(--border);
+      padding: var(--sp-5) var(--sp-4);
+      z-index: 40;
+    }
+    .brand { display: flex; align-items: center; gap: var(--sp-3); padding: 0 var(--sp-2) var(--sp-5); }
+    .brand-mark {
+      width: 38px; height: 38px; flex-shrink: 0; border-radius: var(--r-md);
+      display: grid; place-items: center; color: var(--accent-2);
+      background: linear-gradient(140deg, rgba(99, 102, 241, 0.22), rgba(129, 140, 248, 0.06));
+      border: 1px solid var(--border-strong);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    }
+    .brand-mark svg { width: 20px; height: 20px; }
+    .brand-text { min-width: 0; }
+    .brand-text strong { display: block; font-size: var(--fs-md); font-weight: 650; letter-spacing: -0.01em; }
+    .brand-text span { display: block; font-size: var(--fs-xs); color: var(--text-faint); }
+
+    .nav { display: flex; flex-direction: column; gap: 2px; }
+    .nav-item {
+      display: flex; align-items: center; gap: var(--sp-3);
+      width: 100%; min-height: 40px; padding: 0 var(--sp-3);
+      background: transparent; border: 1px solid transparent; border-radius: var(--r-md);
+      color: var(--text-dim); font: inherit; font-size: var(--fs-md); font-weight: 500;
+      cursor: pointer; text-align: left; transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
+    }
+    .nav-item svg { width: 18px; height: 18px; flex-shrink: 0; opacity: 0.85; }
+    .nav-item:hover { background: var(--surface-2); color: var(--text); }
+    .nav-item[aria-current="page"] {
+      background: var(--accent-soft); color: var(--text); border-color: rgba(99, 102, 241, 0.28);
+    }
+    .nav-item[aria-current="page"] svg { color: var(--accent-2); opacity: 1; }
+
+    .sidebar-foot { margin-top: auto; padding-top: var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-2); }
+    .env-chip {
+      display: flex; align-items: center; gap: var(--sp-2);
+      padding: var(--sp-3); border-radius: var(--r-md);
+      background: var(--surface-2); border: 1px solid var(--border);
+      font-size: var(--fs-xs); color: var(--text-dim);
+    }
+    .env-chip .k { color: var(--text-faint); }
+    .env-chip .v { color: var(--text); font-weight: 600; margin-left: auto; }
+
+    /* ---- 工作区 ---- */
+    .workspace { display: flex; flex-direction: column; min-width: 0; }
+
+    /* ---- 顶部栏 ---- */
+    .topbar {
+      position: sticky; top: 0; z-index: 30;
+      display: flex; align-items: center; gap: var(--sp-3);
+      padding: var(--sp-3) var(--sp-6);
+      background: rgba(8, 8, 10, 0.72);
+      backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+      border-bottom: 1px solid var(--border);
+    }
+    .crumb { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--text-faint); min-width: 0; }
+    .crumb .sep { opacity: 0.5; }
+    .crumb .current { color: var(--text); font-weight: 600; white-space: nowrap; }
+    .topbar-spacer { flex: 1; }
+    .chips { display: flex; align-items: center; gap: var(--sp-2); }
+
+    .chip {
       display: inline-flex; align-items: center; gap: 6px;
-      background: var(--accent); color: #fff; border: none; border-radius: var(--radius-sm);
-      padding: 8px 16px; font-size: 13px; cursor: pointer; font-weight: 600;
-      transition: all .15s; white-space: nowrap;
+      height: 28px; padding: 0 10px; border-radius: var(--r-pill);
+      background: var(--surface-2); border: 1px solid var(--border);
+      font-size: var(--fs-xs); color: var(--text-dim); white-space: nowrap;
     }
-    .btn:hover { background: var(--accent-2); box-shadow: 0 2px 12px var(--accent-glow); }
-    .btn:active { transform: scale(0.97); }
-    .btn.ghost { background: transparent; border: 1px solid var(--border-light); color: var(--text-dim); }
-    .btn.ghost:hover { border-color: var(--accent); color: var(--text); background: var(--accent-glow); box-shadow: none; }
-    .btn.green { background: var(--green); color: #062; }
-    .btn.green:hover { background: #4ade80; box-shadow: 0 2px 12px var(--green-glow); }
-    .btn.immich {
-      background: linear-gradient(135deg, #4123d2, #6d28d9); color: #fff;
-      border: 1px solid rgba(109, 40, 217, 0.3);
-    }
-    .btn.immich:hover { background: linear-gradient(135deg, #4f2de0, #7c3aed); box-shadow: 0 2px 12px rgba(109, 40, 217, 0.3); }
-    .btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
-    .btn svg { width: 15px; height: 15px; }
+    .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); flex-shrink: 0; }
+    .chip.ok { color: var(--ok); border-color: rgba(52, 211, 153, 0.28); background: var(--ok-soft); }
+    .chip.ok .dot { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+    .chip.bad { color: var(--err); border-color: rgba(248, 113, 113, 0.28); background: var(--err-soft); }
+    .chip.bad .dot { background: var(--err); box-shadow: 0 0 8px var(--err); }
+    .chip.warn { color: var(--warn); border-color: rgba(251, 191, 36, 0.28); background: var(--warn-soft); }
+    .chip.warn .dot { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
 
-    /* ---- Tabs ---- */
-    .tabs {
-      max-width: 920px; margin: 0 auto; padding: 20px 20px 0;
-      display: flex; gap: 4px; border-bottom: 1px solid var(--border);
+    /* ---- 按钮 ---- */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      min-height: 36px; padding: 0 var(--sp-4);
+      background: var(--accent); color: #fff; border: 1px solid transparent; border-radius: var(--r-md);
+      font: inherit; font-size: var(--fs-sm); font-weight: 600; cursor: pointer;
+      transition: background var(--dur-fast), box-shadow var(--dur-fast), transform var(--dur-fast), border-color var(--dur-fast), opacity var(--dur-fast);
+      white-space: nowrap;
     }
-    .tab {
-      padding: 10px 18px; font-size: 14px; font-weight: 600; color: var(--text-dim);
-      background: none; border: none; border-bottom: 2px solid transparent;
-      cursor: pointer; transition: all .15s; margin-bottom: -1px;
+    .btn svg { width: 16px; height: 16px; }
+    .btn:hover { background: var(--accent-2); box-shadow: 0 2px 14px var(--accent-glow); }
+    .btn:active { transform: translateY(1px); }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; transform: none; }
+    .btn.ghost { background: transparent; border-color: var(--border-strong); color: var(--text-dim); }
+    .btn.ghost:hover { border-color: var(--accent); color: var(--text); background: var(--accent-soft); box-shadow: none; }
+    .btn.green { background: var(--ok); color: var(--text-invert); }
+    .btn.green:hover { background: #4ade80; box-shadow: 0 2px 14px var(--ok-soft); }
+    .btn.danger-ghost { background: transparent; border-color: var(--border-strong); color: var(--text-dim); }
+    .btn.danger-ghost:hover { border-color: var(--err); color: var(--err); background: var(--err-soft); }
+    .icon-btn {
+      display: inline-grid; place-items: center;
+      width: 36px; height: 36px; padding: 0;
+      background: transparent; border: 1px solid var(--border-strong); border-radius: var(--r-md);
+      color: var(--text-dim); cursor: pointer; transition: all var(--dur-fast);
     }
-    .tab:hover { color: var(--text); }
-    .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+    .icon-btn:hover { color: var(--text); border-color: var(--accent); background: var(--accent-soft); }
+    .icon-btn svg { width: 18px; height: 18px; }
+    .btn .spin, .icon-btn .spin { width: 15px; height: 15px; border-radius: 50%; border: 2px solid currentColor; border-top-color: transparent; animation: spin 0.7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* ---- Main ---- */
-    .main { max-width: 920px; margin: 0 auto; padding: 20px; }
-    .tab-content { display: none; }
-    .tab-content.active { display: block; animation: fadeIn .2s; }
-    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+    /* ---- 内容区 ---- */
+    .content { padding: var(--sp-6); width: 100%; }
+    .content-inner { max-width: var(--content-max); margin: 0 auto; }
 
-    /* ---- Cards ---- */
+    .page { display: none; }
+    .page.active { display: block; animation: rise var(--dur-slow) var(--ease); }
+    @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+    .page-head { margin-bottom: var(--sp-5); }
+    .page-head h2 { margin: 0; font-size: var(--fs-2xl); font-weight: 680; letter-spacing: -0.02em; }
+    .page-head p { margin: var(--sp-2) 0 0; color: var(--text-dim); font-size: var(--fs-sm); max-width: 60ch; }
+    .page-head-row { display: flex; align-items: flex-start; gap: var(--sp-4); }
+    .page-head-row .page-head { flex: 1; margin-bottom: 0; }
+    .page-head-row .toolbar-right { display: flex; gap: var(--sp-2); }
+
+    /* ---- 卡片 ---- */
     .card {
-      background: var(--card); border: 1px solid var(--border);
-      border-radius: var(--radius); padding: 18px 20px; margin-bottom: 16px;
+      position: relative;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.018), rgba(255, 255, 255, 0));
+      border: 1px solid var(--border); border-radius: var(--r-lg);
+      padding: var(--sp-5);
+      box-shadow: var(--shadow-sm);
     }
-    .card-title {
-      font-size: 13px; color: var(--text-dim); font-weight: 600;
-      margin-bottom: 14px; letter-spacing: 0.3px; display: flex; align-items: center; gap: 8px;
-    }
-    .card-title svg { width: 16px; height: 16px; opacity: 0.7; }
+    .card + .card, .card + .section, .section + .card { margin-top: var(--sp-4); }
+    .card-head { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-4); }
+    .card-head h3 { margin: 0; font-size: var(--fs-md); font-weight: 620; }
+    .card-head .hint { margin-left: auto; font-size: var(--fs-xs); color: var(--text-faint); }
+    .card-head svg { width: 17px; height: 17px; color: var(--accent-2); }
 
-    /* ---- Status grid ---- */
-    .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
-    .status-item {
-      background: var(--card-2); border-radius: var(--radius-sm); padding: 12px 14px;
-      border: 1px solid transparent; transition: border-color .15s;
+    /* ---- 总览统计 ---- */
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--sp-3); }
+    .stat {
+      background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md);
+      padding: var(--sp-4); transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
     }
-    .status-item:hover { border-color: var(--border-light); }
-    .status-item .k { font-size: 11px; color: var(--text-faint); margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px; }
-    .status-item .v { font-size: 15px; font-weight: 600; word-break: break-all; }
-    .status-item .v.ok { color: var(--green); }
-    .status-item .v.bad { color: var(--red); }
-    .status-item .v .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
-    .status-item .v.ok .dot { background: var(--green); box-shadow: 0 0 6px var(--green); }
-    .status-item .v.bad .dot { background: var(--red); box-shadow: 0 0 6px var(--red); }
+    .stat:hover { border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
+    .stat .k { display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.06em; }
+    .stat .k svg { width: 14px; height: 14px; }
+    .stat .v { margin-top: var(--sp-2); font-size: var(--fs-xl); font-weight: 660; letter-spacing: -0.01em; word-break: break-word; }
+    .stat .sub { margin-top: 2px; font-size: var(--fs-xs); color: var(--text-faint); }
+    .v-ok { color: var(--ok); }
+    .v-warn { color: var(--warn); }
+    .v-err { color: var(--err); }
+    .v-dim { color: var(--text-dim); }
 
-    /* ---- Feature toggle ---- */
+    .inline-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; vertical-align: middle; background: var(--text-faint); }
+    .inline-dot.ok { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+    .inline-dot.warn { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+    .inline-dot.err { background: var(--err); box-shadow: 0 0 8px var(--err); }
+
+    /* ---- 提示条 ---- */
+    .notice {
+      display: flex; align-items: flex-start; gap: var(--sp-3);
+      padding: var(--sp-3) var(--sp-4); border-radius: var(--r-md);
+      border: 1px solid var(--border); background: var(--surface-2);
+      font-size: var(--fs-sm); color: var(--text-dim);
+    }
+    .notice svg { width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px; }
+    .notice.warn { border-color: rgba(251, 191, 36, 0.3); background: var(--warn-soft); color: var(--warn); }
+    .notice.err { border-color: rgba(248, 113, 113, 0.3); background: var(--err-soft); color: var(--err); }
+    .notice.ok { border-color: rgba(52, 211, 153, 0.3); background: var(--ok-soft); color: var(--ok); }
+    .notice strong { color: inherit; }
+    .notice .body { color: var(--text-dim); }
+    .notice.warn .body, .notice.err .body, .notice.ok .body { color: var(--text-dim); }
+
+    /* ---- 工具条 ---- */
+    .toolbar { display: flex; flex-wrap: wrap; gap: var(--sp-3); margin-bottom: var(--sp-4); align-items: center; }
+    .search-wrap { position: relative; flex: 1; min-width: 200px; }
+    .search-wrap svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--text-faint); pointer-events: none; }
+    .input, .select {
+      width: 100%; min-height: 40px; padding: 0 var(--sp-4);
+      background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md);
+      color: var(--text); font: inherit; font-size: var(--fs-sm); outline: none;
+      transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
+    }
+    .search-wrap .input { padding-left: 38px; }
+    .input::placeholder { color: var(--text-faint); }
+    .input:focus, .select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .input.invalid { border-color: var(--err); box-shadow: 0 0 0 3px var(--err-soft); }
+    .select { cursor: pointer; max-width: 200px; appearance: none;
+      background-image: linear-gradient(45deg, transparent 50%, var(--text-faint) 50%), linear-gradient(135deg, var(--text-faint) 50%, transparent 50%);
+      background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%;
+      background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; padding-right: 34px;
+    }
+
+    /* ---- 功能分组 ---- */
+    .feature-group { margin-bottom: var(--sp-5); }
+    .group-title {
+      display: flex; align-items: center; gap: var(--sp-2);
+      font-size: var(--fs-xs); font-weight: 600; color: var(--text-faint);
+      text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: var(--sp-3);
+    }
+    .group-title svg { width: 15px; height: 15px; }
+    .group-title .count { margin-left: var(--sp-2); font-weight: 500; }
+    .feature-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--sp-3); }
+
     .feature {
-      display: flex; align-items: center; gap: 14px;
-      padding: 14px 16px; border-radius: var(--radius-sm); margin-bottom: 8px;
-      background: var(--card-2); border: 1px solid transparent;
-      transition: all .15s;
+      display: flex; align-items: flex-start; gap: var(--sp-4);
+      padding: var(--sp-4); border-radius: var(--r-md);
+      background: var(--surface-2); border: 1px solid var(--border);
+      transition: border-color var(--dur-fast), background var(--dur-fast), box-shadow var(--dur-fast);
     }
-    .feature:hover { border-color: var(--border-light); background: var(--card-hover); }
+    .feature:hover { border-color: var(--border-strong); background: var(--surface-hover); box-shadow: var(--shadow-sm); }
+    .feature.off { opacity: 0.72; }
+    .feature.off:hover { opacity: 1; }
     .feature .info { flex: 1; min-width: 0; }
-    .feature .name { font-size: 14.5px; font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-    .feature .desc { font-size: 12.5px; color: var(--text-dim); margin-top: 3px; line-height: 1.4; }
+    .feature .name { font-size: var(--fs-md); font-weight: 620; display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+    .feature .desc { font-size: var(--fs-sm); color: var(--text-dim); margin-top: 3px; line-height: 1.45; }
+    .feature .meta { margin-top: var(--sp-2); display: flex; flex-wrap: wrap; gap: 6px; }
+
     .badge {
-      font-size: 10px; padding: 2px 8px; border-radius: 20px; font-weight: 600;
-      background: rgba(251, 191, 36, 0.1); color: var(--amber);
-      border: 1px solid rgba(251, 191, 36, 0.25);
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 10.5px; padding: 2px 8px; border-radius: var(--r-pill); font-weight: 600; letter-spacing: 0.01em;
+      background: var(--surface); color: var(--text-faint); border: 1px solid var(--border);
     }
-    .badge.off { background: rgba(139, 145, 158, 0.08); color: var(--text-faint); border-color: var(--border); }
-    .badge.overridden { background: var(--accent-glow); color: var(--accent-2); border-color: rgba(91, 108, 255, 0.3); }
+    .badge.restart { background: var(--warn-soft); color: var(--warn); border-color: rgba(251, 191, 36, 0.28); }
+    .badge.override { background: var(--accent-soft); color: var(--accent-2); border-color: rgba(99, 102, 241, 0.3); }
+    .badge.on { background: var(--ok-soft); color: var(--ok); border-color: rgba(52, 211, 153, 0.28); }
 
+    /* 开关 */
     .toggle {
-      position: relative; width: 44px; height: 24px; border-radius: 24px;
-      background: #2a2e3d; cursor: pointer; border: none; flex-shrink: 0;
-      transition: background .2s;
+      position: relative; width: 46px; height: 26px; flex-shrink: 0;
+      border-radius: var(--r-pill); border: 1px solid var(--border-strong);
+      background: var(--surface); cursor: pointer; padding: 0;
+      transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
     }
+    /* 扩大触控热区至 ≥44px（视觉尺寸保持不变） */
+    .toggle::before { content: ""; position: absolute; inset: -9px -6px; }
     .toggle::after {
-      content: ""; position: absolute; top: 3px; left: 3px;
-      width: 18px; height: 18px; border-radius: 50%; background: #c0c5d2;
-      transition: transform .2s, background .2s;
+      content: ""; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px;
+      border-radius: 50%; background: #c3c6d2; transition: transform var(--dur) var(--ease), background var(--dur) var(--ease);
+      box-shadow: var(--shadow-sm);
     }
-    .toggle.on { background: var(--green); }
-    .toggle.on::after { transform: translateX(20px); background: #fff; }
-    .toggle:disabled { opacity: .4; cursor: not-allowed; }
+    .toggle[aria-pressed="true"] { background: var(--accent); border-color: transparent; box-shadow: 0 0 0 3px var(--accent-soft); }
+    .toggle[aria-pressed="true"]::after { transform: translateX(20px); background: #fff; }
+    .toggle:disabled { opacity: 0.5; cursor: wait; }
+    .toggle .spinner {
+      position: absolute; inset: 0; margin: auto; width: 14px; height: 14px;
+      border-radius: 50%; border: 2px solid rgba(255,255,255,0.4); border-top-color: #fff;
+      animation: spin 0.7s linear infinite; opacity: 0;
+    }
+    .toggle[data-loading="1"] { opacity: 0.7; }
+    .toggle[data-loading="1"]::after { opacity: 0; }
+    .toggle[data-loading="1"] .spinner { opacity: 1; }
 
-    /* ---- Settings form ---- */
-    .form-group { margin-bottom: 18px; }
-    .form-label {
-      display: block; font-size: 12.5px; font-weight: 600; color: var(--text-dim);
-      margin-bottom: 6px; letter-spacing: 0.2px;
+    /* ---- 设置表单 ---- */
+    .section { margin-bottom: var(--sp-5); }
+    .section-title {
+      display: flex; align-items: center; gap: var(--sp-2);
+      font-size: var(--fs-md); font-weight: 640; margin-bottom: var(--sp-4);
+      padding-bottom: var(--sp-3); border-bottom: 1px solid var(--border);
     }
-    .form-label .hint { font-weight: 400; color: var(--text-faint); margin-left: 6px; }
-    .form-input-wrap { position: relative; display: flex; align-items: center; }
-    .form-input {
-      background: var(--card-2); border: 1px solid var(--border);
-      color: var(--text); border-radius: var(--radius-sm); padding: 10px 14px;
-      font-size: 13.5px; outline: none; width: 100%; transition: border-color .15s;
-      font-family: inherit;
-    }
-    .form-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
-    .form-input::placeholder { color: var(--text-faint); }
-    .form-input.has-toggle { padding-right: 44px; }
+    .section-title svg { width: 18px; height: 18px; color: var(--accent-2); }
+    .form-group { margin-bottom: var(--sp-4); }
+    .form-label { display: block; font-size: var(--fs-sm); font-weight: 600; color: var(--text-dim); margin-bottom: 6px; }
+    .form-label .hint { font-weight: 400; color: var(--text-faint); margin-left: 6px; font-size: var(--fs-xs); }
+    .input-wrap { position: relative; display: flex; align-items: center; }
+    .input-wrap .input.has-toggle { padding-right: 44px; }
     .eye-btn {
-      position: absolute; right: 8px; background: none; border: none;
-      cursor: pointer; color: var(--text-faint); padding: 4px; display: flex;
+      position: absolute; right: 6px; width: 32px; height: 32px; display: grid; place-items: center;
+      background: transparent; border: none; border-radius: var(--r-sm); color: var(--text-faint); cursor: pointer;
+      transition: color var(--dur-fast), background var(--dur-fast);
     }
-    .eye-btn:hover { color: var(--text-dim); }
+    .eye-btn:hover { color: var(--text); background: var(--surface-hover); }
     .eye-btn svg { width: 18px; height: 18px; }
-    .form-status { font-size: 11.5px; margin-top: 5px; color: var(--text-faint); }
-    .form-status.set { color: var(--green); }
-    .form-status.empty { color: var(--amber); }
-    .form-actions { display: flex; gap: 10px; margin-top: 20px; align-items: center; }
-    .form-hint { font-size: 12px; color: var(--text-faint); flex: 1; }
+    .form-status { font-size: var(--fs-xs); margin-top: 6px; color: var(--text-faint); display: flex; align-items: center; gap: 6px; }
+    .form-status.set { color: var(--ok); }
+    .form-status.empty { color: var(--warn); }
+    .form-status .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text-dim); }
 
-    .settings-section { margin-bottom: 24px; }
-    .settings-section-title {
-      font-size: 14px; font-weight: 700; margin-bottom: 12px;
-      padding-bottom: 8px; border-bottom: 1px solid var(--border);
-      display: flex; align-items: center; gap: 8px;
+    .save-bar {
+      position: sticky; bottom: 0; z-index: 20;
+      display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
+      margin-top: var(--sp-4); padding: var(--sp-4);
+      background: rgba(8, 8, 10, 0.85); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+      border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow-md);
     }
-    .settings-section-title svg { width: 18px; height: 18px; color: var(--accent-2); }
+    .save-bar .state { flex: 1; font-size: var(--fs-sm); color: var(--text-faint); display: flex; align-items: center; gap: 8px; min-width: 180px; }
+    .save-bar .state.dirty { color: var(--warn); }
 
-    /* ---- Login mask ---- */
-    .mask {
-      position: fixed; inset: 0; background: rgba(0, 0, 0, 0.7);
-      display: flex; align-items: center; justify-content: center; z-index: 100;
-      backdrop-filter: blur(8px); animation: fadeIn .15s;
+    /* ---- 骨架屏 ---- */
+    .skeleton { position: relative; overflow: hidden; background: var(--surface-2); border-radius: var(--r-sm); }
+    .skeleton::after {
+      content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
+      animation: shimmer 1.3s infinite;
     }
-    .mask .card { width: 360px; margin: 0; }
-    .mask .form-actions { margin-top: 16px; }
+    @keyframes shimmer { to { transform: translateX(100%); } }
+    .sk-stat { height: 92px; border-radius: var(--r-md); }
+    .sk-line { height: 12px; margin-bottom: 10px; }
+    .sk-card { height: 76px; border-radius: var(--r-md); margin-bottom: var(--sp-3); }
+
+    /* ---- 空/错误状态 ---- */
+    .empty { text-align: center; padding: var(--sp-8) var(--sp-4); color: var(--text-faint); }
+    .empty svg { width: 34px; height: 34px; opacity: 0.5; margin-bottom: var(--sp-3); }
+    .empty p { margin: 0 0 var(--sp-4); font-size: var(--fs-sm); }
+    .empty.err-state { color: var(--err); }
+    .empty .actions { display: flex; gap: var(--sp-2); justify-content: center; }
+
+    /* ---- 登录 ---- */
+    .login-mask {
+      position: fixed; inset: 0; z-index: 100;
+      display: grid; place-items: center; padding: var(--sp-5);
+      background: rgba(3, 3, 5, 0.72); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+      animation: fade var(--dur) var(--ease);
+    }
+    @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+    .login-card {
+      width: 100%; max-width: 380px;
+      background: linear-gradient(180deg, var(--surface-2), var(--surface));
+      border: 1px solid var(--border-strong); border-radius: var(--r-lg);
+      padding: var(--sp-6); box-shadow: var(--shadow-lg);
+      animation: rise var(--dur-slow) var(--ease);
+    }
+    .login-card .brand-mark { width: 44px; height: 44px; margin-bottom: var(--sp-4); }
+    .login-card h1 { margin: 0; font-size: var(--fs-xl); font-weight: 660; letter-spacing: -0.01em; }
+    .login-card .sub { margin: var(--sp-2) 0 var(--sp-5); color: var(--text-dim); font-size: var(--fs-sm); }
+
+    /* ---- 抽屉遮罩（移动端）---- */
+    .scrim { position: fixed; inset: 0; z-index: 35; background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(2px); }
+    .scrim[hidden] { display: none; }
+    .only-mobile { display: none; }
 
     /* ---- Toast ---- */
-    .toast {
-      position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%) translateY(10px);
-      background: var(--card); border: 1px solid var(--border-light); color: var(--text);
-      padding: 11px 20px; border-radius: var(--radius-sm); font-size: 13.5px; z-index: 200;
-      opacity: 0; transition: all .25s; pointer-events: none;
-      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4); font-weight: 500;
+    .toast-stack {
+      position: fixed; z-index: 200; right: var(--sp-5); bottom: var(--sp-5);
+      display: flex; flex-direction: column; gap: var(--sp-2); width: min(360px, calc(100vw - 2 * var(--sp-5)));
+      pointer-events: none;
     }
-    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-    .toast.err { border-color: var(--red); color: var(--red); }
-    .toast.ok { border-color: var(--green); color: var(--green); }
+    .toast {
+      display: flex; align-items: flex-start; gap: var(--sp-3);
+      padding: var(--sp-3) var(--sp-4); border-radius: var(--r-md);
+      background: var(--surface-2); border: 1px solid var(--border-strong);
+      box-shadow: var(--shadow-lg); font-size: var(--fs-sm); color: var(--text);
+      pointer-events: auto; animation: toastIn var(--dur-slow) var(--ease);
+    }
+    .toast.out { animation: toastOut var(--dur) var(--ease) forwards; }
+    @keyframes toastIn { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: none; } }
+    @keyframes toastOut { to { opacity: 0; transform: translateY(6px); } }
+    .toast svg { width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px; }
+    .toast .msg { flex: 1; min-width: 0; }
+    .toast .msg .next { display: block; margin-top: 2px; color: var(--text-faint); font-size: var(--fs-xs); }
+    .toast.ok { border-color: rgba(52, 211, 153, 0.35); }
+    .toast.ok svg { color: var(--ok); }
+    .toast.err { border-color: rgba(248, 113, 113, 0.35); }
+    .toast.err svg { color: var(--err); }
+    .toast.warn { border-color: rgba(251, 191, 36, 0.35); }
+    .toast.warn svg { color: var(--warn); }
 
-    .hidden { display: none !important; }
-    .loading { color: var(--text-faint); font-size: 13px; }
+    [hidden] { display: none !important; }
+    .ico { display: inline-flex; align-items: center; vertical-align: middle; }
+    .sr-only {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+    }
+
+    /* =========================================================================
+       响应式
+       ========================================================================= */
+    @media (max-width: 1024px) {
+      .app { grid-template-columns: minmax(0, 1fr); }
+      .sidebar {
+        position: fixed; top: 0; left: 0; width: min(280px, 82vw); height: 100vh;
+        transform: translateX(-102%); transition: transform var(--dur-slow) var(--ease);
+        box-shadow: var(--shadow-lg); background: var(--canvas-2);
+      }
+      .sidebar.open { transform: none; }
+      .only-mobile { display: inline-grid; }
+      .content { padding: var(--sp-4); }
+      .topbar { padding: var(--sp-3) var(--sp-4); }
+    }
+    @media (max-width: 680px) {
+      .chips { display: none; }
+      .crumb .sep, .crumb .root { display: none; }
+      .feature-grid { grid-template-columns: 1fr; }
+      .stat-grid { grid-template-columns: 1fr 1fr; }
+      .page-head h2 { font-size: var(--fs-xl); }
+      .toast-stack { left: var(--sp-4); right: var(--sp-4); width: auto; bottom: var(--sp-4); }
+    }
+    @media (max-width: 420px) {
+      .stat-grid { grid-template-columns: 1fr; }
+      .content { padding: var(--sp-3); }
+      .card { padding: var(--sp-4); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::after, *::before { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+      .skeleton::after { animation: none; }
+    }
   </style>
 </head>
 <body>
-  <div class="header">
-    <div class="header-inner">
-      <div class="logo">AI</div>
-      <div class="header-title">
-        <h1>AI 图库助手</h1>
-        <div class="sub">管理控制台</div>
+  <!-- 应用骨架：侧边栏导航 + 工作区 -->
+  <div class="app" id="app">
+    <!-- 侧边栏（移动端为抽屉） -->
+    <aside class="sidebar" id="sidebar" aria-label="主导航">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="M21 16l-4.5-4.5L9 19"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <strong>AI 图库助手</strong>
+          <span>管理控制中心</span>
+        </div>
       </div>
-      <div class="spacer"></div>
-      <button class="btn immmich" id="immichBtn" title="在新窗口打开 Immich 图库">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6"/><path d="M10 14L21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
-        打开 Immich
-      </button>
-      <button class="btn ghost" id="logoutBtn" title="退出管理控制台">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-        退出
-      </button>
+
+      <nav class="nav" id="nav" aria-label="页面导航">
+        <button class="nav-item" type="button" data-route="overview" aria-current="page">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+          <span>总览</span>
+        </button>
+        <button class="nav-item" type="button" data-route="features">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"/><circle cx="9" cy="6" r="2.4"/><path d="M4 12h16"/><circle cx="15" cy="12" r="2.4"/><path d="M4 18h16"/><circle cx="8" cy="18" r="2.4"/></svg>
+          <span>功能开关</span>
+        </button>
+        <button class="nav-item" type="button" data-route="status">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>
+          <span>系统状态</span>
+        </button>
+        <button class="nav-item" type="button" data-route="settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 0 1-4 0v-.2a1.6 1.6 0 0 0-2.7-1.1l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3.6 15H3a2 2 0 0 1 0-4h.2a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 9 3.6V3a2 2 0 0 1 4 0v.2a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.6 1.6 0 0 0 20.4 9H21a2 2 0 0 1 0 4h-.2a1.6 1.6 0 0 0-1.4.9z"/></svg>
+          <span>配置管理</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <div class="env-chip" id="sidebarEnv">
+          <span class="k">运行环境</span>
+          <span class="v" id="sidebarEnvValue">—</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 工作区 -->
+    <div class="workspace">
+      <header class="topbar">
+        <button class="icon-btn only-mobile" type="button" id="menuBtn" aria-label="打开导航菜单" aria-expanded="false" aria-controls="sidebar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+        </button>
+        <div class="crumb" aria-label="当前位置">
+          <span class="root">控制中心</span>
+          <span class="sep" aria-hidden="true">/</span>
+          <span class="current" id="crumbCurrent">总览</span>
+        </div>
+        <div class="topbar-spacer"></div>
+        <div class="chips" id="chips">
+          <span class="chip" id="chipEnv"><span class="dot"></span>环境</span>
+          <span class="chip" id="chipImmich"><span class="dot"></span>Immich</span>
+          <span class="chip" id="chipAuth"><span class="dot"></span>管理员</span>
+        </div>
+        <button class="icon-btn" type="button" id="refreshBtn" aria-label="刷新数据" title="刷新">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 4v5h-5"/></svg>
+        </button>
+        <button class="icon-btn" type="button" id="logoutBtn" aria-label="退出登录" title="退出登录">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+        </button>
+      </header>
+
+      <main class="content">
+        <div class="content-inner">
+          <!-- 总览 -->
+          <section class="page active" id="page-overview" aria-labelledby="overviewTitle">
+            <div class="page-head">
+              <h2 id="overviewTitle">总览</h2>
+              <p>AI 图库助手运行概况。数据来自后端 <span class="mono">/admin/api/status</span> 与 <span class="mono">/admin/api/features</span> 实时接口。</p>
+            </div>
+            <div id="overviewBody" aria-live="polite"></div>
+          </section>
+
+          <!-- 功能开关 -->
+          <section class="page" id="page-features" aria-labelledby="featuresTitle">
+            <div class="page-head">
+              <h2 id="featuresTitle">功能开关</h2>
+              <p>按能力分组管理运行时开关。切换后立即生效（标注「需重启」的项除外），并持久化到服务端。</p>
+            </div>
+            <div class="toolbar">
+              <div class="search-wrap">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+                <input class="input" type="search" id="featureSearch" placeholder="搜索功能名称或说明…" aria-label="搜索功能" autocomplete="off" />
+              </div>
+              <select class="select" id="featureFilter" aria-label="按分组筛选">
+                <option value="all">全部分组</option>
+                <option value="search">搜索能力</option>
+                <option value="ai">AI 能力</option>
+                <option value="gallery">图库能力</option>
+                <option value="system">系统能力</option>
+                <option value="experimental">实验性能力</option>
+              </select>
+            </div>
+            <div id="featureBody" aria-live="polite"></div>
+          </section>
+
+          <!-- 系统状态 -->
+          <section class="page" id="page-status" aria-labelledby="statusTitle">
+            <div class="page-head-row">
+              <div class="page-head">
+                <h2 id="statusTitle">系统状态</h2>
+                <p>服务运行环境、上游连接与缓存后端监控。</p>
+              </div>
+              <div class="toolbar-right">
+                <button class="btn ghost" type="button" id="statusRefreshBtn">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 4v5h-5"/></svg>
+                  刷新
+                </button>
+              </div>
+            </div>
+            <div id="statusBody" aria-live="polite"></div>
+          </section>
+
+          <!-- 配置管理 -->
+          <section class="page" id="page-settings" aria-labelledby="settingsTitle">
+            <div class="page-head">
+              <h2 id="settingsTitle">配置管理</h2>
+              <p>修改后写入服务端 <span class="mono">.env</span> 文件，<strong>需重启服务生效</strong>。敏感字段仅显示脱敏状态，不会回填完整值。</p>
+            </div>
+
+            <div class="card">
+              <div class="section">
+                <div class="section-title">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 12h18"/></svg>
+                  Immich 连接
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="setting_immich_base_url">Immich 地址 <span class="hint">（如 http://127.0.0.1:2283）</span></label>
+                  <div class="input-wrap">
+                    <input class="input" type="text" id="setting_immich_base_url" inputmode="url" autocomplete="off" placeholder="http://127.0.0.1:2283" />
+                  </div>
+                  <div class="form-status" id="err_immich_base_url" role="alert"></div>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="setting_immich_api_key">Immich API Key</label>
+                  <div class="input-wrap">
+                    <input class="input has-toggle" type="password" id="setting_immich_api_key" autocomplete="new-password" placeholder="留空则不修改" />
+                    <button class="eye-btn" type="button" data-target="setting_immich_api_key" aria-label="显示或隐藏 Immich API Key">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+                    </button>
+                  </div>
+                  <div class="form-status" id="status_immich_api_key"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="section">
+                <div class="section-title">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                  搜索接口鉴权
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="setting_search_api_key">搜索接口 API Key <span class="hint">（SEARCH_API_KEY，留空 = 不鉴权）</span></label>
+                  <div class="input-wrap">
+                    <input class="input has-toggle" type="password" id="setting_search_api_key" autocomplete="new-password" placeholder="留空则不修改" />
+                    <button class="eye-btn" type="button" data-target="setting_search_api_key" aria-label="显示或隐藏搜索接口 API Key">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+                    </button>
+                  </div>
+                  <div class="form-status" id="status_search_api_key"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="section" style="margin-bottom:0">
+                <div class="section-title">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4v6c0 5-3.4 8.5-8 10-4.6-1.5-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
+                  管理员鉴权
+                </div>
+                <div class="form-group" style="margin-bottom:0">
+                  <label class="form-label" for="setting_admin_api_key">管理页面密钥 <span class="hint">（ADMIN_API_KEY，留空 = 开发环境免密钥）</span></label>
+                  <div class="input-wrap">
+                    <input class="input has-toggle" type="password" id="setting_admin_api_key" autocomplete="new-password" placeholder="留空则不修改" />
+                    <button class="eye-btn" type="button" data-target="setting_admin_api_key" aria-label="显示或隐藏管理页面密钥">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+                    </button>
+                  </div>
+                  <div class="form-status" id="status_admin_api_key"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="save-bar">
+              <span class="state" id="saveState">配置已同步</span>
+              <button class="btn ghost" type="button" id="resetSettingsBtn">放弃修改</button>
+              <button class="btn green" type="button" id="saveSettingsBtn" disabled>保存配置</button>
+            </div>
+          </section>
+        </div>
+      </main>
     </div>
   </div>
 
-  <div class="tabs">
-    <button class="tab active" data-tab="features">功能开关</button>
-    <button class="tab" data-tab="status">系统状态</button>
-    <button class="tab" data-tab="settings">设置</button>
-  </div>
+  <!-- 移动端抽屉遮罩 -->
+  <div class="scrim" id="scrim" hidden></div>
 
-  <div class="main">
-    <div class="tab-content active" id="tab-features">
-      <div class="card">
-        <div class="card-title">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
-          功能开关
-        </div>
-        <div id="featureList" class="loading">加载中…</div>
+  <!-- 管理员登录 -->
+  <div class="login-mask" id="loginMask" role="dialog" aria-modal="true" aria-labelledby="loginTitle" hidden>
+    <div class="login-card">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="M21 16l-4.5-4.5L9 19"/>
+        </svg>
       </div>
-    </div>
-
-    <div class="tab-content" id="tab-status">
-      <div class="card">
-        <div class="card-title">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-          系统状态
-        </div>
-        <div class="status-grid" id="statusGrid"><span class="loading">加载中…</span></div>
-      </div>
-    </div>
-
-    <div class="tab-content" id="tab-settings">
-      <div class="card">
-        <div class="card-title">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          配置管理
-        </div>
-
-        <div class="settings-section">
-          <div class="settings-section-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M2 12h20"/></svg>
-            Immich 连接
-          </div>
-          <div class="form-group">
-            <label class="form-label">Immich 地址 <span class="hint">（如 http://127.0.0.1:3200）</span></label>
-            <div class="form-input-wrap">
-              <input class="form-input" type="text" id="setting_immich_base_url" placeholder="http://127.0.0.1:3200" />
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Immich API Key</label>
-            <div class="form-input-wrap">
-              <input class="form-input has-toggle" type="password" id="setting_immich_api_key" placeholder="填入 Immich API Key" />
-              <button class="eye-btn" data-target="setting_immich_api_key" type="button">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              </button>
-            </div>
-            <div class="form-status" id="status_immich_api_key"></div>
-          </div>
-        </div>
-
-        <div class="settings-section">
-          <div class="settings-section-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-            鉴权密钥
-          </div>
-          <div class="form-group">
-            <label class="form-label">搜索接口 API Key <span class="hint">（SEARCH_API_KEY，空 = 不鉴权）</span></label>
-            <div class="form-input-wrap">
-              <input class="form-input has-toggle" type="password" id="setting_search_api_key" placeholder="留空 = 不启用鉴权" />
-              <button class="eye-btn" data-target="setting_search_api_key" type="button">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              </button>
-            </div>
-            <div class="form-status" id="status_search_api_key"></div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">管理页面密钥 <span class="hint">（ADMIN_API_KEY，空 = 开发环境免密钥）</span></label>
-            <div class="form-input-wrap">
-              <input class="form-input has-toggle" type="password" id="setting_admin_api_key" placeholder="留空 = 开发环境免密钥" />
-              <button class="eye-btn" data-target="setting_admin_api_key" type="button">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              </button>
-            </div>
-            <div class="form-status" id="status_admin_api_key"></div>
-          </div>
-        </div>
-
-        <div class="form-actions">
-          <button class="btn green" id="saveSettingsBtn">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-            保存配置
-          </button>
-          <span class="form-hint">保存后写入 .env 文件，需重启服务生效</span>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="mask hidden" id="loginMask">
-    <div class="card">
-      <div class="card-title">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-        管理员登录
-      </div>
+      <h1 id="loginTitle">管理控制中心</h1>
+      <p class="sub">请输入管理员密钥以继续。密钥通过请求头 <span class="mono">x-admin-key</span> 校验。</p>
       <div class="form-group">
-        <div class="form-input-wrap">
-          <input class="form-input" type="password" id="keyInput" placeholder="输入管理员密钥" style="text-align: center" />
+        <label class="form-label" for="keyInput">管理员密钥</label>
+        <div class="input-wrap">
+          <input class="input" type="password" id="keyInput" autocomplete="current-password" placeholder="输入管理员密钥" />
         </div>
+        <div class="form-status" id="loginError" role="alert"></div>
       </div>
-      <div class="form-actions">
-        <button class="btn" id="loginBtn" style="flex:1; justify-content: center">进入控制台</button>
-      </div>
+      <button class="btn" type="button" id="loginBtn" style="width:100%">进入控制台</button>
     </div>
   </div>
 
-  <div class="toast" id="toast"></div>
+  <!-- Toast 容器 -->
+  <div class="toast-stack" id="toastStack" aria-live="polite" aria-atomic="false"></div>
 
-<script>
-(function () {
-  var KEY_STORAGE = "a01_admin_key";
-  var $ = function (id) { return document.getElementById(id); };
-  var headers = function () {
-    var k = localStorage.getItem(KEY_STORAGE);
-    return k ? { "x-admin-key": k } : {};
-  };
+  <script>
+  (function () {
+    "use strict";
 
-  function toast(msg, type) {
-    var t = $("toast");
-    t.textContent = msg;
-    t.className = "toast show" + (type ? " " + type : "");
-    setTimeout(function () { t.className = "toast" + (type ? " " + type : ""); }, 2400);
-  }
+    /* =======================================================================
+       常量与配置
+       ======================================================================= */
+    // 管理员密钥存储键。出于安全考虑改用 sessionStorage（会话级，关闭标签即清除），
+    // 降低密钥长期驻留浏览器的风险。理想方案是后端下发 HttpOnly Cookie，
+    // 但当前后端仅支持 x-admin-key 请求头校验，故保留前端会话存储并限制仅存该值。
+    var ADMIN_KEY_STORAGE = "a01_admin_key";
 
-  async function api(path, opts) {
-    opts = opts || {};
-    var init = { method: opts.method || "GET", headers: Object.assign({ "Content-Type": "application/json" }, headers()) };
-    if (opts.body) init.body = JSON.stringify(opts.body);
-    var resp = await fetch(path, init);
-    if (resp.status === 401) { showLogin(); throw new Error("需要管理员密钥"); }
-    var data = await resp.json().catch(function () { return {}; });
-    if (!resp.ok) throw new Error((data.error && data.error.message) || ("HTTP " + resp.status));
-    return data;
-  }
-
-  /* ---- Tabs ---- */
-  document.querySelectorAll(".tab").forEach(function (tab) {
-    tab.addEventListener("click", function () {
-      document.querySelectorAll(".tab").forEach(function (t) { t.classList.remove("active"); });
-      document.querySelectorAll(".tab-content").forEach(function (c) { c.classList.remove("active"); });
-      tab.classList.add("active");
-      $("tab-" + tab.dataset.tab).classList.add("active");
-    });
-  });
-
-  /* ---- Eye toggle ---- */
-  document.querySelectorAll(".eye-btn").forEach(function (btn) {
-    btn.addEventListener("click", function () {
-      var input = $(btn.dataset.target);
-      input.type = input.type === "password" ? "text" : "password";
-    });
-  });
-
-  /* ---- Status ---- */
-  function fmtUptime(s) {
-    if (s < 60) return s + " 秒";
-    if (s < 3600) return Math.round(s / 60) + " 分钟";
-    if (s < 86400) return (s / 3600).toFixed(1) + " 小时";
-    return (s / 86400).toFixed(1) + " 天";
-  }
-
-  function renderStatus(st) {
-    var items = [
-      { k: "应用环境", v: st.app_env },
-      { k: "服务版本", v: "v" + st.version },
-      { k: "运行时长", v: fmtUptime(st.uptime_seconds) },
-      { k: "Immich 连接", v: st.immich_connected ? '<span class="dot"></span>已连接' : '<span class="dot"></span>未连接', cls: st.immich_connected ? "ok" : "bad" },
-      { k: "Immich 地址", v: st.immich_base_url },
-      { k: "缓存后端", v: st.cache_backend },
-      { k: "功能启用", v: st.features_enabled + " / " + st.features_total }
+    // 功能分组：后端 snapshot 未提供分组信息，这里按能力归属在前端映射。
+    var FEATURE_GROUPS = [
+      { id: "search", label: "搜索能力" },
+      { id: "ai", label: "AI 能力" },
+      { id: "gallery", label: "图库能力" },
+      { id: "system", label: "系统能力" },
+      { id: "experimental", label: "实验性能力" },
+      { id: "other", label: "其他" }
     ];
-    $("statusGrid").innerHTML = items.map(function (it) {
-      return '<div class="status-item"><div class="k">' + it.k + '</div><div class="v ' + (it.cls || "") + '">' + it.v + "</div></div>";
-    }).join("");
-  }
+    var FEATURE_GROUP_MAP = {
+      suggest_enabled: "search",
+      correct_enabled: "search",
+      explain_enabled: "search",
+      image_query_enabled: "search",
+      feedback_enabled: "search",
+      scene_enabled: "ai",
+      ai_enabled: "ai",
+      dedup_enabled: "gallery",
+      stats_enabled: "gallery",
+      auth_enabled: "system",
+      rate_limit_enabled: "system",
+      huawei_enabled: "experimental",
+      huawei_face_enabled: "experimental"
+    };
 
-  /* ---- Features ---- */
-  function renderFeatures(features) {
-    var keys = Object.keys(features);
-    if (!keys.length) { $("featureList").innerHTML = '<span class="loading">无功能开关</span>'; return; }
-    var html = keys.map(function (key) {
-      var f = features[key];
-      var badges = "";
-      if (f.requires_restart) badges += '<span class="badge">需重启</span>';
-      if (f.overridden) badges += '<span class="badge overridden">已覆盖</span>';
-      if (!f.enabled && !f.requires_restart) badges += '<span class="badge off">已关闭</span>';
-      return '<div class="feature" data-key="' + key + '">' +
-        '<div class="info"><div class="name">' + f.name + " " + badges + '</div><div class="desc">' + f.description + "</div></div>" +
-        '<button class="toggle' + (f.enabled ? " on" : "") + '" data-key="' + key + '" aria-label="' + f.name + '"></button>' +
-        "</div>";
-    }).join("");
-    $("featureList").innerHTML = html;
+    // 页面路由标题
+    var ROUTE_TITLES = { overview: "总览", features: "功能开关", status: "系统状态", settings: "配置管理" };
 
-    Array.prototype.forEach.call($("featureList").querySelectorAll(".toggle"), function (btn) {
-      btn.addEventListener("click", function () { toggleFeature(btn); });
-    });
-  }
+    // SVG 图标（常量字符串，仅用于 trusted innerHTML 注入，不含任何用户输入）
+    var ICON = {
+      ok: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>',
+      err: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v5M12 16h.01"/></svg>',
+      warn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>',
+      info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>',
+      box: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg>',
+      server: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01"/></svg>',
+      clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+      layers: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l9 5-9 5-9-5 9-5z"/><path d="M3 12l9 5 9-5"/><path d="M3 17l9 5 9-5"/></svg>',
+      link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>',
+      tag: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12l-8 8-9-9V4h7z"/><circle cx="7.5" cy="7.5" r="1.3"/></svg>',
+      search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>',
+      sparkle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></svg>',
+      photo: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="M21 16l-4.5-4.5L9 19"/></svg>',
+      gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>',
+      flask: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4A2 2 0 0 0 19 18l-5-9V3"/><path d="M7.5 14h9"/></svg>',
+      dot: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3"/></svg>',
+      external: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14L21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>'
+    };
+    var GROUP_ICON = { search: "search", ai: "sparkle", gallery: "photo", system: "gear", experimental: "flask", other: "dot" };
 
-  async function toggleFeature(btn) {
-    var key = btn.dataset.key;
-    var enable = !btn.classList.contains("on");
-    btn.disabled = true;
-    try {
-      var o; var data = await api("/admin/api/features", { method: "PUT", body: { updates: (o = {}, o[key] = enable, o) } });
-      renderFeatures(data.features);
-      toast(enable ? "已开启" : "已关闭", "ok");
-    } catch (e) {
-      toast(e.message, "err");
-      btn.disabled = false;
+    /* =======================================================================
+       状态
+       ======================================================================= */
+    var state = {
+      route: "overview",
+      features: null,     // { key: {name, description, requires_restart, enabled, overridden} }
+      status: null,       // /admin/api/status 响应
+      settings: null,     // /admin/api/settings 响应
+      settingsBaseline: null, // 用于“未保存修改”判断
+      featureQuery: "",
+      featureFilter: "all",
+      lastRefreshAt: null,
+      authed: false
+    };
+
+    /* =======================================================================
+       DOM 工具（统一走 textContent，杜绝 innerHTML 注入用户/服务端数据）
+       ======================================================================= */
+    function $(id) { return document.getElementById(id); }
+    function $all(sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); }
+
+    function el(tag, attrs, children) {
+      var node = document.createElement(tag);
+      if (attrs) {
+        Object.keys(attrs).forEach(function (key) {
+          var val = attrs[key];
+          if (val === null || val === undefined || val === false) return;
+          if (key === "class") node.className = val;
+          else if (key === "text") node.textContent = String(val);
+          else if (key === "html") node.innerHTML = val; // 仅用于 ICON 常量
+          else if (key === "on" && typeof val === "object") {
+            Object.keys(val).forEach(function (ev) { node.addEventListener(ev, val[ev]); });
+          } else if (key === "dataset" && typeof val === "object") {
+            Object.keys(val).forEach(function (d) { node.dataset[d] = val[d]; });
+          } else if (key === "style" && typeof val === "object") {
+            Object.assign(node.style, val);
+          } else if (val !== null && val !== undefined) {
+            node.setAttribute(key, val === true ? "" : String(val));
+          }
+        });
+      }
+      append(node, children);
+      return node;
     }
-  }
 
-  /* ---- Settings ---- */
-  async function loadSettings() {
-    try {
-      var data = await api("/admin/api/settings");
-      var s = data.settings;
-      $("setting_immich_base_url").value = s.immich_base_url.value || "";
+    function append(parent, children) {
+      if (children === null || children === undefined || children === false) return;
+      var list = Array.isArray(children) ? children : [children];
+      list.forEach(function (child) {
+        if (child === null || child === undefined || child === false) return;
+        if (typeof child === "string" || typeof child === "number") {
+          parent.appendChild(document.createTextNode(String(child)));
+        } else {
+          parent.appendChild(child);
+        }
+      });
+    }
+
+    function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
+    function iconNode(name, extraClass) {
+      var wrap = el("span", { class: "ico " + (extraClass || ""), "aria-hidden": "true", html: ICON[name] || "" });
+      return wrap;
+    }
+
+    /* =======================================================================
+       Toast（不堆叠超过 3 条，错误停留更久，附下一步建议）
+       ======================================================================= */
+    var toastStack = null;
+    function toast(message, type, next) {
+      if (!toastStack) toastStack = $("toastStack");
+      type = type || "info";
+      // 控制堆叠：最多同时 3 条
+      while (toastStack.children.length >= 3) toastStack.removeChild(toastStack.firstChild);
+
+      var iconName = type === "ok" ? "ok" : type === "err" ? "err" : type === "warn" ? "warn" : "info";
+      var msg = el("div", { class: "msg", text: String(message) });
+      if (next) msg.appendChild(el("span", { class: "next", text: String(next) }));
+      var node = el("div", { class: "toast " + type, role: "status" }, [
+        iconNode(iconName),
+        msg
+      ]);
+      toastStack.appendChild(node);
+
+      var ttl = type === "err" ? 6000 : type === "warn" ? 4500 : 3000;
+      setTimeout(function () {
+        node.classList.add("out");
+        setTimeout(function () { if (node.parentNode) node.parentNode.removeChild(node); }, 220);
+      }, ttl);
+    }
+
+    /* =======================================================================
+       网络请求封装（统一错误处理 + 401 处理）
+       ======================================================================= */
+    function adminHeaders() {
+      var key = sessionStorage.getItem(ADMIN_KEY_STORAGE);
+      return key ? { "x-admin-key": key } : {};
+    }
+
+    // 返回 { ok, status, data }，不 throw；由调用方决定降级策略
+    async function request(path, options) {
+      options = options || {};
+      var init = {
+        method: options.method || "GET",
+        headers: Object.assign({ "Content-Type": "application/json" }, adminHeaders())
+      };
+      if (options.body !== undefined) init.body = JSON.stringify(options.body);
+
+      var resp;
+      try {
+        resp = await fetch(path, init);
+      } catch (e) {
+        return { ok: false, status: 0, data: null, networkError: true };
+      }
+      var data = null;
+      try { data = await resp.json(); } catch (e) { data = null; }
+
+      if (resp.status === 401) { showLogin("登录状态已失效，请重新输入管理员密钥。"); }
+      return { ok: resp.ok, status: resp.status, data: data };
+    }
+
+    function errorMessage(result) {
+      if (result.networkError) {
+        return { text: "无法连接服务", next: "请确认后端服务已启动，然后点击刷新重试。" };
+      }
+      var e = result.data && result.data.error;
+      var code = e && e.code;
+      if (result.status === 401 || code === "UNAUTHORIZED") {
+        return { text: "未授权", next: "请重新登录管理员账号。" };
+      }
+      if (result.status === 403) return { text: "权限不足", next: "当前账号无权访问该资源。" };
+      if (result.status === 503 || code === "SERVICE_UNAVAILABLE") {
+        return { text: (e && e.message) || "服务暂不可用", next: "上游或功能未就绪，请稍后重试。" };
+      }
+      if (result.status >= 500) return { text: "服务异常", next: "请稍后重试；若持续出现请联系维护人员。" };
+      return { text: (e && e.message) || ("请求失败（HTTP " + result.status + "）"), next: "请检查输入后重试。" };
+    }
+
+    /* =======================================================================
+       路由 / 导航
+       ======================================================================= */
+    function setRoute(route) {
+      if (!ROUTE_TITLES[route]) route = "overview";
+      state.route = route;
+      $all(".nav-item").forEach(function (item) {
+        var active = item.dataset.route === route;
+        if (active) item.setAttribute("aria-current", "page"); else item.removeAttribute("aria-current");
+      });
+      $all(".page").forEach(function (p) { p.classList.remove("active"); });
+      var page = $("page-" + route);
+      if (page) page.classList.add("active");
+      $("crumbCurrent").textContent = ROUTE_TITLES[route];
+      closeDrawer();
+      // 懒加载对应数据
+      if (route === "overview") renderOverview();
+      if (route === "features") renderFeatures();
+      if (route === "status") renderStatus();
+      if (route === "settings") loadSettings();
+    }
+
+    function openDrawer() {
+      $("sidebar").classList.add("open");
+      $("scrim").hidden = false;
+      $("menuBtn").setAttribute("aria-expanded", "true");
+    }
+    function closeDrawer() {
+      $("sidebar").classList.remove("open");
+      $("scrim").hidden = true;
+      $("menuBtn").setAttribute("aria-expanded", "false");
+    }
+
+    /* =======================================================================
+       顶部状态徽章
+       ======================================================================= */
+    function updateChips() {
+      var st = state.status;
+      var chipEnv = $("chipEnv"), chipImmich = $("chipImmich"), chipAuth = $("chipAuth");
+
+      if (st) {
+        chipEnv.className = "chip";
+        chipEnv.textContent = "";
+        chipEnv.appendChild(el("span", { class: "dot" }));
+        chipEnv.appendChild(document.createTextNode(st.app_env === "production" ? "生产环境" : "开发环境"));
+        $("sidebarEnvValue").textContent = st.app_env === "production" ? "生产" : "开发";
+
+        if (st.immich_connected) {
+          chipImmich.className = "chip ok";
+          chipImmich.textContent = "";
+          chipImmich.appendChild(el("span", { class: "dot" }));
+          chipImmich.appendChild(document.createTextNode("Immich 已连接"));
+        } else {
+          chipImmich.className = "chip bad";
+          chipImmich.textContent = "";
+          chipImmich.appendChild(el("span", { class: "dot" }));
+          chipImmich.appendChild(document.createTextNode("Immich 未连接"));
+        }
+      }
+
+      chipAuth.className = state.authed ? "chip ok" : "chip";
+      chipAuth.textContent = "";
+      chipAuth.appendChild(el("span", { class: "dot" }));
+      chipAuth.appendChild(document.createTextNode(state.authed ? "管理员已认证" : "未认证"));
+    }
+
+    /* =======================================================================
+       总览
+       ======================================================================= */
+    function statCard(iconName, label, value, opts) {
+      opts = opts || {};
+      var valueNode = el("div", { class: "v " + (opts.valueClass || "") });
+
+      valueNode.textContent = value;
+      if (opts.dot) {
+        valueNode.textContent = "";
+        valueNode.appendChild(el("span", { class: "inline-dot " + opts.dot }));
+        valueNode.appendChild(document.createTextNode(value));
+      }
+      return el("div", { class: "stat" }, [
+        el("div", { class: "k" }, [iconNode(iconName), document.createTextNode(label)]),
+        valueNode,
+        opts.sub ? el("div", { class: "sub", text: opts.sub }) : null
+      ]);
+    }
+
+    function skeletonStats(n) {
+      var grid = el("div", { class: "stat-grid" });
+      for (var i = 0; i < (n || 6); i++) grid.appendChild(el("div", { class: "skeleton sk-stat" }));
+      return grid;
+    }
+
+    function renderOverview() {
+      var body = $("overviewBody");
+      if (!state.status || !state.features) {
+        clear(body);
+        body.appendChild(skeletonStats(6));
+        return;
+      }
+      var st = state.status;
+      var features = state.features;
+      var total = Object.keys(features).length;
+
+      clear(body);
+
+      // 降级提示
+      if (!st.immich_connected) {
+        body.appendChild(el("div", { class: "notice warn", style: { marginBottom: "var(--sp-4)" } }, [
+          iconNode("warn"),
+          el("div", {}, [
+            el("strong", { text: "Immich 连接异常。 " }),
+            el("span", { class: "body", text: "搜索与图库相关能力可能降级或不可用，请检查 Immich 地址与 API Key。" })
+          ])
+        ]));
+      }
+
+      var grid = el("div", { class: "stat-grid" }, [
+        statCard("link", "Immich 连接", st.immich_connected ? "已连接" : "未连接", {
+          dot: st.immich_connected ? "ok" : "err",
+          valueClass: st.immich_connected ? "v-ok" : "v-err",
+          sub: st.immich_base_url || "—"
+        }),
+        statCard("layers", "缓存后端", st.cache_backend || "未知", { valueClass: "v-dim" }),
+        statCard("tag", "已启用功能", st.features_enabled + " / " + st.features_total, { valueClass: "v-dim" }),
+        statCard("clock", "运行时长", fmtUptime(st.uptime_seconds), { valueClass: "v-dim" }),
+        statCard("server", "当前环境", st.app_env, { valueClass: st.app_env === "production" ? "v-warn" : "v-dim" }),
+        statCard("box", "最近刷新", state.lastRefreshAt ? fmtTime(state.lastRefreshAt) : "—", { valueClass: "v-dim" })
+      ]);
+      body.appendChild(grid);
+
+      // 快捷操作
+      var quick = el("div", { class: "card", style: { marginTop: "var(--sp-4)" } }, [
+        el("div", { class: "card-head" }, [iconNode("sparkle"), el("h3", { text: "快捷操作" })]),
+        el("div", { style: { display: "flex", gap: "var(--sp-2)", flexWrap: "wrap" } }, [
+          el("button", { class: "btn ghost", type: "button", on: { click: function () { setRoute("features"); } } }, [document.createTextNode("管理功能开关")]),
+          el("button", { class: "btn ghost", type: "button", on: { click: function () { setRoute("status"); } } }, [document.createTextNode("查看系统状态")]),
+          el("button", { class: "btn ghost", type: "button", on: { click: function () { setRoute("settings"); } } }, [document.createTextNode("修改配置")])
+        ])
+      ]);
+      body.appendChild(quick);
+    }
+
+    /* =======================================================================
+       功能开关
+       ======================================================================= */
+    function renderFeatures() {
+      var body = $("featureBody");
+      if (!state.features) {
+        clear(body);
+        for (var i = 0; i < 4; i++) body.appendChild(el("div", { class: "skeleton sk-card" }));
+        return;
+      }
+
+      var q = state.featureQuery.trim().toLowerCase();
+      var entries = Object.keys(state.features).map(function (key) {
+        return Object.assign({ key: key }, state.features[key]);
+      }).filter(function (f) {
+        var group = FEATURE_GROUP_MAP[f.key] || "other";
+        if (state.featureFilter !== "all" && group !== state.featureFilter) return false;
+        if (q && (String(f.name) + " " + String(f.description) + " " + f.key).toLowerCase().indexOf(q) === -1) return false;
+        return true;
+      });
+
+      clear(body);
+
+      if (!entries.length) {
+        body.appendChild(emptyState("search", "没有匹配的功能", "试试更换关键词或切换分组筛选。"));
+        return;
+      }
+
+      FEATURE_GROUPS.forEach(function (group) {
+        var items = entries.filter(function (f) { return (FEATURE_GROUP_MAP[f.key] || "other") === group.id; });
+        if (!items.length) return;
+        var grid = el("div", { class: "feature-grid" });
+        items.forEach(function (f) { grid.appendChild(featureCard(f)); });
+        body.appendChild(el("div", { class: "feature-group" }, [
+          el("div", { class: "group-title" }, [
+            iconNode(GROUP_ICON[group.id]),
+            document.createTextNode(group.label),
+            el("span", { class: "count", text: "· " + items.length })
+          ]),
+          grid
+        ]));
+      });
+    }
+
+    function featureCard(f) {
+      var badges = el("div", { class: "meta" });
+      if (f.enabled) badges.appendChild(el("span", { class: "badge on", text: "已开启" }));
+      if (f.requires_restart) badges.appendChild(el("span", { class: "badge restart", text: "需重启生效" }));
+      if (f.overridden) badges.appendChild(el("span", { class: "badge override", text: "已被运行时覆盖" }));
+
+      var toggle = el("button", {
+        class: "toggle",
+        type: "button",
+        "aria-pressed": f.enabled ? "true" : "false",
+        "aria-label": f.name + "：" + (f.enabled ? "已开启，点击关闭" : "已关闭，点击开启"),
+        dataset: { key: f.key }
+      }, [el("span", { class: "spinner" })]);
+      toggle.addEventListener("click", function () { toggleFeature(toggle); });
+
+      return el("div", { class: "feature" + (f.enabled ? "" : " off"), dataset: { key: f.key } }, [
+        el("div", { class: "info" }, [
+          el("div", { class: "name", text: f.name }),
+          el("div", { class: "desc", text: f.description }),
+          badges
+        ]),
+        toggle
+      ]);
+    }
+
+    async function toggleFeature(btn) {
+      var key = btn.dataset.key;
+      var enable = btn.getAttribute("aria-pressed") !== "true";
+      var card = btn.closest(".feature");
+
+      btn.disabled = true;
+      btn.dataset.loading = "1";
+      try {
+        var updates = {};
+        updates[key] = enable;
+        var result = await request("/admin/api/features", { method: "PUT", body: { updates: updates } });
+        if (!result.ok) {
+          var info = errorMessage(result);
+          if (result.status === 401) return;
+          toast(info.text, "err", info.next);
+          return;
+        }
+        state.features = result.data.features;
+        // 局部刷新该卡片，避免整页重绘导致跳动
+        applyFeatureState(card, state.features[key]);
+        var meta = state.features[key];
+        if (meta && meta.requires_restart) {
+          toast((enable ? "已开启" : "已关闭") + "「" + meta.name + "」", "warn", "该功能需要重启服务后生效。");
+        } else {
+          toast((enable ? "已开启" : "已关闭") + "「" + meta.name + "」", "ok");
+        }
+        refreshOverviewIfVisible();
+      } catch (e) {
+        toast("切换失败", "err", "请稍后重试。");
+      } finally {
+        btn.disabled = false;
+        delete btn.dataset.loading;
+      }
+    }
+
+    function applyFeatureState(card, f) {
+      if (!card || !f) return;
+      card.classList.toggle("off", !f.enabled);
+      var toggle = card.querySelector(".toggle");
+      if (toggle) {
+        toggle.setAttribute("aria-pressed", f.enabled ? "true" : "false");
+        toggle.setAttribute("aria-label", f.name + "：" + (f.enabled ? "已开启，点击关闭" : "已关闭，点击开启"));
+      }
+      // 重建徽章
+      var meta = card.querySelector(".meta");
+      if (meta) {
+        clear(meta);
+        if (f.enabled) meta.appendChild(el("span", { class: "badge on", text: "已开启" }));
+        if (f.requires_restart) meta.appendChild(el("span", { class: "badge restart", text: "需重启生效" }));
+        if (f.overridden) meta.appendChild(el("span", { class: "badge override", text: "已被运行时覆盖" }));
+      }
+    }
+
+    /* =======================================================================
+       系统状态
+       ======================================================================= */
+    function renderStatus() {
+      var body = $("statusBody");
+      if (!state.status) {
+        clear(body);
+        body.appendChild(skeletonStats(6));
+        return;
+      }
+      var st = state.status;
+      clear(body);
+
+      if (!st.immich_connected) {
+        body.appendChild(el("div", { class: "notice warn", style: { marginBottom: "var(--sp-4)" } }, [
+          iconNode("warn"),
+          el("div", {}, [
+            el("strong", { text: "Immich 不可用。 " }),
+            el("span", { class: "body", text: "请核对 Immich 地址（当前 " + (st.immich_base_url || "未配置") + "）与 API Key 是否正确。" })
+          ])
+        ]));
+      }
+
+      body.appendChild(el("div", { class: "stat-grid" }, [
+        statCard("server", "应用环境", st.app_env, { valueClass: st.app_env === "production" ? "v-warn" : "v-dim" }),
+        statCard("tag", "服务版本", "v" + st.version, { valueClass: "v-dim" }),
+        statCard("clock", "运行时长", fmtUptime(st.uptime_seconds), { valueClass: "v-dim" }),
+        statCard("link", "Immich 连接", st.immich_connected ? "已连接" : "未连接", {
+          dot: st.immich_connected ? "ok" : "err",
+          valueClass: st.immich_connected ? "v-ok" : "v-err",
+          sub: st.immich_base_url || "—"
+        }),
+        statCard("layers", "缓存后端", st.cache_backend || "未知", { valueClass: "v-dim" }),
+        statCard("tag", "功能启用数量", st.features_enabled + " / " + st.features_total, { valueClass: "v-dim" })
+      ]));
+
+      body.appendChild(el("div", { class: "notice", style: { marginTop: "var(--sp-4)" } }, [
+        iconNode("server"),
+        el("div", {}, [
+          el("strong", { text: "Immich 地址： " }),
+          el("span", { class: "mono", text: st.immich_base_url || "未配置" })
+        ])
+      ]));
+    }
+
+    /* =======================================================================
+       配置管理
+       ======================================================================= */
+    var SETTING_INPUTS = ["immich_base_url", "immich_api_key", "search_api_key", "admin_api_key"];
+
+    function renderSettings() {
+      if (!state.settings) return;
+      var s = state.settings;
+      $("setting_immich_base_url").value = (s.immich_base_url && !s.immich_base_url.sensitive) ? (s.immich_base_url.value || "") : "";
       $("setting_immich_api_key").value = "";
       $("setting_search_api_key").value = "";
       $("setting_admin_api_key").value = "";
@@ -465,97 +1281,320 @@
       setSettingStatus("immich_api_key", s.immich_api_key);
       setSettingStatus("search_api_key", s.search_api_key);
       setSettingStatus("admin_api_key", s.admin_api_key);
-    } catch (e) {
-      if (e.message !== "需要管理员密钥") toast(e.message, "err");
+
+      state.settingsBaseline = currentFormSnapshot();
+      evaluateDirty();
     }
-  }
 
-  function setSettingStatus(key, info) {
-    var el = $("status_" + key);
-    if (info.is_set) {
-      el.textContent = "当前: " + info.value;
-      el.className = "form-status set";
-    } else {
-      el.textContent = "未设置";
-      el.className = "form-status empty";
+    function setSettingStatus(key, info) {
+      var node = $("status_" + key);
+      if (!node) return;
+      clear(node);
+      if (info && info.is_set) {
+        node.className = "form-status set";
+        node.appendChild(document.createTextNode("已配置 · "));
+        node.appendChild(el("span", { class: "mono", text: info.value || "****" }));
+      } else {
+        node.className = "form-status empty";
+        node.appendChild(document.createTextNode("未设置"));
+      }
     }
-  }
 
-  async function saveSettings() {
-    var updates = {};
-    var url = $("setting_immich_base_url").value.trim();
-    if (url) updates.immich_base_url = url;
-    var ik = $("setting_immich_api_key").value.trim();
-    if (ik) updates.immich_api_key = ik;
-    var sk = $("setting_search_api_key").value.trim();
-    if (sk) updates.search_api_key = sk;
-    var ak = $("setting_admin_api_key").value.trim();
-    if (ak) updates.admin_api_key = ak;
-
-    if (!Object.keys(updates).length) { toast("没有需要保存的更改", "err"); return; }
-
-    var btn = $("saveSettingsBtn");
-    btn.disabled = true;
-    try {
-      await api("/admin/api/settings", { method: "PUT", body: { updates: updates } });
-      toast("配置已保存，重启服务后生效", "ok");
-      loadSettings();
-    } catch (e) {
-      toast(e.message, "err");
-    } finally {
-      btn.disabled = false;
+    function currentFormSnapshot() {
+      var snap = {};
+      snap.immich_base_url = $("setting_immich_base_url").value.trim();
+      snap.immich_api_key = $("setting_immich_api_key").value.trim();
+      snap.search_api_key = $("setting_search_api_key").value.trim();
+      snap.admin_api_key = $("setting_admin_api_key").value.trim();
+      return snap;
     }
-  }
 
-  /* ---- Load all ---- */
-  async function load() {
-    try {
-      var st = await api("/admin/api/status");
-      renderStatus(st);
-      var f = await api("/admin/api/features");
-      renderFeatures(f.features);
-      $("loginMask").classList.add("hidden");
+    function evaluateDirty() {
+      var snap = currentFormSnapshot();
+      var baseline = state.settingsBaseline || {};
+      var dirty = SETTING_INPUTS.some(function (k) { return snap[k] !== (baseline[k] || ""); });
+      // 前端基础校验
+      var urlInput = $("setting_immich_base_url");
+      var urlErr = $("err_immich_base_url");
+      var url = snap.immich_base_url;
+      var urlValid = true, urlMsg = "";
+      if (url) {
+        if (!/^https?:\/\//i.test(url)) { urlValid = false; urlMsg = "地址需以 http:// 或 https:// 开头"; }
+        else if (/[\u0000-\u001f\u007f]/.test(url)) { urlValid = false; urlMsg = "地址包含非法控制字符"; }
+        else { try { new URL(url); } catch (e) { urlValid = false; urlMsg = "地址格式无效"; } }
+      }
+      urlInput.classList.toggle("invalid", !urlValid);
+      urlErr.textContent = urlValid ? "" : urlMsg;
+      urlErr.className = urlValid ? "form-status" : "form-status";
 
-      $("immichBtn").onclick = function () { window.open(st.immich_base_url, "_blank"); };
-
-      loadSettings();
-    } catch (e) {
-      if (e.message !== "需要管理员密钥") toast(e.message, "err");
+      var canSave = dirty && urlValid;
+      $("saveSettingsBtn").disabled = !canSave;
+      var stateNode = $("saveState");
+      if (!urlValid) { stateNode.textContent = "请先修正无效的地址"; stateNode.className = "state dirty"; }
+      else if (dirty) { stateNode.textContent = "有未保存的修改"; stateNode.className = "state dirty"; }
+      else { stateNode.textContent = "配置已同步"; stateNode.className = "state"; }
+      return canSave;
     }
-  }
 
-  function showLogin() {
-    $("loginMask").classList.remove("hidden");
-    $("keyInput").value = "";
-    setTimeout(function () { $("keyInput").focus(); }, 50);
-  }
+    async function saveSettings() {
+      var updates = {};
+      var snap = currentFormSnapshot();
+      ["immich_base_url", "immich_api_key", "search_api_key", "admin_api_key"].forEach(function (k) {
+        if (snap[k]) updates[k] = snap[k];
+      });
+      if (!Object.keys(updates).length) { toast("没有需要保存的更改", "warn"); return; }
 
-  async function tryLogin() {
-    var key = $("keyInput").value.trim();
-    if (!key) { toast("请输入管理员密钥", "err"); return; }
-    try {
-      var r = await fetch("/admin/api/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ admin_key: key }) });
-      var data = await r.json().catch(function () { return {}; });
-      if (!r.ok) throw new Error((data.error && data.error.message) || "密钥错误");
-      localStorage.setItem(KEY_STORAGE, key);
-      $("loginMask").classList.add("hidden");
-      load();
-      toast("登录成功", "ok");
-    } catch (e) {
-      toast(e.message, "err");
+      var btn = $("saveSettingsBtn");
+      var original = btn.textContent;
+      btn.disabled = true;
+      clear(btn);
+      btn.appendChild(el("span", { class: "spin" }));
+      btn.appendChild(document.createTextNode("保存中…"));
+
+      try {
+        var result = await request("/admin/api/settings", { method: "PUT", body: { updates: updates } });
+        if (!result.ok) {
+          if (result.status === 401) return;
+          var info = errorMessage(result);
+          toast(info.text, "err", info.next);
+          return;
+        }
+        toast("配置已保存", "ok", "已写入服务端 .env，需重启服务后生效。");
+        await loadSettings();
+      } finally {
+        clear(btn);
+        btn.textContent = original;
+        evaluateDirty();
+      }
     }
-  }
 
-  $("loginBtn").addEventListener("click", tryLogin);
-  $("keyInput").addEventListener("keydown", function (e) { if (e.key === "Enter") tryLogin(); });
-  $("logoutBtn").addEventListener("click", function () {
-    localStorage.removeItem(KEY_STORAGE);
-    showLogin();
-  });
-  $("saveSettingsBtn").addEventListener("click", saveSettings);
+    /* =======================================================================
+       数据加载
+       ======================================================================= */
+    async function loadStatus() {
+      var result = await request("/admin/api/status");
+      if (!result.ok) {
+        if (result.status === 401) return false;
+        var info = errorMessage(result);
+        toast(info.text, "err", info.next);
+        return false;
+      }
+      state.status = result.data;
+      state.lastRefreshAt = new Date();
+      updateChips();
+      if (state.route === "overview") renderOverview();
+      if (state.route === "status") renderStatus();
+      return true;
+    }
 
-  load();
-})();
-</script>
+    async function loadFeatures() {
+      var result = await request("/admin/api/features");
+      if (!result.ok) {
+        if (result.status === 401) return false;
+        var info = errorMessage(result);
+        toast(info.text, "err", info.next);
+        return false;
+      }
+      state.features = result.data.features;
+      if (state.route === "overview") renderOverview();
+      if (state.route === "features") renderFeatures();
+      return true;
+    }
+
+    async function loadSettings() {
+      var result = await request("/admin/api/settings");
+      if (!result.ok) {
+        if (result.status === 401) return false;
+        var info = errorMessage(result);
+        toast(info.text, "err", info.next);
+        return false;
+      }
+      state.settings = result.data.settings;
+      if (state.route === "settings") renderSettings();
+      return true;
+    }
+
+    async function refreshAll(silent) {
+      var btn = $("refreshBtn");
+      if (btn && !silent) { btn.disabled = true; btn.dataset.loading = "1"; }
+      var ok = true;
+      ok = (await loadStatus()) && ok;
+      ok = (await loadFeatures()) && ok;
+      // 配置数据仅在进入「配置管理」页时按需加载，刷新时不触碰，
+      // 以免覆盖用户正在编辑但尚未保存的表单内容。
+      if (btn && !silent) { btn.disabled = false; delete btn.dataset.loading; }
+      if (ok && !silent) toast("已刷新", "ok");
+      return ok;
+    }
+
+    function refreshOverviewIfVisible() {
+      // 功能开关变化后同步总览的“已启用功能”计数
+      if (state.route === "overview") renderOverview();
+    }
+
+    /* =======================================================================
+       登录 / 登出
+       ======================================================================= */
+    function showLogin(message) {
+      state.authed = false;
+      updateChips();
+      var mask = $("loginMask");
+      mask.hidden = false;
+      $("keyInput").value = "";
+      $("loginError").textContent = message || "";
+      setTimeout(function () { $("keyInput").focus(); }, 60);
+    }
+    function hideLogin() { $("loginMask").hidden = true; $("loginError").textContent = ""; }
+
+    async function tryLogin() {
+      var key = $("keyInput").value.trim();
+      var btn = $("loginBtn");
+      if (!key) { $("loginError").textContent = "请输入管理员密钥"; return; }
+      btn.disabled = true;
+      $("loginError").textContent = "";
+      var original = btn.textContent;
+      clear(btn);
+      btn.appendChild(el("span", { class: "spin" }));
+      btn.appendChild(document.createTextNode("验证中…"));
+      try {
+        var resp;
+        try {
+          resp = await fetch("/admin/api/verify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ admin_key: key })
+          });
+        } catch (e) {
+          $("loginError").textContent = "无法连接服务，请确认后端已启动后重试。";
+          return;
+        }
+        var data = await resp.json().catch(function () { return {}; });
+        if (!resp.ok) {
+          $("loginError").textContent = (data.error && data.error.message) || "密钥错误，请重新输入。";
+          return;
+        }
+        sessionStorage.setItem(ADMIN_KEY_STORAGE, key);
+        state.authed = true;
+        hideLogin();
+        updateChips();
+        await refreshAll(true);
+        toast("登录成功", "ok");
+      } finally {
+        clear(btn);
+        btn.textContent = original;
+        btn.disabled = false;
+      }
+    }
+
+    function logout() {
+      sessionStorage.removeItem(ADMIN_KEY_STORAGE);
+      state.authed = false;
+      state.status = null;
+      state.features = null;
+      state.settings = null;
+      state.settingsBaseline = null;
+      updateChips();
+      showLogin("已退出登录，请输入管理员密钥。");
+    }
+
+    /* =======================================================================
+       工具函数
+       ======================================================================= */
+    function fmtUptime(seconds) {
+      if (seconds === null || seconds === undefined) return "—";
+      if (seconds < 60) return seconds + " 秒";
+      if (seconds < 3600) return Math.round(seconds / 60) + " 分钟";
+      if (seconds < 86400) return (seconds / 3600).toFixed(1) + " 小时";
+      return (seconds / 86400).toFixed(1) + " 天";
+    }
+    function fmtTime(date) {
+      function pad(n) { return n < 10 ? "0" + n : "" + n; }
+      return pad(date.getHours()) + ":" + pad(date.getMinutes()) + ":" + pad(date.getSeconds());
+    }
+    function emptyState(iconName, title, hint) {
+      return el("div", { class: "empty" }, [
+        iconNode(iconName),
+        el("p", { text: title + (hint ? "　" + hint : "") })
+      ]);
+    }
+
+    /* =======================================================================
+       事件绑定与初始化
+       ======================================================================= */
+    function bindEvents() {
+      // 导航
+      $all(".nav-item").forEach(function (item) {
+        item.addEventListener("click", function () { setRoute(item.dataset.route); });
+      });
+
+      // 移动端抽屉
+      $("menuBtn").addEventListener("click", function () {
+        if ($("sidebar").classList.contains("open")) closeDrawer(); else openDrawer();
+      });
+      $("scrim").addEventListener("click", closeDrawer);
+      document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeDrawer(); });
+
+      // 顶部刷新 / 退出
+      $("refreshBtn").addEventListener("click", function () { refreshAll(false); });
+      $("logoutBtn").addEventListener("click", logout);
+      $("statusRefreshBtn").addEventListener("click", async function () {
+        var b = $("statusRefreshBtn"); b.disabled = true;
+        await loadStatus();
+        b.disabled = false;
+      });
+
+      // 功能搜索 / 筛选
+      $("featureSearch").addEventListener("input", function (e) {
+        state.featureQuery = e.target.value; renderFeatures();
+      });
+      $("featureFilter").addEventListener("change", function (e) {
+        state.featureFilter = e.target.value; renderFeatures();
+      });
+
+      // 密码显隐
+      $all(".eye-btn").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var input = $(btn.dataset.target);
+          if (!input) return;
+          var showing = input.type === "text";
+          input.type = showing ? "password" : "text";
+          btn.setAttribute("aria-label", (showing ? "显示" : "隐藏") + "该字段");
+        });
+      });
+
+      // 配置变更监听
+      SETTING_INPUTS.forEach(function (key) {
+        var input = $("setting_" + key);
+        if (input) input.addEventListener("input", evaluateDirty);
+      });
+      $("saveSettingsBtn").addEventListener("click", saveSettings);
+      $("resetSettingsBtn").addEventListener("click", function () {
+        if (!state.settings) return;
+        renderSettings();
+        toast("已放弃未保存的修改", "warn");
+      });
+
+      // 登录
+      $("loginBtn").addEventListener("click", tryLogin);
+      $("keyInput").addEventListener("keydown", function (e) { if (e.key === "Enter") tryLogin(); });
+    }
+
+    async function init() {
+      bindEvents();
+      setRoute("overview");
+      // 若存在会话密钥，先标记为已认证尝试加载；否则弹出登录
+      if (sessionStorage.getItem(ADMIN_KEY_STORAGE)) {
+        state.authed = true;
+        updateChips();
+        var ok = await refreshAll(true);
+        if (ok) hideLogin();
+      } else {
+        showLogin("");
+      }
+    }
+
+    document.addEventListener("DOMContentLoaded", init);
+  })();
+  </script>
 </body>
 </html>
