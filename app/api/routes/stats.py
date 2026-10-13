@@ -290,6 +290,10 @@ async def exif_stats(
             provider = StatsProvider(settings, immich)
             async for asset in provider.iter_assets():
                 assets.append(asset)
+            provider_warnings = getattr(provider, "warnings", [])
+            if provider_warnings:
+                degraded = True
+                warnings.append("上游拉取失败: " + "; ".join(provider_warnings))
         else:
             assets = await _fetch_assets_fallback(
                 immich,
