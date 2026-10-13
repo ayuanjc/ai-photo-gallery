@@ -39,6 +39,9 @@ class SearchResponse(BaseModel):
     cached: bool = Field(default=False, description="是否命中缓存")
     dedup_removed: int = Field(default=0, description="去重移除的结果数量")
     image_query_used: bool = Field(default=False, description="是否使用了以图搜图增强")
+    applied_negations: list[str] = Field(
+        default_factory=list, description="本次搜索实际生效的否定词列表"
+    )
 
 
 
