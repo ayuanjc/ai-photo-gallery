@@ -4492,6 +4492,267 @@ class TestNegationBrute:
 
 
 # ============================================================================
+
+
+# ============================================================================
+# 时间语义化 — 混沌工程与安全渗透测试
+# ============================================================================
+
+class TestTimeParserBrute:
+    """时间语义化解析的破坏性测试：畸形输入、边界攻击、注入攻击。"""
+
+    # ---- 1. 输入畸形与边界 ----
+
+    def test_parse_empty_string_not_crash(self):
+        from app.services.time_parser import parse_time_hint
+        q, rng = parse_time_hint("")
+        assert q == ""
+        assert rng is None
+
+    def test_parse_whitespace_only_not_crash(self):
+        from app.services.time_parser import parse_time_hint
+        q, rng = parse_time_hint("   \t\n  ")
+        assert rng is None
+
+    def test_parse_all_time_words(self):
+        from app.services.time_parser import parse_time_hint
+        q, rng = parse_time_hint("今天昨天前天本周上周本月上月今年去年")
+        assert rng is not None
+
+    def test_parse_repeated_time_words(self):
+        from app.services.time_parser import parse_time_hint
+        q, rng = parse_time_hint("去年夏天去年夏天去年夏天")
+        assert rng is not None
+
+    def test_parse_nested_time_words(self):
+        from app.services.time_parser import parse_time_hint
+        q, rng = parse_time_hint("去年今年夏天")
+        assert rng is not None
+
+    def test_parse_very_long_query_with_time(self):
+        from app.services.time_parser import parse_time_hint
+        query = "去年夏天" + "海边" * 10000
+        q, rng = parse_time_hint(query)
+        assert rng is not None
+
+    def test_parse_time_word_at_boundary(self):
+        from app.services.time_parser import parse_time_hint
+        q, rng = parse_time_hint("今天")
+        assert rng is not None
+
+    def test_parse_null_byte_in_time_query(self):
+        from app.services.time_parser import parse_time_hint
+        q, rng = parse_time_hint("去年\x00夏天")
+        assert rng is not None or q is not None
+
+    # ---- 2. 网络与上游故障 ----
+
+    def test_time_filter_with_upstream_failure(self, settings):
+        from app.services.search_service import SearchService
+        from app.services.vision.base import VisionProvider, VisionResult
+
+        class _FakeVision(VisionProvider):
+            name = "fake"
+            async def analyze(self, url):
+                return VisionResult(labels=[])
+
+        class _FakeImmich:
+            async def smart_search(self, query, k=50, asset_ids=None):
+                raise UpstreamUnavailableError("immich down")
+            def thumbnail_url(self, aid, size="preview"):
+                return f"http://t/{aid}"
+            def original_url(self, aid):
+                return f"http://o/{aid}"
+
+        svc = SearchService(settings, _FakeImmich(), _FakeVision())
+        req = SearchRequest(query="去年夏天 海边", asset_ids=["a1"])
+        result = asyncio.run(svc.search(req))
+        assert result.degraded is True
+        assert result.total == 0
+
+    # ---- 3. 并发与资源耗尽 ----
+
+    def test_concurrent_different_time_expressions(self, settings):
+        from app.services.search_service import SearchService
+        from app.services.vision.base import VisionProvider, VisionResult
+
+        class _FakeVision(VisionProvider):
+            name = "fake"
+            async def analyze(self, url):
+                return VisionResult(labels=[])
+
+        class _FakeImmich:
+            async def smart_search(self, query, k=50, asset_ids=None):
+                return [{"id": "a", "score": 0.9, "exifInfo": {}}]
+            def thumbnail_url(self, aid, size="preview"):
+                return f"http://t/{aid}"
+            def original_url(self, aid):
+                return f"http://o/{aid}"
+
+        svc = SearchService(settings, _FakeImmich(), _FakeVision())
+        queries = ["去年夏天", "上个月", "今天", "最近一周", "今年"]
+
+        async def run_all():
+            tasks = []
+            for q in queries:
+                req = SearchRequest(query=q, asset_ids=["a1"])
+                tasks.append(svc.search(req))
+            return await asyncio.gather(*tasks)
+
+        results = asyncio.run(run_all())
+        assert len(results) == 5
+        for r in results:
+            assert r.applied_time_range is not None
+
+    # ---- 4. 数学边界攻击 ----
+
+    def test_leap_year_february(self):
+        from app.services.time_parser import parse_time_hint
+        now = datetime(2024, 3, 1, tzinfo=timezone.utc)
+        q, rng = parse_time_hint("上个月", now=now)
+        assert rng is not None
+        assert rng[0].month == 2 and rng[0].day == 1
+        assert rng[1].month == 2 and rng[1].day == 29
+
+    def test_non_leap_year_february(self):
+        from app.services.time_parser import parse_time_hint
+        now = datetime(2023, 3, 1, tzinfo=timezone.utc)
+        q, rng = parse_time_hint("上个月", now=now)
+        assert rng is not None
+        assert rng[1].month == 2 and rng[1].day == 28
+
+    def test_cross_year_last_month(self):
+        from app.services.time_parser import parse_time_hint
+        now = datetime(2024, 1, 15, tzinfo=timezone.utc)
+        q, rng = parse_time_hint("上个月", now=now)
+        assert rng is not None
+        assert rng[0].year == 2023 and rng[0].month == 12
+
+    def test_month_boundary_start(self):
+        from app.services.time_parser import parse_time_hint
+        now = datetime(2024, 7, 1, 0, 0, 0, tzinfo=timezone.utc)
+        q, rng = parse_time_hint("本月", now=now)
+        assert rng is not None
+        assert rng[0].day == 1
+
+    def test_month_boundary_end(self):
+        from app.services.time_parser import parse_time_hint
+        now = datetime(2024, 7, 31, 23, 59, 59, tzinfo=timezone.utc)
+        q, rng = parse_time_hint("本月", now=now)
+        assert rng is not None
+        assert rng[1].day == 31
+
+    def test_winter_crosses_year_boundary(self):
+        from app.services.time_parser import parse_time_hint
+        now = datetime(2024, 6, 15, tzinfo=timezone.utc)
+        q, rng = parse_time_hint("今年冬天", now=now)
+        assert rng is not None
+        assert rng[0].year == 2024 and rng[0].month == 12
+        assert rng[1].year == 2025 and rng[1].month == 2
+
+    def test_timezone_naive_now(self):
+        from app.services.time_parser import parse_time_hint
+        naive_now = datetime(2024, 7, 15, 12, 0, 0)
+        q, rng = parse_time_hint("今天", now=naive_now)
+        assert rng is not None
+        assert rng[0].tzinfo is not None
+
+    def test_last_year_winter_end_of_february(self):
+        from app.services.time_parser import parse_time_hint
+        now = datetime(2024, 6, 15, tzinfo=timezone.utc)
+        q, rng = parse_time_hint("去年冬天", now=now)
+        assert rng is not None
+        assert rng[0].year == 2023 and rng[0].month == 12
+        assert rng[1].year == 2024 and rng[1].month == 2
+        assert rng[1].day == 29
+
+    # ---- 5. 数据污染与状态 ----
+
+    def test_time_word_with_special_chars(self):
+        from app.services.time_parser import parse_time_hint
+        q, rng = parse_time_hint("去年夏天!@#$%")
+        assert rng is not None or q is not None
+
+    def test_time_word_with_emoji(self):
+        from app.services.time_parser import parse_time_hint
+        q, rng = parse_time_hint("去年夏天🏖️")
+        assert rng is not None
+
+    def test_time_word_with_mixed_languages(self):
+        from app.services.time_parser import parse_time_hint
+        q, rng = parse_time_hint("去年夏天summer海边")
+        assert rng is not None
+
+    def test_time_hint_field_with_special_chars(self):
+        req = SearchRequest(query="海边", asset_ids=["a1"], time_hint="去年夏天!@#")
+        assert req.time_hint == "去年夏天!@#"
+
+    def test_time_hint_field_too_long_rejected(self):
+        with pytest.raises(Exception):
+            SearchRequest(query="海边", asset_ids=["a1"], time_hint="x" * 101)
+
+    # ---- 6. 安全攻击 ----
+
+    def test_time_word_sql_injection(self):
+        from app.services.time_parser import parse_time_hint
+        q, rng = parse_time_hint("' OR 1=1 -- 去年夏天")
+        assert q is not None
+
+    def test_time_word_xss_payload(self):
+        from app.services.time_parser import parse_time_hint
+        q, rng = parse_time_hint("<script>alert(1)</script>去年夏天")
+        assert q is not None
+
+    def test_time_hint_field_sql_injection_accepted(self):
+        req = SearchRequest(
+            query="海边", asset_ids=["a1"], time_hint="' OR 1=1 --"
+        )
+        assert req.time_hint == "' OR 1=1 --"
+
+    def test_time_hint_field_xss_accepted(self):
+        req = SearchRequest(
+            query="海边", asset_ids=["a1"], time_hint="<script>alert(1)</script>"
+        )
+        assert req.time_hint == "<script>alert(1)</script>"
+
+    # ---- API 层 ----
+
+    def test_api_time_hint_in_query_accepted(self):
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/smart",
+                json={"query": "去年夏天 海边", "asset_ids": ["a-001"]},
+            )
+            assert resp.status_code in (200, 502, 503)
+
+    def test_api_explicit_time_hint_accepted(self):
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/smart",
+                json={"query": "海边", "asset_ids": ["a-001"], "time_hint": "去年夏天"},
+            )
+            assert resp.status_code in (200, 502, 503)
+
+    def test_api_time_hint_too_long_rejected(self):
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/smart",
+                json={"query": "海边", "asset_ids": ["a-001"], "time_hint": "x" * 101},
+            )
+            assert resp.status_code in (400, 422)
+
+    def test_api_time_hint_with_injection_accepted(self):
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/smart",
+                json={
+                    "query": "海边",
+                    "asset_ids": ["a-001"],
+                    "time_hint": "' OR 1=1 --",
+                },
+            )
+            assert resp.status_code in (200, 502, 503)
+
 # 防御性测试报告
 # ============================================================================
 

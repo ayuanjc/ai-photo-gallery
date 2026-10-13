@@ -42,6 +42,10 @@ class SearchResponse(BaseModel):
     applied_negations: list[str] = Field(
         default_factory=list, description="本次搜索实际生效的否定词列表"
     )
+    applied_time_range: dict[str, Any] | None = Field(
+        default=None,
+        description="本次搜索生效的时间范围: {date_from, date_to, source}",
+    )
 
 
 

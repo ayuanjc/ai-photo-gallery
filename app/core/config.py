@@ -187,6 +187,10 @@ class Settings(BaseSettings):
     # random 排序的随机种子，相同种子产生相同顺序（0 = 默认种子）。
     sort_by_random_seed: int = 0
 
+    # ---- 时间语义化（自然语言时间表达 → 日期范围过滤）----
+    # 开启后从 query 中识别「去年夏天」「上个月」等时间表达，转成日期范围过滤结果。
+    time_parser_enabled: bool = True
+
     @field_validator("immich_base_url")
     @classmethod
     def _strip_trailing_slash(cls, value: str) -> str:
