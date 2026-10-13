@@ -3,12 +3,15 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import os
 from pathlib import Path
 
 import pytest
 
 from app.core.config import Settings
 from app.core.runtime_config import RuntimeConfig, reset_runtime_config
+
+os.environ.setdefault("URL_TRUSTED_HOSTS", "a.com,immich.test,example.com")
 
 
 @pytest.fixture(autouse=True)

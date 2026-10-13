@@ -27,6 +27,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from ...core.config import Settings
 from ...core.errors import ServiceUnavailableError, UpstreamError
 from ...core.runtime_config import runtime_enabled
+from ...utils.date_parse import parse_date_param
 from ...models.stats import (
     CityStat,
     CountryStat,
@@ -600,6 +601,9 @@ async def map_stats(
     if not stats_enabled:
         raise ServiceUnavailableError("统计功能未启用（STATS_ENABLED=false）")
 
+    date_from_dt = parse_date_param(date_from, field_name="date_from")
+    date_to_dt = parse_date_param(date_to, field_name="date_to")
+
     if cluster not in ("city", "raw"):
         cluster = "city"
 
@@ -631,8 +635,8 @@ async def map_stats(
             assets, provider_warnings = await provider.fetch_assets(
                 page_size=page_size,
                 max_items=max_items,
-                date_from=date_from,
-                date_to=date_to,
+                date_from=date_from_dt,
+                date_to=date_to_dt,
             )
             if provider_warnings:
                 degraded = True
@@ -696,6 +700,9 @@ async def exif_stats(
     if not stats_enabled:
         raise ServiceUnavailableError("统计功能未启用（STATS_ENABLED=false）")
 
+    date_from_dt = parse_date_param(date_from, field_name="date_from")
+    date_to_dt = parse_date_param(date_to, field_name="date_to")
+
     cache_ttl = getattr(settings, "stats_cache_ttl_seconds", 600)
     max_items = getattr(settings, "stats_max_items", 10000)
     page_size = getattr(settings, "stats_page_size", 100)
@@ -724,8 +731,8 @@ async def exif_stats(
             assets, provider_warnings = await provider.fetch_assets(
                 page_size=page_size,
                 max_items=max_items,
-                date_from=date_from,
-                date_to=date_to,
+                date_from=date_from_dt,
+                date_to=date_to_dt,
             )
             if provider_warnings:
                 degraded = True
@@ -793,6 +800,9 @@ async def gear_stats(
     if not stats_enabled:
         raise ServiceUnavailableError("统计功能未启用（STATS_ENABLED=false）")
 
+    date_from_dt = parse_date_param(date_from, field_name="date_from")
+    date_to_dt = parse_date_param(date_to, field_name="date_to")
+
     cache_ttl = getattr(settings, "stats_cache_ttl_seconds", 600)
     max_items = getattr(settings, "stats_max_items", 10000)
     page_size = getattr(settings, "stats_page_size", 100)
@@ -821,8 +831,8 @@ async def gear_stats(
             assets, provider_warnings = await provider.fetch_assets(
                 page_size=page_size,
                 max_items=max_items,
-                date_from=date_from,
-                date_to=date_to,
+                date_from=date_from_dt,
+                date_to=date_to_dt,
             )
             if provider_warnings:
                 degraded = True

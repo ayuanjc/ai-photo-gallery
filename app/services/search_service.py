@@ -316,13 +316,18 @@ class SearchService:
                 try:
                     result = await self._vision.analyze(url)
                     return result.keywords()
-                except (VisionError, ValueError, AttributeError, TypeError) as exc:
+                except Exception as exc:
                     logger.warning("视觉识别失败，url=%s err=%s", url, exc)
                     return []
 
         urls = [self._immich.thumbnail_url(aid) for aid in request.asset_ids]
-        batches = await asyncio.gather(*(_analyze(u) for u in urls))
-        keywords = [kw for batch in batches for kw in batch]
+        batches = await asyncio.gather(*(_analyze(u) for u in urls), return_exceptions=True)
+        keywords: list[str] = []
+        for batch in batches:
+            if isinstance(batch, Exception):
+                logger.warning("视觉识别任务异常: %s", batch)
+                continue
+            keywords.extend(batch)
 
         if not keywords:
             return base, []
@@ -348,13 +353,16 @@ class SearchService:
             async with semantic:
                 try:
                     tags = await self._scene_analyzer.analyze(asset)
-                except (asyncio.TimeoutError, ValueError, KeyError, TypeError) as exc:
+                except Exception as exc:
                     logger.warning("场景分析失败，asset_id=%s err=%s", asset.get("id"), exc)
                     return
                 asset["scene_tags"] = tags
                 asset["primary_scene"] = tags.primary_scene
 
-        await asyncio.gather(*(_one(asset) for asset in assets))
+        results = await asyncio.gather(*(_one(asset) for asset in assets), return_exceptions=True)
+        for r in results:
+            if isinstance(r, Exception):
+                logger.warning("场景分析任务异常: %s", r)
 
     def _resolve_weights(self, request: SearchRequest) -> tuple[float, float]:
         time_weight = request.time_weight

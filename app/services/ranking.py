@@ -201,7 +201,7 @@ def rank_assets(
         final = alpha * freshness + beta * similarity
         scored.append((asset, final, similarity, freshness, captured_at, source))
 
-    scored.sort(key=lambda item: item[1], reverse=True)
+    scored.sort(key=lambda item: (-item[1], item[0].get("id", "")))
     return scored
 
 def apply_feedback_boost(final_score: float, boost: float) -> float:

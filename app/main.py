@@ -249,3 +249,26 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> JSONRespo
 async def health() -> dict:
     return {"status": "ok"}
 
+@app.get("/livez", tags=["system"])
+async def livez() -> dict:
+    return {"status": "ok"}
+
+
+@app.get("/readyz", tags=["system"])
+async def readyz(request: Request) -> dict:
+    checks: dict[str, bool] = {}
+    try:
+        resp = await request.app.state.immich_client._request_with_retry(
+            "GET", "/api/server/ping"
+        )
+        checks["immich"] = resp.status_code == 200
+    except Exception:
+        checks["immich"] = False
+    try:
+        cache = getattr(request.app.state, "cache", None)
+        checks["cache"] = cache is not None
+    except Exception:
+        checks["cache"] = False
+    all_ok = all(checks.values())
+    return {"status": "ok" if all_ok else "not_ready", "checks": checks}
+
