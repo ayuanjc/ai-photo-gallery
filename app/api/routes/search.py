@@ -10,7 +10,7 @@ from ...models.response import (
     MultiConditionSearchResponse,
     SearchResponse,
 )
-from ...services.feedback_service import FeedbackService
+from ...services.feedback_service import FeedbackService, get_feedback_service
 from ...services.multi_condition_service import MultiConditionSearchService
 from ...services.search_service import SearchService
 from ..deps import (
@@ -66,7 +66,9 @@ async def record_feedback(
         return FeedbackResponse(
             recorded=False, degraded=True, warnings=["缓存不可用，反馈未记录"]
         )
-    service = FeedbackService(cache, get_settings())
+    service = get_feedback_service()
+    if service is None:
+        service = FeedbackService(cache, get_settings())
     warnings: list[str] = []
     degraded = False
     try:

@@ -4,9 +4,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from ...scene.dictionary import SceneDict
-from ..deps import get_scene_dictionary
+from ..deps import get_scene_dictionary, verify_api_key
 
-router = APIRouter(tags=["scene"])
+router = APIRouter(tags=["scene"], dependencies=[Depends(verify_api_key)])
 
 
 @router.get(

@@ -94,7 +94,7 @@ async def test_normal_pagination_multi_page():
     fake = FakeImmichClient(items)
     provider = StatsProvider(_settings(), fake)
 
-    result = await _collect(provider.iter_assets(page_size=100))
+    result, _w = await provider.fetch_assets(page_size=100)
 
     assert len(result) == 250
     assert result[0]["id"] == "a0"
@@ -108,7 +108,7 @@ async def test_single_page():
     fake = FakeImmichClient(_items(5))
     provider = StatsProvider(_settings(), fake)
 
-    result = await _collect(provider.iter_assets(page_size=100))
+    result, _w = await provider.fetch_assets(page_size=100)
 
     assert len(result) == 5
 
@@ -121,7 +121,7 @@ async def test_max_items_stops_iteration():
     fake = FakeImmichClient(_items(200))
     provider = StatsProvider(_settings(), fake)
 
-    result = await _collect(provider.iter_assets(page_size=100, max_items=50))
+    result, _w = await provider.fetch_assets(page_size=100, max_items=50)
 
     assert len(result) == 50
     assert result[49]["id"] == "a49"
@@ -132,7 +132,7 @@ async def test_max_items_exact_boundary():
     fake = FakeImmichClient(_items(200))
     provider = StatsProvider(_settings(), fake)
 
-    result = await _collect(provider.iter_assets(page_size=100, max_items=100))
+    result, _w = await provider.fetch_assets(page_size=100, max_items=100)
 
     assert len(result) == 100
 
@@ -142,7 +142,7 @@ async def test_max_items_from_settings():
     fake = FakeImmichClient(_items(200))
     provider = StatsProvider(_settings(stats_max_items=10), fake)
 
-    result = await _collect(provider.iter_assets(page_size=100))
+    result, _w = await provider.fetch_assets(page_size=100)
 
     assert len(result) == 10
 
@@ -152,7 +152,7 @@ async def test_max_items_zero_returns_empty():
     fake = FakeImmichClient(_items(2))
     provider = StatsProvider(_settings(), fake)
 
-    result = await _collect(provider.iter_assets(page_size=100, max_items=0))
+    result, _w = await provider.fetch_assets(page_size=100, max_items=0)
 
     assert result == []
 
@@ -172,7 +172,7 @@ async def test_date_from_filter():
     provider = StatsProvider(_settings(), fake)
 
     date_from = datetime(2024, 1, 1, tzinfo=timezone.utc)
-    result = await _collect(provider.iter_assets(page_size=100, date_from=date_from))
+    result, _w = await provider.fetch_assets(page_size=100, date_from=date_from)
 
     ids = [item["id"] for item in result]
     assert "new1" in ids
@@ -193,7 +193,7 @@ async def test_date_to_filter():
     provider = StatsProvider(_settings(), fake)
 
     date_to = datetime(2023, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
-    result = await _collect(provider.iter_assets(page_size=100, date_to=date_to))
+    result, _w = await provider.fetch_assets(page_size=100, date_to=date_to)
 
     ids = [item["id"] for item in result]
     assert "old1" in ids
@@ -216,8 +216,8 @@ async def test_date_range_filter():
 
     date_from = datetime(2023, 6, 1, tzinfo=timezone.utc)
     date_to = datetime(2024, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
-    result = await _collect(
-        provider.iter_assets(page_size=100, date_from=date_from, date_to=date_to)
+    result, _w = await provider.fetch_assets(
+        page_size=100, date_from=date_from, date_to=date_to
     )
 
     ids = [item["id"] for item in result]
@@ -234,7 +234,7 @@ async def test_asset_without_date_skipped_when_filtering():
     provider = StatsProvider(_settings(), fake)
 
     date_from = datetime(2024, 1, 1, tzinfo=timezone.utc)
-    result = await _collect(provider.iter_assets(page_size=100, date_from=date_from))
+    result, _w = await provider.fetch_assets(page_size=100, date_from=date_from)
 
     ids = [item["id"] for item in result]
     assert "with_date" in ids
@@ -249,12 +249,12 @@ async def test_upstream_exception_degrades_gracefully():
     fake = FakeImmichClient(_items(200), fail_on_call=2)
     provider = StatsProvider(_settings(), fake)
 
-    result = await _collect(provider.iter_assets(page_size=100))
+    result, warnings = await provider.fetch_assets(page_size=100)
 
     assert len(result) == 100
     assert all(item["id"].startswith("a") for item in result)
-    assert len(provider.warnings) == 1
-    assert "Immich" in provider.warnings[0]
+    assert len(warnings) == 1
+    assert "Immich" in warnings[0]
 
 
 async def test_upstream_exception_on_first_page():
@@ -262,10 +262,10 @@ async def test_upstream_exception_on_first_page():
     fake = FakeImmichClient(_items(100), fail_on_call=1)
     provider = StatsProvider(_settings(), fake)
 
-    result = await _collect(provider.iter_assets(page_size=100))
+    result, warnings = await provider.fetch_assets(page_size=100)
 
     assert result == []
-    assert len(provider.warnings) == 1
+    assert len(warnings) == 1
 
 
 # ---- 非 200 状态降级 ----
@@ -276,11 +276,11 @@ async def test_non_200_status_degrades():
     fake = FakeImmichClient(_items(200), fail_status=2)
     provider = StatsProvider(_settings(), fake)
 
-    result = await _collect(provider.iter_assets(page_size=100))
+    result, warnings = await provider.fetch_assets(page_size=100)
 
     assert len(result) == 100
-    assert len(provider.warnings) == 1
-    assert "status=503" in provider.warnings[0]
+    assert len(warnings) == 1
+    assert "status=503" in warnings[0]
 
 
 # ---- STATS_ENABLED=false ----
@@ -291,7 +291,7 @@ async def test_stats_disabled_returns_empty():
     fake = FakeImmichClient(_items(2))
     provider = StatsProvider(_settings(stats_enabled=False), fake)
 
-    result = await _collect(provider.iter_assets())
+    result, _w = await provider.fetch_assets()
 
     assert result == []
     assert fake.call_count == 0
@@ -305,7 +305,7 @@ async def test_empty_result():
     fake = FakeImmichClient([])
     provider = StatsProvider(_settings(), fake)
 
-    result = await _collect(provider.iter_assets(page_size=100))
+    result, _w = await provider.fetch_assets(page_size=100)
 
     assert result == []
 
@@ -315,7 +315,7 @@ async def test_no_more_pages():
     fake = FakeImmichClient(_items(150))
     provider = StatsProvider(_settings(), fake)
 
-    result = await _collect(provider.iter_assets(page_size=100))
+    result, _w = await provider.fetch_assets(page_size=100)
 
     assert len(result) == 150
     assert fake.call_count == 2
@@ -329,13 +329,13 @@ async def test_warnings_cleared_on_new_iteration():
     fake = FakeImmichClient(_items(200), fail_on_call=2)
     provider = StatsProvider(_settings(), fake)
 
-    await _collect(provider.iter_assets(page_size=100))
-    assert len(provider.warnings) == 1
+    _, warnings = await provider.fetch_assets(page_size=100)
+    assert len(warnings) == 1
 
     fake2 = FakeImmichClient(_items(100))
     provider._immich = fake2
-    await _collect(provider.iter_assets(page_size=100))
-    assert len(provider.warnings) == 0
+    _, warnings = await provider.fetch_assets(page_size=100)
+    assert len(warnings) == 0
 
 
 # ---- page_size 从 Settings ----
@@ -346,7 +346,7 @@ async def test_page_size_from_settings():
     fake = FakeImmichClient(_items(50))
     provider = StatsProvider(_settings(stats_page_size=50), fake)
 
-    result = await _collect(provider.iter_assets())
+    result, _w = await provider.fetch_assets()
 
     assert len(result) == 50
 
@@ -360,13 +360,13 @@ async def test_singleflight_concurrent_same_params():
     provider = StatsProvider(_settings(), fake)
 
     results = await asyncio.gather(
-        _collect(provider.iter_assets(page_size=100)),
-        _collect(provider.iter_assets(page_size=100)),
-        _collect(provider.iter_assets(page_size=100)),
+        provider.fetch_assets(page_size=100),
+        provider.fetch_assets(page_size=100),
+        provider.fetch_assets(page_size=100),
     )
 
     assert fake.call_count == 1
-    for items in results:
+    for items, _w in results:
         assert len(items) == 50
 
 
@@ -375,14 +375,14 @@ async def test_singleflight_different_params_separate():
     fake = FakeImmichClient(_items(50))
     provider = StatsProvider(_settings(), fake)
 
-    results = await asyncio.gather(
-        _collect(provider.iter_assets(page_size=100, max_items=50)),
-        _collect(provider.iter_assets(page_size=100, max_items=30)),
+    (r0, _), (r1, _) = await asyncio.gather(
+        provider.fetch_assets(page_size=100, max_items=50),
+        provider.fetch_assets(page_size=100, max_items=30),
     )
 
     assert fake.call_count == 2
-    assert len(results[0]) == 50
-    assert len(results[1]) == 30
+    assert len(r0) == 50
+    assert len(r1) == 30
 
 
 async def test_singleflight_cleanup_after_completion():
@@ -390,6 +390,6 @@ async def test_singleflight_cleanup_after_completion():
     fake = FakeImmichClient(_items(50))
     provider = StatsProvider(_settings(), fake)
 
-    await _collect(provider.iter_assets(page_size=100))
+    await provider.fetch_assets(page_size=100)
 
     assert len(provider._inflight) == 0

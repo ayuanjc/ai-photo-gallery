@@ -306,7 +306,7 @@ class SearchService:
             captured_at_source=source,
             similarity_score=round(clamp(similarity), 6),
             time_freshness=round(clamp(freshness), 6),
-            final_score=round(final, 6),
+            final_score=round(clamp(final), 6),
             metadata=metadata,
             scene=asset.get("scene_tags"),
             explanation=explanation,

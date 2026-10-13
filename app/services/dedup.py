@@ -100,7 +100,7 @@ def _is_duplicate(
     dims_b = _get_dimensions(asset_b)
 
     # 信号 2：拍摄时间相近 + 尺寸相同 → 连拍
-    if time_window_sec > 0 or time_window_sec == 0:
+    if time_window_sec > 0:
         time_a = a.get("captured_at")
         time_b = b.get("captured_at")
         if time_a is not None and time_b is not None:

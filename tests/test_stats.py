@@ -459,9 +459,8 @@ class FakeStatsProvider:
     def __init__(self, settings: Any, immich: Any) -> None:
         self._immich = immich
 
-    async def iter_assets(self):
-        for asset in getattr(self._immich, "_all_assets", []):
-            yield asset
+    async def fetch_assets(self, **kwargs):
+        return getattr(self._immich, "_all_assets", []), []
 
 
 def test_map_stats_provider_available(monkeypatch):
@@ -1147,9 +1146,8 @@ class FakeStatsProvider:
     def __init__(self, settings: Any, immich: Any) -> None:
         self._immich = immich
 
-    async def iter_assets(self):
-        for asset in getattr(self._immich, "_all_assets", []):
-            yield asset
+    async def fetch_assets(self, **kwargs):
+        return getattr(self._immich, "_all_assets", []), []
 
 
 def test_gear_stats_provider_available(monkeypatch):

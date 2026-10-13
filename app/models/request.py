@@ -95,6 +95,7 @@ class SearchRequest(BaseModel):
     @field_validator("query")
     @classmethod
     def _query_not_blank(cls, value: str) -> str:
+        value = value.replace("\x00", "")
         value = value.strip()
         if not value:
             raise ValueError("查询关键词不能为空")
@@ -122,7 +123,7 @@ class MultiConditionSearchRequest(BaseModel):
     """
 
     person_id: str | None = Field(default=None, description="Immich 人物 ID")
-    location: str | None = Field(default=None, description="地点关键词（城市/国家）")
+    location: str | None = Field(default=None, max_length=500, description="地点关键词")
     query: str | None = Field(default=None, description="语义搜索关键词")
     limit: int = Field(default=50, ge=1, le=200, description="返回结果数量上限")
 
@@ -161,6 +162,7 @@ class FeedbackRequest(BaseModel):
     @field_validator("asset_id")
     @classmethod
     def _validate_asset_id(cls, value: str) -> str:
+        value = value.replace("\x00", "")
         value = value.strip()
         if not value:
             raise ValueError("asset_id 不能为空")
@@ -169,6 +171,7 @@ class FeedbackRequest(BaseModel):
     @field_validator("query")
     @classmethod
     def _query_not_blank(cls, value: str) -> str:
+        value = value.replace("\x00", "")
         value = value.strip()
         if not value:
             raise ValueError("查询关键词不能为空")

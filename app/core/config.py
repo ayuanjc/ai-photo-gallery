@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     time_weight: float = 0.3
     similarity_weight: float = 0.7
     # 查询意图动态权重调整强度（0=完全静态，1=最大动态偏移）。
-    query_intent_gamma: float = 0.4
+    query_intent_gamma: float = Field(default=0.4, ge=0.0, le=1.0)
     # 多模态查询融合权重 λ（V_final = λ*V_text + (1-λ)*V_vision）。
     multimodal_lambda: float = 0.7
     # 时间新鲜度指数衰减的半衰期（天）。半衰期越小，越“喜新厌旧”。
@@ -69,6 +69,12 @@ class Settings(BaseSettings):
     # ---- 批量导入（本地文件 → 提取 EXIF → 上传 Immich）----
     import_max_concurrent: int = 3
     import_default_device_id: str = "batch-import"
+    # 允许导入的目录白名单（空列表 = 允许所有路径，仅限开发环境）。
+    import_allowed_dirs: list[str] = []
+    # 单个文件大小上限（MB），超过则拒绝上传。
+    import_max_file_size_mb: int = 100
+    # 单次批量导入文件数量上限。
+    import_max_files: int = 1000
 
     # ---- 华为云图像识别（预留扩展，默认关闭）----
     huawei_enabled: bool = False
@@ -103,6 +109,8 @@ class Settings(BaseSettings):
     rate_limit_enabled: bool = True
     rate_limit_qps: int = 50
     rate_limit_burst: int = 100
+    # 可信代理 IP 列表（空 = 不信任任何 X-Forwarded-For，直接用连接 IP）。
+    trusted_proxies: list[str] = []
 
     # ---- 缓存 TTL（秒）----
     scene_cache_ttl_seconds: int = 86400
@@ -157,6 +165,15 @@ class Settings(BaseSettings):
     @classmethod
     def _strip_trailing_slash(cls, value: str) -> str:
         return value.rstrip("/")
+
+    @model_validator(mode="after")
+    def _production_safety(self) -> "Settings":
+        if self.app_env == "production":
+            if not self.search_api_key:
+                raise ValueError("生产环境必须配置 SEARCH_API_KEY（非空）")
+            if not self.immich_api_key:
+                raise ValueError("生产环境必须配置 IMMICH_API_KEY（非空）")
+        return self
 
     @property
     def weights(self) -> tuple[float, float]:

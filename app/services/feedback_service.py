@@ -40,6 +40,10 @@ class FeedbackService:
 
         action 为 "click" 或 "skip"，其他值静默忽略。
         feedback_enabled=False 时直接返回，不写缓存。
+
+        注意：此方法采用 read-then-write 模式，在并发场景下可能丢失少量计数
+        （非原子操作）。这是有意为之的权衡：反馈数据为统计近似值，少量丢失
+        可接受，且整个操作已用 try/except 包裹，不会因并发导致崩溃。
         """
         if not self._settings.feedback_enabled:
             return

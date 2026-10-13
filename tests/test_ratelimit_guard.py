@@ -205,7 +205,9 @@ def test_no_limiter_in_state_passes_through():
 
 def test_different_ips_isolated():
     """不同 IP 的限流桶互相独立（无 API Key 时按 IP 限流）。"""
-    settings = _settings(rate_limit_burst=1, rate_limit_qps=1)
+    settings = _settings(
+        rate_limit_burst=1, rate_limit_qps=1, trusted_proxies=["testclient", "127.0.0.1"]
+    )
     redis = FakeTokenBucketRedis()
     limiter = TokenBucketRateLimiter(settings, redis=redis, time_fn=lambda: 1000.0)
     with make_client(rate_limiter=limiter, settings=settings) as c:

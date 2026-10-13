@@ -39,19 +39,23 @@ async def verify_api_key(
         raise UnauthorizedError()
 
 
-def _get_client_id(request: Request) -> str:
+def _get_client_id(request: Request, settings: Settings) -> str:
     """提取限流客户端标识：优先 x-api-key，其次真实 IP，兜底 testclient。"""
     api_key = request.headers.get("x-api-key")
     if api_key:
         return f"key:{api_key}"
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return f"ip:{forwarded.split(',')[0].strip()}"
     client_host = request.client.host if request.client else "unknown"
+    if settings.trusted_proxies and client_host in settings.trusted_proxies:
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            return f"ip:{forwarded.split(',')[0].strip()}"
     return f"ip:{client_host}"
 
 
-async def rate_limit_guard(request: Request) -> None:
+async def rate_limit_guard(
+    request: Request,
+    settings: Settings = Depends(get_settings_dep),
+) -> None:
     """搜索接口令牌桶限流。
 
     从 app.state.rate_limiter 获取限流器，按客户端标识（API Key 或 IP）检查令牌。
@@ -63,7 +67,7 @@ async def rate_limit_guard(request: Request) -> None:
     )
     if limiter is None:
         return
-    client_id = _get_client_id(request)
+    client_id = _get_client_id(request, settings)
     allowed, remaining = await limiter.allow(client_id)
     if not allowed:
         raise AppError(

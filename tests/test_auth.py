@@ -78,9 +78,9 @@ def test_health_no_key_required():
     assert resp.json() == {"status": "ok"}
 
 
-def test_scene_dict_no_key_required():
+def test_scene_dict_with_key():
     with make_client("secret-key") as c:
-        resp = c.get("/api/v1/scene/dict")
+        resp = c.get("/api/v1/scene/dict", headers={"x-api-key": "secret-key"})
     assert resp.status_code == 200
     body = resp.json()
     assert "scenes" in body
