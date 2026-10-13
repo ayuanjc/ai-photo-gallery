@@ -87,13 +87,13 @@ class StatsProvider:
             相同参数的并发请求通过 singleflight 共享同一个拉取任务，
             只向 Immich 发起一次分页拉取。
         """
-        if not self._settings.stats_enabled:
+        if not getattr(self._settings, "stats_enabled", True):
             return
 
         if page_size is None:
-            page_size = self._settings.stats_page_size
+            page_size = getattr(self._settings, "stats_page_size", 100)
         if max_items is None:
-            max_items = self._settings.stats_max_items
+            max_items = getattr(self._settings, "stats_max_items", 10000)
         page_size = max(1, page_size)
         max_items = max(0, max_items)
 
