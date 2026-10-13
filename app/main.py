@@ -135,9 +135,19 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="AI Image Semantic Search Service",
+    title="AI 图像语义搜索微服务",
+    description="基于 FastAPI 的 AI 图像语义搜索微服务，对接 Immich 图库与华为云 FRS 人脸识别。",
     version="1.0.0",
     lifespan=lifespan,
+    openapi_tags=[
+        {"name": "search", "description": "搜索接口：语义搜索、复合条件搜索、反馈、建议、纠错"},
+        {"name": "scene", "description": "场景词典：多标签场景体系（只读）"},
+        {"name": "faces", "description": "人脸分类：基于华为云 FRS 的人脸检测与聚类"},
+        {"name": "ai", "description": "AI 分析：同人/相似图片判定"},
+        {"name": "stats", "description": "统计大屏：地图足迹、EXIF 分布、器材偏好"},
+        {"name": "import", "description": "批量导入：本地图片 EXIF 提取并上传 Immich"},
+        {"name": "system", "description": "系统接口：健康检查"},
+    ],
 )
 
 app.include_router(search.router, prefix="/api/v1")
