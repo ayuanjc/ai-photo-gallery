@@ -26,6 +26,7 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from ...core.config import Settings
 from ...core.errors import ServiceUnavailableError, UpstreamError
+from ...core.runtime_config import runtime_enabled
 from ...models.stats import (
     CityStat,
     CountryStat,
@@ -593,7 +594,9 @@ async def map_stats(
     cluster: str = Query(default="city", description="聚合方式：city | raw"),
     show_ids: bool = Query(default=False, description="是否返回 asset_ids（默认否，隐私保护）"),
 ) -> MapStatsResponse:
-    stats_enabled = getattr(settings, "stats_enabled", True)
+    stats_enabled = runtime_enabled(
+        "stats_enabled", getattr(settings, "stats_enabled", True)
+    )
     if not stats_enabled:
         raise ServiceUnavailableError("统计功能未启用（STATS_ENABLED=false）")
 
@@ -687,7 +690,9 @@ async def exif_stats(
     date_from: str | None = Query(default=None, description="起始日期（ISO 8601）"),
     date_to: str | None = Query(default=None, description="结束日期（ISO 8601）"),
 ) -> ExifStatsResponse:
-    stats_enabled = getattr(settings, "stats_enabled", True)
+    stats_enabled = runtime_enabled(
+        "stats_enabled", getattr(settings, "stats_enabled", True)
+    )
     if not stats_enabled:
         raise ServiceUnavailableError("统计功能未启用（STATS_ENABLED=false）")
 
@@ -782,7 +787,9 @@ async def gear_stats(
     date_from: str | None = Query(default=None, description="起始日期（ISO 8601）"),
     date_to: str | None = Query(default=None, description="结束日期（ISO 8601）"),
 ) -> GearStatsResponse:
-    stats_enabled = getattr(settings, "stats_enabled", True)
+    stats_enabled = runtime_enabled(
+        "stats_enabled", getattr(settings, "stats_enabled", True)
+    )
     if not stats_enabled:
         raise ServiceUnavailableError("统计功能未启用（STATS_ENABLED=false）")
 

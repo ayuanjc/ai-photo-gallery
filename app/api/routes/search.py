@@ -13,6 +13,7 @@ from ...models.response import (
 from ...services.feedback_service import FeedbackService, get_feedback_service
 from ...services.multi_condition_service import MultiConditionSearchService
 from ...services.search_service import SearchService
+from .admin import feature_gate
 from ..deps import (
     get_multi_condition_service,
     get_search_service,
@@ -56,6 +57,7 @@ async def multi_condition_search(
     response_model=FeedbackResponse,
     summary="搜索反馈记录",
     description="记录用户对搜索结果的点击/跳过行为，供排序时做微加权。",
+    dependencies=[Depends(feature_gate("feedback_enabled"))],
 )
 async def record_feedback(
     body: FeedbackRequest,
@@ -93,6 +95,7 @@ from ..deps import get_settings_dep
     response_model=SuggestResponse,
     summary="搜索建议",
     description="基于场景词典与热门搜索词，返回前缀/包含匹配的建议词。空 q 时返回热门词 top N。",
+    dependencies=[Depends(feature_gate("suggest_enabled"))],
 )
 async def suggest(
     q: str = Query(default="", max_length=500, description="搜索关键词"),
@@ -112,6 +115,7 @@ async def suggest(
     response_model=CorrectResponse,
     summary="搜索纠错",
     description="基于 Levenshtein 编辑距离对场景词典进行纠错匹配，距离 <= 阈值时返回建议词。",
+    dependencies=[Depends(feature_gate("correct_enabled"))],
 )
 async def correct(
     q: str = Query(default="", max_length=500, description="搜索关键词"),

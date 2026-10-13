@@ -12,12 +12,14 @@ import re
 import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+import httpx
+from fastapi import FastAPI, Request, WebSocket
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from .ai.factory import build_ai_analyzer
-from .api.routes import ai, batch_import, faces, scene, search, stats
+from .api.routes import ai, admin, batch_import, faces, scene, search, stats
 from .core.cache import get_cache
 from .core.config import get_settings
 from .core.errors import AppError, ErrorCode
@@ -29,6 +31,7 @@ from .scene.dictionary import get_scene_dict
 from .services.face_service import FaceService
 from .services.feedback_service import init_feedback_service
 from .services.immich import ImmichClient
+from .services.immich_proxy import proxy_request, proxy_websocket
 from .services.immich_uploader import ImmichAssetUploader
 from .services.importer import BatchImporter
 from .services.metadata import MetadataExtractor
@@ -120,6 +123,11 @@ async def lifespan(app: FastAPI):
         settings, redis=redis_client.redis
     )
 
+    # Immich 反代：共享连接池（复用连接，降低代理开销）
+    app.state.proxy_client = httpx.AsyncClient(
+        timeout=httpx.Timeout(30.0, connect=5.0)
+    )
+
     logger.info("应用启动：env=%s immich=%s", settings.app_env, settings.immich_base_url)
     try:
         yield
@@ -130,6 +138,9 @@ async def lifespan(app: FastAPI):
             await face_client.aclose()
         await immich_uploader.aclose()
         await immich.aclose()
+        proxy_client: httpx.AsyncClient | None = getattr(app.state, "proxy_client", None)
+        if proxy_client is not None:
+            await proxy_client.aclose()
         await redis_client.aclose()
         logger.info("应用关闭")
 
@@ -156,6 +167,15 @@ app.include_router(faces.router, prefix="/api/v1")
 app.include_router(ai.router, prefix="/api/v1")
 app.include_router(stats.router, prefix="/api/v1")
 app.include_router(batch_import.router, prefix="/api/v1")
+app.include_router(admin.router)
+
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+
+@app.get("/admin", include_in_schema=False)
+async def admin_page() -> FileResponse:
+    """管理页面：项目功能开关及管理（Immich 前端侧边栏入口指向此处）。"""
+    return FileResponse("app/static/admin.html")
 
 
 @app.middleware("http")
@@ -235,3 +255,14 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> JSONRespo
 @app.get("/health", tags=["system"])
 async def health() -> dict:
     return {"status": "ok"}
+
+@app.api_route("/{path:path}", methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], include_in_schema=False)
+async def immich_catch_all(request: Request, path: str):
+    """Immich 反代 catch-all：未命中本项目路由的请求全部转发到 Immich。"""
+    return await proxy_request(request, path)
+
+
+@app.websocket("/{path:path}")
+async def immich_ws_catch_all(websocket: WebSocket, path: str):
+    """Immich WebSocket 反代：透传 socket.io 实时连接。"""
+    await proxy_websocket(websocket, path)

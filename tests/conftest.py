@@ -3,10 +3,27 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from pathlib import Path
 
 import pytest
 
 from app.core.config import Settings
+from app.core.runtime_config import RuntimeConfig, reset_runtime_config
+
+
+@pytest.fixture(autouse=True)
+def isolated_runtime_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """隔离运行时配置：每个测试使用独立的临时持久化路径，防止真实覆盖值泄漏进测试。"""
+    persist_path = tmp_path / "runtime_config.json"
+    original_init = RuntimeConfig.__init__
+
+    def patched_init(self, settings, persist_path_=None):
+        original_init(self, settings, persist_path=persist_path or persist_path_)
+
+    monkeypatch.setattr(RuntimeConfig, "__init__", patched_init)
+    reset_runtime_config()
+    yield
+    reset_runtime_config()
 
 
 def pytest_collection_modifyitems(config, items):

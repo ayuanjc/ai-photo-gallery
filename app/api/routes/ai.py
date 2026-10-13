@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends
 from ...ai.base import AnalysisResult, ImageAnalyzer
 from ...core.config import Settings
 from ...models.ai import AIAnalyzeRequest
+from .admin import feature_gate
 from ..deps import get_ai_analyzer, get_settings_dep, rate_limit_guard, verify_api_key
 
 router = APIRouter(
@@ -20,6 +21,7 @@ router = APIRouter(
     response_model=list[AnalysisResult],
     summary="AI 分析（同一个人 vs 相似图片）",
     description="给定参考图与候选图列表，返回每张候选图的同人/相似/无关判定，与请求顺序一一对应。",
+    dependencies=[Depends(feature_gate("ai_enabled"))],
 )
 async def analyze_images(
     request: AIAnalyzeRequest,

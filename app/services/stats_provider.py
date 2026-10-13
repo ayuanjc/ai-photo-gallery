@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from .immich import ImmichClient
+from ..core.runtime_config import runtime_enabled
 
 if TYPE_CHECKING:
     from ..core.config import Settings
@@ -84,7 +85,9 @@ class StatsProvider:
             相同参数的并发请求通过 singleflight 共享同一个拉取任务，
             只向 Immich 发起一次分页拉取。
         """
-        if not getattr(self._settings, "stats_enabled", True):
+        if not runtime_enabled(
+            "stats_enabled", getattr(self._settings, "stats_enabled", True)
+        ):
             return [], []
 
         if page_size is None:

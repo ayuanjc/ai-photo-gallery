@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI 图库助手 · 功能开关及管理</title>
+  <style>
+    :root {
+      --bg: #0b0c0f;
+      --card: #16181d;
+      --card-hover: #1c1f26;
+      --border: #2a2e37;
+      --text: #e6e8ec;
+      --text-dim: #9aa0ab;
+      --accent: #4250af;
+      --accent-2: #5c6bc0;
+      --green: #3ecf8e;
+      --red: #ff6b6b;
+      --amber: #ffb454;
+      --radius: 12px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg); color: var(--text);
+      min-height: 100vh; padding: 24px 16px;
+    }
+    .wrap { max-width: 860px; margin: 0 auto; }
+    header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+    header .logo {
+      width: 38px; height: 38px; border-radius: 10px;
+      background: linear-gradient(135deg, #fa2921, #ffb400 40%, #1e83f7 75%, #18c249);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px; font-weight: 700; color: #fff;
+    }
+    header h1 { font-size: 20px; font-weight: 600; }
+    header .sub { color: var(--text-dim); font-size: 13px; margin-top: 2px; }
+    header .spacer { flex: 1; }
+
+    .panel {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px 18px; margin-bottom: 16px;
+    }
+    .panel h2 { font-size: 14px; color: var(--text-dim); font-weight: 600; margin-bottom: 12px; letter-spacing: 0.5px; }
+
+    .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+    .status-item { background: var(--card-hover); border-radius: 8px; padding: 10px 12px; }
+    .status-item .k { font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
+    .status-item .v { font-size: 15px; font-weight: 600; word-break: break-all; }
+    .status-item .v.ok { color: var(--green); }
+    .status-item .v.bad { color: var(--red); }
+
+    .feature {
+      display: flex; align-items: center; gap: 14px;
+      padding: 13px 14px; border-radius: 10px; margin-bottom: 8px;
+      background: var(--card-hover); border: 1px solid transparent;
+      transition: border-color .15s, background .15s;
+    }
+    .feature:hover { border-color: var(--border); }
+    .feature .info { flex: 1; min-width: 0; }
+    .feature .name { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .feature .desc { font-size: 12.5px; color: var(--text-dim); margin-top: 3px; }
+    .badge {
+      font-size: 10.5px; padding: 2px 7px; border-radius: 20px;
+      background: rgba(255, 180, 84, .12); color: var(--amber);
+      border: 1px solid rgba(255, 180, 84, .3); font-weight: 500;
+    }
+    .badge.off { background: rgba(154, 160, 171, .1); color: var(--text-dim); border-color: var(--border); }
+
+    .toggle {
+      position: relative; width: 44px; height: 24px; border-radius: 24px;
+      background: #333845; cursor: pointer; border: none; flex-shrink: 0;
+      transition: background .2s;
+    }
+    .toggle::after {
+      content: ""; position: absolute; top: 3px; left: 3px;
+      width: 18px; height: 18px; border-radius: 50%; background: #fff;
+      transition: transform .2s;
+    }
+    .toggle.on { background: var(--green); }
+    .toggle.on::after { transform: translateX(20px); }
+    .toggle:disabled { opacity: .4; cursor: not-allowed; }
+
+    .btn {
+      background: var(--accent); color: #fff; border: none; border-radius: 8px;
+      padding: 8px 16px; font-size: 13px; cursor: pointer; font-weight: 500;
+      transition: background .15s;
+    }
+    .btn:hover { background: var(--accent-2); }
+    .btn.ghost { background: transparent; border: 1px solid var(--border); color: var(--text-dim); }
+    .btn.ghost:hover { border-color: var(--accent); color: var(--text); }
+
+    input[type="password"], input[type="text"] {
+      background: var(--card-hover); border: 1px solid var(--border);
+      color: var(--text); border-radius: 8px; padding: 9px 12px;
+      font-size: 13px; outline: none; width: 100%;
+    }
+    input:focus { border-color: var(--accent); }
+
+    .mask { position: fixed; inset: 0; background: rgba(0,0,0,.65); display: flex; align-items: center; justify-content: center; z-index: 100; backdrop-filter: blur(4px); }
+    .mask .panel { width: 340px; margin: 0; }
+    .mask .row { display: flex; gap: 10px; margin-top: 12px; }
+    .hidden { display: none !important; }
+    .toast {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+      background: var(--card); border: 1px solid var(--border); color: var(--text);
+      padding: 10px 18px; border-radius: 10px; font-size: 13px; z-index: 200;
+      opacity: 0; transition: opacity .2s; pointer-events: none;
+    }
+    .toast.show { opacity: 1; }
+    .toast.err { border-color: var(--red); color: var(--red); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="logo">AI</div>
+      <div>
+        <h1>AI 图库助手</h1>
+        <div class="sub">功能开关及管理 · 基于 Immich 图库</div>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn ghost" id="logoutBtn">退出</button>
+    </header>
+
+    <div class="panel">
+      <h2>系统状态</h2>
+      <div class="status-grid" id="statusGrid">加载中…</div>
+    </div>
+
+    <div class="panel">
+      <h2>功能开关</h2>
+      <div id="featureList">加载中…</div>
+    </div>
+  </div>
+
+  <div class="mask hidden" id="loginMask">
+    <div class="panel">
+      <h2>管理员登录</h2>
+      <input type="password" id="keyInput" placeholder="输入管理员密钥（ADMIN_API_KEY）" />
+      <div class="row">
+        <button class="btn" id="loginBtn" style="flex:1">进入</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  var KEY_STORAGE = "a01_admin_key";
+  var $ = function (id) { return document.getElementById(id); };
+  var headers = function () {
+    var k = localStorage.getItem(KEY_STORAGE);
+    return k ? { "x-admin-key": k } : {};
+  };
+
+  function toast(msg, isErr) {
+    var t = $("toast");
+    t.textContent = msg;
+    t.className = "toast show" + (isErr ? " err" : "");
+    setTimeout(function () { t.className = "toast" + (isErr ? " err" : ""); }, 2200);
+  }
+
+  async function api(path, opts) {
+    opts = opts || {};
+    var init = { method: opts.method || "GET", headers: Object.assign({ "Content-Type": "application/json" }, headers()) };
+    if (opts.body) init.body = JSON.stringify(opts.body);
+    var resp = await fetch(path, init);
+    if (resp.status === 401) { showLogin(); throw new Error("需要管理员密钥"); }
+    var data = await resp.json().catch(function () { return {}; });
+    if (!resp.ok) throw new Error((data.error && data.error.message) || ("HTTP " + resp.status));
+    return data;
+  }
+
+  function fmtUptime(s) {
+    if (s < 60) return s + " 秒";
+    if (s < 3600) return Math.round(s / 60) + " 分钟";
+    return (s / 3600).toFixed(1) + " 小时";
+  }
+
+  function renderStatus(st) {
+    var items = [
+      { k: "应用环境", v: st.app_env, cls: "" },
+      { k: "服务版本", v: "v" + st.version, cls: "" },
+      { k: "运行时长", v: fmtUptime(st.uptime_seconds), cls: "" },
+      { k: "Immich 连接", v: st.immich_connected ? "已连接" : "未连接", cls: st.immich_connected ? "ok" : "bad" },
+      { k: "缓存后端", v: st.cache_backend, cls: "" },
+      { k: "功能启用", v: st.features_enabled + " / " + st.features_total, cls: "" }
+    ];
+    $("statusGrid").innerHTML = items.map(function (it) {
+      return '<div class="status-item"><div class="k">' + it.k + '</div><div class="v ' + it.cls + '">' + it.v + "</div></div>";
+    }).join("");
+  }
+
+  function renderFeatures(features) {
+    var keys = Object.keys(features);
+    var html = keys.map(function (key) {
+      var f = features[key];
+      var badge = f.requires_restart ? '<span class="badge">需重启</span>' : (f.enabled ? "" : '<span class="badge off">已关闭</span>');
+      return '<div class="feature" data-key="' + key + '">' +
+        '<div class="info"><div class="name">' + f.name + " " + badge + '</div><div class="desc">' + f.description + "</div></div>" +
+        '<button class="toggle' + (f.enabled ? " on" : "") + '" data-key="' + key + '" aria-label="' + f.name + '"></button>' +
+        "</div>";
+    }).join("");
+    $("featureList").innerHTML = html;
+
+    Array.prototype.forEach.call($("featureList").querySelectorAll(".toggle"), function (btn) {
+      btn.addEventListener("click", function () { toggleFeature(btn); });
+    });
+  }
+
+  async function toggleFeature(btn) {
+    var key = btn.dataset.key;
+    var enable = !btn.classList.contains("on");
+    btn.disabled = true;
+    try {
+      var data = await api("/admin/api/features", { method: "PUT", body: { updates: (o = {}, o[key] = enable, o) } });
+      var o;
+      renderFeatures(data.features);
+      toast(enable ? "已开启" : "已关闭");
+    } catch (e) {
+      toast(e.message, true);
+      btn.disabled = false;
+    }
+  }
+
+  async function load() {
+    try {
+      var st = await api("/admin/api/status");
+      renderStatus(st);
+      var f = await api("/admin/api/features");
+      renderFeatures(f.features);
+      $("loginMask").classList.add("hidden");
+    } catch (e) {
+      if (e.message !== "需要管理员密钥") toast(e.message, true);
+    }
+  }
+
+  function showLogin() {
+    $("loginMask").classList.remove("hidden");
+    $("keyInput").value = "";
+    setTimeout(function () { $("keyInput").focus(); }, 50);
+  }
+
+  async function tryLogin() {
+    var key = $("keyInput").value.trim();
+    if (!key) { toast("请输入管理员密钥", true); return; }
+    try {
+      var r = await fetch("/admin/api/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ admin_key: key }) });
+      var data = await r.json().catch(function () { return {}; });
+      if (!r.ok) throw new Error((data.error && data.error.message) || "密钥错误");
+      localStorage.setItem(KEY_STORAGE, key);
+      $("loginMask").classList.add("hidden");
+      load();
+      toast("登录成功");
+    } catch (e) {
+      toast(e.message, true);
+    }
+  }
+
+  $("loginBtn").addEventListener("click", tryLogin);
+  $("keyInput").addEventListener("keydown", function (e) { if (e.key === "Enter") tryLogin(); });
+  $("logoutBtn").addEventListener("click", function () {
+    localStorage.removeItem(KEY_STORAGE);
+    showLogin();
+  });
+
+  load();
+})();
+</script>
+</body>
+</html>

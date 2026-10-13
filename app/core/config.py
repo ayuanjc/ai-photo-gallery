@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     # 空字符串 = 不启用鉴权（向后兼容）；非空 = 启用，请求头需携带 x-api-key。
     search_api_key: str = ""
 
+    # ---- 管理接口（功能开关及管理）----
+    # 空字符串 = 开发环境允许无鉴权访问管理接口；非空 = 请求头需携带 x-admin-key。
+    admin_api_key: str = ""
+
     # ---- Immich 上游 ----
     immich_base_url: str = "http://localhost:2283"
     immich_api_key: str = ""
