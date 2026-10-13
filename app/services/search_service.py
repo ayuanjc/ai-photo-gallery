@@ -12,8 +12,15 @@ from ..core.errors import UpstreamTimeoutError, UpstreamUnavailableError, Vision
 from ..models.request import SearchRequest
 from ..models.response import SearchResponse, SearchResultItem
 from ..scene.analyzer import SceneAnalyzer
+from .explain import build_explanation
 from .immich import ImmichClient
-from .ranking import calculate_dynamic_weights, clamp, fuse_multimodal_query, rank_assets
+from .ranking import (
+    blend_scene_weights,
+    calculate_dynamic_weights,
+    clamp,
+    fuse_multimodal_query,
+    rank_assets,
+)
 from .vision.base import VisionProvider
 
 logger = logging.getLogger(__name__)
@@ -83,20 +90,37 @@ class SearchService:
             default_iso=self._settings.default_datetime_iso,
         )
 
-        # 6. 组装结果。
-        results = [
-            self._to_item(
-                asset,
-                final=final,
-                similarity=similarity,
-                freshness=freshness,
-                captured_at=captured_at,
-                source=source,
-                fields=request.include_metadata_fields,
-                include_original=request.include_original_url,
+        # 6. 组装结果（EXPLAIN_ENABLED 时附加排序解释）。
+        explain_enabled = self._settings.explain_enabled
+        results = []
+        for asset, final, similarity, freshness, captured_at, source in ranked[: request.limit]:
+            explanation = None
+            if explain_enabled:
+                try:
+                    alpha, beta = blend_scene_weights(
+                        asset.get("scenes") or [asset.get("primary_scene")],
+                        default_alpha=time_weight,
+                        default_beta=similarity_weight,
+                    )
+                    explanation = build_explanation(
+                        asset, similarity, freshness, (alpha, beta), asset.get("scene_tags")
+                    )
+                except Exception as exc:
+                    logger.warning("解释生成失败，跳过该条解释: %s", exc)
+                    explanation = None
+            results.append(
+                self._to_item(
+                    asset,
+                    final=final,
+                    similarity=similarity,
+                    freshness=freshness,
+                    captured_at=captured_at,
+                    source=source,
+                    fields=request.include_metadata_fields,
+                    include_original=request.include_original_url,
+                    explanation=explanation,
+                )
             )
-            for asset, final, similarity, freshness, captured_at, source in ranked[: request.limit]
-        ]
 
         response = SearchResponse(
             query=request.query,
@@ -212,6 +236,7 @@ class SearchService:
         source: str,
         fields: list[str],
         include_original: bool,
+        explanation: dict | None = None,
     ) -> SearchResultItem:
         asset_id = str(asset.get("id", ""))
         metadata = self._extract_metadata(asset, fields)
@@ -227,6 +252,7 @@ class SearchService:
             final_score=round(final, 6),
             metadata=metadata,
             scene=asset.get("scene_tags"),
+            explanation=explanation,
         )
 
     @staticmethod
