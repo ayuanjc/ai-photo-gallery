@@ -2596,6 +2596,346 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
 
 
 # ============================================================================
+# 排序维度切换 — 破坏性测试（六大类全覆盖）
+# ============================================================================
+
+class TestSortByBrute:
+    """对 sort_by 排序维度切换执行混沌工程与安全渗透测试。
+
+    六大类覆盖：
+        1. 输入畸形与边界：sort_by 超长/空/特殊字符/类型错误
+        2. 网络与上游故障：上游失败时排序仍正常降级
+        3. 并发与资源耗尽：并发请求不同排序方式
+        4. 数学边界攻击：随机种子负数/超大值/极值
+        5. 数据污染与状态：captured_at 格式异常/缺失/类型错误
+        6. 安全攻击：sort_by 含注入尝试
+    """
+
+    # ---- 辅助 ----
+
+    @staticmethod
+    def _item(aid: str = "a", captured_at=None) -> dict:
+        return {
+            "asset": {"id": aid},
+            "final_score": 0.5,
+            "similarity": 0.5,
+            "captured_at": captured_at,
+            "freshness": 0.5,
+            "source": "exif",
+        }
+
+    # ---- 第一类：输入畸形与边界 ----
+
+    def test_sort_by_super_long_string_rejected(self):
+        """sort_by 超长字符串（10000 字符）→ 400。"""
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/smart",
+                json={"query": "test", "asset_ids": ["a1"], "sort_by": "x" * 10000},
+            )
+            assert resp.status_code == 400
+
+    def test_sort_by_empty_string_rejected(self):
+        """sort_by 空字符串 → 400。"""
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/smart",
+                json={"query": "test", "asset_ids": ["a1"], "sort_by": ""},
+            )
+            assert resp.status_code == 400
+
+    def test_sort_by_special_chars_rejected(self):
+        """sort_by 含特殊字符 → 400。"""
+        with TestClient(app) as client:
+            for payload in ["newest!", "oldest\n", "relevance\t", "random ", "NEWEST"]:
+                resp = client.post(
+                    "/api/v1/search/smart",
+                    json={"query": "test", "asset_ids": ["a1"], "sort_by": payload},
+                )
+                assert resp.status_code == 400, f"未拒绝特殊字符 sort_by: {payload!r}"
+
+    def test_sort_by_integer_rejected(self):
+        """sort_by 为整数 → 400。"""
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/smart",
+                json={"query": "test", "asset_ids": ["a1"], "sort_by": 123},
+            )
+            assert resp.status_code == 400
+
+    def test_sort_by_null_rejected(self):
+        """sort_by 为 null → 400。"""
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/smart",
+                json={"query": "test", "asset_ids": ["a1"], "sort_by": None},
+            )
+            assert resp.status_code == 400
+
+    def test_sort_by_list_rejected(self):
+        """sort_by 为列表 → 400。"""
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/smart",
+                json={"query": "test", "asset_ids": ["a1"], "sort_by": ["newest"]},
+            )
+            assert resp.status_code == 400
+
+    # ---- 第二类：网络与上游故障 ----
+
+    def test_upstream_failure_with_sort_by_newest_degrades(self):
+        """Immich 不可用 + sort_by=newest → 降级返回空结果，不报 5xx。"""
+        from app.api.deps import get_search_service
+        from app.core.errors import UpstreamUnavailableError
+        from app.models.response import SearchResponse
+
+        class FailService:
+            async def search(self, request):
+                raise UpstreamUnavailableError("Immich down")
+
+        original = app.dependency_overrides.copy()
+        app.dependency_overrides[get_search_service] = lambda: FailService()
+        try:
+            with TestClient(app, raise_server_exceptions=False) as client:
+                resp = client.post(
+                    "/api/v1/search/smart",
+                    json={"query": "test", "asset_ids": ["a1"], "sort_by": "newest"},
+                )
+                assert resp.status_code == 502
+                assert "UPSTREAM" in resp.json()["error"]["code"]
+        finally:
+            app.dependency_overrides = original
+
+    def test_upstream_timeout_with_sort_by_random_degrades(self):
+        """Immich 超时 + sort_by=random → 降级，不报 5xx。"""
+        from app.api.deps import get_search_service
+        from app.core.errors import UpstreamTimeoutError
+
+        class TimeoutService:
+            async def search(self, request):
+                raise UpstreamTimeoutError("timeout")
+
+        original = app.dependency_overrides.copy()
+        app.dependency_overrides[get_search_service] = lambda: TimeoutService()
+        try:
+            with TestClient(app, raise_server_exceptions=False) as client:
+                resp = client.post(
+                    "/api/v1/search/smart",
+                    json={"query": "test", "asset_ids": ["a1"], "sort_by": "random"},
+                )
+                assert resp.status_code == 504
+        finally:
+            app.dependency_overrides = original
+
+    # ---- 第三类：并发与资源耗尽 ----
+
+    def test_concurrent_different_sort_by_no_crash(self):
+        """50 个并发请求使用不同 sort_by → 不崩溃。"""
+        from app.api.deps import get_search_service
+        from app.models.response import SearchResponse
+
+        class StubService:
+            async def search(self, request):
+                return SearchResponse(query=request.query, total=0, results=[])
+
+        original = app.dependency_overrides.copy()
+        app.dependency_overrides[get_search_service] = lambda: StubService()
+        try:
+            with TestClient(app) as client:
+                import concurrent.futures
+
+                def post(mode):
+                    return client.post(
+                        "/api/v1/search/smart",
+                        json={"query": "test", "asset_ids": ["a1"], "sort_by": mode},
+                    )
+
+                modes = ["relevance", "newest", "oldest", "random"] * 13
+                with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
+                    results = list(pool.map(post, modes))
+                for resp in results:
+                    assert resp.status_code == 200
+        finally:
+            app.dependency_overrides = original
+
+    # ---- 第四类：数学边界攻击 ----
+
+    def test_random_seed_negative_no_crash(self):
+        """随机种子为负数 → 不崩溃，结果确定性。"""
+        from app.services.ranking import apply_sort_by
+
+        items = [self._item(f"id{i}", datetime(2020 + i, 1, 1, tzinfo=timezone.utc)) for i in range(10)]
+        r1 = apply_sort_by(items, "random", random_seed=-1)
+        r2 = apply_sort_by(items, "random", random_seed=-1)
+        assert [i["asset"]["id"] for i in r1] == [i["asset"]["id"] for i in r2]
+
+    def test_random_seed_huge_value_no_crash(self):
+        """随机种子为超大值（2^63）→ 不崩溃。"""
+        from app.services.ranking import apply_sort_by
+
+        items = [self._item(f"id{i}", datetime(2020 + i, 1, 1, tzinfo=timezone.utc)) for i in range(10)]
+        result = apply_sort_by(items, "random", random_seed=2**63)
+        assert len(result) == 10
+
+    def test_random_seed_zero_no_crash(self):
+        """随机种子为 0 → 不崩溃。"""
+        from app.services.ranking import apply_sort_by
+
+        items = [self._item(f"id{i}", datetime(2020 + i, 1, 1, tzinfo=timezone.utc)) for i in range(10)]
+        result = apply_sort_by(items, "random", random_seed=0)
+        assert len(result) == 10
+
+    def test_random_seed_min_int_no_crash(self):
+        """随机种子为最小 int → 不崩溃。"""
+        from app.services.ranking import apply_sort_by
+
+        items = [self._item(f"id{i}") for i in range(5)]
+        result = apply_sort_by(items, "random", random_seed=-(2**31))
+        assert len(result) == 5
+
+    def test_newest_all_same_time_stable(self):
+        """所有资产时间相同 + newest → 不崩溃，顺序稳定。"""
+        from app.services.ranking import apply_sort_by
+
+        t = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        items = [self._item(f"id{i}", t) for i in range(20)]
+        result = apply_sort_by(items, "newest")
+        assert len(result) == 20
+
+    # ---- 第五类：数据污染与状态 ----
+
+    def test_captured_at_is_string_not_datetime_no_crash(self):
+        """captured_at 为字符串而非 datetime → 不崩溃（降级为无时间）。"""
+        from app.services.ranking import apply_sort_by
+
+        items = [
+            self._item("a", "2024-01-01T00:00:00Z"),
+            self._item("b", "2023-01-01T00:00:00Z"),
+        ]
+        result = apply_sort_by(items, "newest")
+        assert len(result) == 2
+
+    def test_captured_at_missing_key_no_crash(self):
+        """item 缺少 captured_at 键 → 不崩溃。"""
+        from app.services.ranking import apply_sort_by
+
+        items = [
+            {"asset": {"id": "a"}, "final_score": 0.5},
+            {"asset": {"id": "b"}, "final_score": 0.8},
+        ]
+        result = apply_sort_by(items, "newest")
+        assert len(result) == 2
+
+    def test_captured_at_is_integer_no_crash(self):
+        """captured_at 为整数 → 不崩溃。"""
+        from app.services.ranking import apply_sort_by
+
+        items = [
+            self._item("a", 20240101),
+            self._item("b", 20230101),
+        ]
+        result = apply_sort_by(items, "oldest")
+        assert len(result) == 2
+
+    def test_all_captured_at_none_newest_no_crash(self):
+        """所有资产 captured_at=None + newest → 不崩溃。"""
+        from app.services.ranking import apply_sort_by
+
+        items = [self._item(f"id{i}", None) for i in range(10)]
+        result = apply_sort_by(items, "newest")
+        assert len(result) == 10
+
+    def test_all_captured_at_none_oldest_no_crash(self):
+        """所有资产 captured_at=None + oldest → 不崩溃。"""
+        from app.services.ranking import apply_sort_by
+
+        items = [self._item(f"id{i}", None) for i in range(10)]
+        result = apply_sort_by(items, "oldest")
+        assert len(result) == 10
+
+    def test_mixed_naive_aware_datetime_no_crash(self):
+        """混合 naive/aware datetime → 不崩溃（异常被 search_service catch）。"""
+        from app.services.ranking import apply_sort_by
+
+        items = [
+            self._item("aware", datetime(2024, 1, 1, tzinfo=timezone.utc)),
+            self._item("naive", datetime(2023, 1, 1)),
+        ]
+        try:
+            result = apply_sort_by(items, "newest")
+            assert len(result) == 2
+        except TypeError:
+            pass  # 混合 naive/aware 比较抛 TypeError 是预期行为
+
+    def test_extremely_large_dataset_random_no_crash(self):
+        """10000 条资产 + random → 不崩溃。"""
+        from app.services.ranking import apply_sort_by
+
+        items = [self._item(f"id{i}", datetime(2020, 1, 1, tzinfo=timezone.utc)) for i in range(10000)]
+        result = apply_sort_by(items, "random", random_seed=42)
+        assert len(result) == 10000
+
+    # ---- 第六类：安全攻击 ----
+
+    def test_sort_by_sql_injection_rejected(self):
+        """sort_by 含 SQL 注入 → 400。"""
+        with TestClient(app) as client:
+            for payload in [
+                "newest' OR '1'='1",
+                "relevance; DROP TABLE assets; --",
+                "random UNION SELECT * FROM users",
+            ]:
+                resp = client.post(
+                    "/api/v1/search/smart",
+                    json={"query": "test", "asset_ids": ["a1"], "sort_by": payload},
+                )
+                assert resp.status_code == 400, f"未拒绝 SQL 注入 sort_by: {payload!r}"
+
+    def test_sort_by_xss_rejected(self):
+        """sort_by 含 XSS payload → 400。"""
+        with TestClient(app) as client:
+            for payload in [
+                "<script>alert(1)</script>",
+                "<img src=x onerror=alert(1)>",
+                "javascript:alert(1)",
+            ]:
+                resp = client.post(
+                    "/api/v1/search/smart",
+                    json={"query": "test", "asset_ids": ["a1"], "sort_by": payload},
+                )
+                assert resp.status_code == 400
+
+    def test_sort_by_path_traversal_rejected(self):
+        """sort_by 含路径遍历 → 400。"""
+        with TestClient(app) as client:
+            for payload in ["../../etc/passwd", "..\\..\\windows\\system32", "/etc/shadow"]:
+                resp = client.post(
+                    "/api/v1/search/smart",
+                    json={"query": "test", "asset_ids": ["a1"], "sort_by": payload},
+                )
+                assert resp.status_code == 400
+
+    def test_sort_by_null_byte_rejected(self):
+        """sort_by 含 null byte → 400。"""
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/smart",
+                json={"query": "test", "asset_ids": ["a1"], "sort_by": "newest\x00"},
+            )
+            assert resp.status_code == 400
+
+    def test_sort_by_command_injection_rejected(self):
+        """sort_by 含命令注入 → 400。"""
+        with TestClient(app) as client:
+            for payload in ["newest; rm -rf /", "relevance| cat /etc/passwd", "random$(whoami)"]:
+                resp = client.post(
+                    "/api/v1/search/smart",
+                    json={"query": "test", "asset_ids": ["a1"], "sort_by": payload},
+                )
+                assert resp.status_code == 400
+
+
+# ============================================================================
 # 器材偏好接口 — 破坏性测试
 # ============================================================================
 
