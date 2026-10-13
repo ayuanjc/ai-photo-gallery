@@ -132,6 +132,11 @@ class Settings(BaseSettings):
     # 统计结果缓存 TTL（秒），供后续统计模块使用。
     stats_cache_ttl_seconds: int = 600
 
+    # ---- 搜索反馈闭环 ----
+    feedback_enabled: bool = True
+    feedback_ttl_seconds: int = 604800
+    feedback_boost_max: float = 0.05
+
     # ---- 搜索结果去重（连拍/相似图只保留一张）----
     # 开启后排序结果中相似度极高的条目被去重，保留 final_score 最高的一张。
     dedup_enabled: bool = True
