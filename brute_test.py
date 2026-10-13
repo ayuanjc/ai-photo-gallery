@@ -3548,6 +3548,394 @@ class TestFeedbackBrute:
 
 
 # ============================================================================
+# 以图搜图 — 破坏性测试
+# ============================================================================
+
+class TestImageSearchBrute:
+    """以图搜图接口的混沌工程与安全渗透测试。"""
+
+    def test_image_urls_ssrf_internal_ip_rejected(self):
+        """SSRF 尝试：内网 IP 地址 → 400。"""
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/smart",
+                json={
+                    "query": "海滩",
+                    "asset_ids": ["a-001"],
+                    "image_urls": ["http://10.0.0.1/api/assets/evil/original"],
+                },
+            )
+            assert resp.status_code == 400
+
+    def test_image_urls_ssrf_localhost_rejected(self):
+        """SSRF 尝试：localhost → 400。"""
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/smart",
+                json={
+                    "query": "海滩",
+                    "asset_ids": ["a-001"],
+                    "image_urls": ["http://localhost:2283/api/assets/evil/original"],
+                },
+            )
+            assert resp.status_code == 400
+
+    def test_image_urls_ssrf_loopback_rejected(self):
+        """SSRF 尝试：127.0.0.1 → 400。"""
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/smart",
+                json={
+                    "query": "海滩",
+                    "asset_ids": ["a-001"],
+                    "image_urls": ["http://127.0.0.1/api/assets/evil/original"],
+                },
+            )
+            assert resp.status_code == 400
+
+    def test_image_urls_ssrf_link_local_rejected(self):
+        """SSRF 尝试：链路本地地址 169.254.x.x → 400。"""
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/smart",
+                json={
+                    "query": "海滩",
+                    "asset_ids": ["a-001"],
+                    "image_urls": ["http://169.254.169.254/api/assets/evil/original"],
+                },
+            )
+            assert resp.status_code == 400
+
+    def test_image_urls_ssrf_metadata_endpoint_rejected(self):
+        """SSRF 尝试：云元数据端点 → 400。"""
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/smart",
+                json={
+                    "query": "海滩",
+                    "asset_ids": ["a-001"],
+                    "image_urls": ["http://169.254.169.254/latest/meta-data/"],
+                },
+            )
+            assert resp.status_code == 400
+
+    def test_image_urls_non_http_scheme_rejected(self):
+        """非 http(s) 协议 → 400。"""
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/smart",
+                json={
+                    "query": "海滩",
+                    "asset_ids": ["a-001"],
+                    "image_urls": ["file:///etc/passwd"],
+                },
+            )
+            assert resp.status_code == 400
+
+    def test_image_urls_empty_string_rejected(self):
+        """image_urls 含空字符串 → 400。"""
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/smart",
+                json={
+                    "query": "海滩",
+                    "asset_ids": ["a-001"],
+                    "image_urls": [""],
+                },
+            )
+            assert resp.status_code == 400
+
+    def test_image_urls_duplicate_rejected(self):
+        """image_urls 重复 URL → 400。"""
+        with TestClient(app) as client:
+            url = "http://immich.test/api/assets/abc/original"
+            resp = client.post(
+                "/api/v1/search/smart",
+                json={
+                    "query": "海滩",
+                    "asset_ids": ["a-001"],
+                    "image_urls": [url, url],
+                },
+            )
+            assert resp.status_code == 400
+
+    def test_image_urls_over_200_rejected(self):
+        """单次传 201 张参考图 → 400（max_length=200）。"""
+        with TestClient(app) as client:
+            urls = [f"http://immich.test/api/assets/id-{i}/original" for i in range(201)]
+            resp = client.post(
+                "/api/v1/search/smart",
+                json={
+                    "query": "海滩",
+                    "asset_ids": ["a-001"],
+                    "image_urls": urls,
+                },
+            )
+            assert resp.status_code == 400
+
+    def test_image_urls_extremely_long_rejected(self):
+        """URL 超过 2048 字符 → 400。"""
+        with TestClient(app) as client:
+            long_url = "http://immich.test/api/assets/" + "x" * 3000 + "/original"
+            resp = client.post(
+                "/api/v1/search/smart",
+                json={
+                    "query": "海滩",
+                    "asset_ids": ["a-001"],
+                    "image_urls": [long_url],
+                },
+            )
+            assert resp.status_code == 400
+
+    def test_image_urls_special_chars_in_path(self):
+        """URL 路径含特殊字符 → 不崩溃（可能 400 或正常降级）。"""
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/smart",
+                json={
+                    "query": "海滩",
+                    "asset_ids": ["a-001"],
+                    "image_urls": ["http://immich.test/api/assets/a%20b%3Fc/original"],
+                },
+            )
+            assert resp.status_code in (200, 400, 502, 504)
+
+    def test_image_urls_sql_injection_in_path(self):
+        """SQL 注入尝试在 URL 路径中 → 不崩溃。"""
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/v1/search/smart",
+                json={
+                    "query": "海滩",
+                    "asset_ids": ["a-001"],
+                    "image_urls": [
+                        "http://immich.test/api/assets/'; DROP TABLE assets; --/original"
+                    ],
+                },
+            )
+            assert resp.status_code in (200, 400, 502, 504)
+
+    def test_image_query_upstream_timeout_degrades(self):
+        """Immich similar_assets 超时 → 降级为纯文本搜索，不报 5xx。"""
+        settings = Settings(
+            immich_base_url="http://immich.test",
+            immich_api_key="test-key",
+            immich_timeout_seconds=0.01,
+            immich_connect_timeout_seconds=0.01,
+            immich_max_retries=0,
+            scene_enabled=False,
+            search_api_key="",
+            rate_limit_enabled=False,
+        )
+
+        from app.services.search_service import SearchService
+        from app.services.vision.base import VisionProvider, VisionResult
+
+        class _NoVision(VisionProvider):
+            name = "none"
+
+            async def analyze(self, image_url: str) -> VisionResult:
+                return VisionResult(labels=[])
+
+        class _TimeoutImmich:
+            async def smart_search(self, query, k=50, asset_ids=None):
+                return [{"id": "a", "score": 0.9, "exifInfo": {}}]
+
+            async def similar_assets(self, asset_id, k=50):
+                raise UpstreamTimeoutError("timeout")
+
+            def thumbnail_url(self, aid, size="preview"):
+                return f"http://immich.test/api/assets/{aid}/thumbnail"
+
+            def original_url(self, aid):
+                return f"http://immich.test/api/assets/{aid}/original"
+
+        svc = SearchService(settings, _TimeoutImmich(), _NoVision())
+        request = SearchRequest(
+            query="海滩",
+            asset_ids=["a-001"],
+            image_urls=["http://immich.test/api/assets/ref-001/original"],
+        )
+
+        async def run():
+            return await svc.search(request)
+
+        resp = asyncio.run(run())
+        assert resp.image_query_used is False
+        assert resp.total >= 1
+        assert any("失败" in w or "降级" in w or "超时" in w for w in resp.warnings)
+
+    def test_image_query_upstream_500_degrades(self):
+        """Immich similar_assets 返回 500 → 降级，不报 5xx。"""
+        settings = Settings(
+            immich_base_url="http://immich.test",
+            immich_api_key="test-key",
+            immich_timeout_seconds=0.01,
+            immich_connect_timeout_seconds=0.01,
+            immich_max_retries=0,
+            scene_enabled=False,
+            search_api_key="",
+            rate_limit_enabled=False,
+        )
+
+        from app.services.search_service import SearchService
+        from app.services.vision.base import VisionProvider, VisionResult
+
+        class _NoVision(VisionProvider):
+            name = "none"
+
+            async def analyze(self, image_url: str) -> VisionResult:
+                return VisionResult(labels=[])
+
+        class _ErrorImmich:
+            async def smart_search(self, query, k=50, asset_ids=None):
+                return [{"id": "a", "score": 0.9, "exifInfo": {}}]
+
+            async def similar_assets(self, asset_id, k=50):
+                raise UpstreamError("500")
+
+            def thumbnail_url(self, aid, size="preview"):
+                return f"http://immich.test/api/assets/{aid}/thumbnail"
+
+            def original_url(self, aid):
+                return f"http://immich.test/api/assets/{aid}/original"
+
+        svc = SearchService(settings, _ErrorImmich(), _NoVision())
+        request = SearchRequest(
+            query="海滩",
+            asset_ids=["a-001"],
+            image_urls=["http://immich.test/api/assets/ref-001/original"],
+        )
+
+        async def run():
+            return await svc.search(request)
+
+        resp = asyncio.run(run())
+        assert resp.image_query_used is False
+        assert resp.total >= 1
+
+    def test_image_query_concurrent_same_ref_no_crash(self):
+        """同一参考图并发请求 → 不崩溃，不死锁。"""
+        settings = Settings(
+            immich_base_url="http://immich.test",
+            immich_api_key="test-key",
+            immich_timeout_seconds=0.5,
+            immich_connect_timeout_seconds=0.5,
+            immich_max_retries=0,
+            scene_enabled=False,
+            search_api_key="",
+            rate_limit_enabled=False,
+        )
+
+        from app.services.image_query_service import ImageQueryService
+
+        class _ConcurrentImmich:
+            def __init__(self):
+                self.call_count = 0
+
+            async def similar_assets(self, asset_id, k=50):
+                self.call_count += 1
+                return [{"id": f"sim-{asset_id}-{self.call_count}", "score": 0.9}]
+
+        immich = _ConcurrentImmich()
+        svc = ImageQueryService(settings, immich)
+        url = "http://immich.test/api/assets/ref-001/original"
+
+        async def run():
+            tasks = [
+                svc.resolve_asset_ids_from_images([url], top_k=10)
+                for _ in range(20)
+            ]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            return results
+
+        results = asyncio.run(run())
+        for r in results:
+            assert not isinstance(r, Exception), f"并发请求崩溃: {r}"
+            asset_ids, warnings = r
+            assert len(asset_ids) >= 1
+
+    def test_image_query_all_urls_non_immich_degrades(self):
+        """所有 URL 都非 Immich 格式 → 降级，image_query_used=False。"""
+        settings = Settings(
+            immich_base_url="http://immich.test",
+            immich_api_key="test-key",
+            immich_timeout_seconds=0.01,
+            immich_connect_timeout_seconds=0.01,
+            immich_max_retries=0,
+            scene_enabled=False,
+            search_api_key="",
+            rate_limit_enabled=False,
+        )
+
+        from app.services.search_service import SearchService
+        from app.services.vision.base import VisionProvider, VisionResult
+
+        class _NoVision(VisionProvider):
+            name = "none"
+
+            async def analyze(self, image_url: str) -> VisionResult:
+                return VisionResult(labels=[])
+
+        class _StubImmich:
+            async def smart_search(self, query, k=50, asset_ids=None):
+                return [{"id": "a", "score": 0.9, "exifInfo": {}}]
+
+            async def similar_assets(self, asset_id, k=50):
+                return []
+
+            def thumbnail_url(self, aid, size="preview"):
+                return f"http://immich.test/api/assets/{aid}/thumbnail"
+
+            def original_url(self, aid):
+                return f"http://immich.test/api/assets/{aid}/original"
+
+        svc = SearchService(settings, _StubImmich(), _NoVision())
+        request = SearchRequest(
+            query="海滩",
+            asset_ids=["a-001"],
+            image_urls=[
+                "http://example.com/photos/1",
+                "http://example.com/photos/2",
+            ],
+        )
+
+        async def run():
+            return await svc.search(request)
+
+        resp = asyncio.run(run())
+        assert resp.image_query_used is False
+        assert resp.total >= 1
+
+    def test_image_query_mixed_valid_invalid_urls(self):
+        """混合合法/非法 Immich URL → 合法的生效，非法的跳过。"""
+        from app.services.image_query_service import ImageQueryService
+
+        settings = Settings(
+            immich_base_url="http://immich.test",
+            immich_api_key="test-key",
+        )
+
+        class _MixedImmich:
+            async def similar_assets(self, asset_id, k=50):
+                return [{"id": f"sim-{asset_id}", "score": 0.9}]
+
+        svc = ImageQueryService(settings, _MixedImmich())
+
+        async def run():
+            return await svc.resolve_asset_ids_from_images(
+                [
+                    "http://immich.test/api/assets/valid-001/original",
+                    "http://example.com/photos/invalid",
+                ]
+            )
+
+        result, warnings = asyncio.run(run())
+        assert "sim-valid-001" in result
+        assert len(warnings) == 1
+
+
+# ============================================================================
 # 防御性测试报告
 # ============================================================================
 

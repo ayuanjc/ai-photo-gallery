@@ -22,6 +22,7 @@ from .ranking import (
     rank_assets,
 )
 from .dedup import dedup_items
+from .image_query_service import ImageQueryService
 from .vision.base import VisionProvider
 
 logger = logging.getLogger(__name__)
@@ -63,9 +64,31 @@ class SearchService:
         # 1. 并发调用视觉识别，从图片 URL 提取标签，用于增强语义查询。
         enriched_query, warnings = await self._enrich_query(request)
 
+        # 1b. 以图搜图：若请求携带 image_urls，从参考图提取相似 asset_id 并合并到候选集。
+        image_query_used = False
+        effective_asset_ids = list(request.asset_ids)
+        if request.image_urls and self._settings.image_query_enabled:
+            image_service = ImageQueryService(self._settings, self._immich)
+            try:
+                image_asset_ids, image_warnings = await image_service.resolve_asset_ids_from_images(
+                    request.image_urls, top_k=self._settings.image_query_top_k
+                )
+            except Exception as exc:
+                logger.warning("以图搜图异常，降级为纯文本搜索: %s", exc)
+                image_asset_ids = set()
+                image_warnings = [f"以图搜图异常，已降级: {exc}"]
+
+            if image_asset_ids:
+                merged = set(effective_asset_ids) | image_asset_ids
+                effective_asset_ids = list(merged)
+                image_query_used = True
+            warnings.extend(image_warnings)
+
         # 2. 调用 Immich 语义搜索（上游不可用/超时时降级返回空结果，不报 5xx）。
         try:
-            assets = await self._immich.smart_search(enriched_query, k=request.limit, asset_ids=request.asset_ids)
+            assets = await self._immich.smart_search(
+                enriched_query, k=request.limit, asset_ids=effective_asset_ids
+            )
         except (UpstreamUnavailableError, UpstreamTimeoutError) as exc:
             logger.error("Immich 不可用，降级返回空结果: %s", exc)
             return SearchResponse(
@@ -161,6 +184,7 @@ class SearchService:
             results=results,
             enriched_query=enriched_query if enriched_query != request.query else None,
             dedup_removed=dedup_removed,
+            image_query_used=image_query_used,
         )
 
         # 写缓存：仅非降级结果写入，降级结果不缓存。
@@ -180,6 +204,7 @@ class SearchService:
             {
                 "query": request.query,
                 "asset_ids": request.asset_ids,
+                "image_urls": request.image_urls,
                 "limit": request.limit,
                 "time_weight": request.time_weight,
                 "similarity_weight": request.similarity_weight,

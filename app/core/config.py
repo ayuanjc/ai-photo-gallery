@@ -153,6 +153,14 @@ class Settings(BaseSettings):
     # 画面相似度阈值，超过此值 + 尺寸相同视为重复。
     dedup_similarity_threshold: float = 0.95
 
+    # ---- 以图搜图（image_urls 参与搜索）----
+    # 开启后请求携带 image_urls 时，从参考图提取相似 asset_id 并合并到搜索候选集。
+    image_query_enabled: bool = True
+    # 每张参考图取相似图的数量上限。
+    image_query_top_k: int = 50
+    # 以图搜图单次请求超时（秒）。
+    image_query_timeout_seconds: float = 5.0
+
     @field_validator("immich_base_url")
     @classmethod
     def _strip_trailing_slash(cls, value: str) -> str:

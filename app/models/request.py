@@ -55,6 +55,28 @@ class SearchRequest(BaseModel):
     similarity_weight: float | None = Field(default=None, ge=0.0, le=1.0, description="相似度权重 β")
     include_metadata_fields: list[str] = Field(default_factory=lambda: list(DEFAULT_METADATA_FIELDS))
     include_original_url: bool = True
+    image_urls: list[str] = Field(
+        default_factory=list,
+        max_length=200,
+        description="参考图 URL 列表，用于以图搜图（Immich 风格 URL）",
+    )
+
+    @field_validator("image_urls")
+    @classmethod
+    def _validate_image_urls(cls, value: list[str]) -> list[str]:
+        from ..utils.url_safety import validate_url_or_raise
+
+        seen: set[str] = set()
+        for url in value:
+            if not url or not url.strip():
+                raise ValueError("image_url 不能为空字符串")
+            if len(url) > 2048:
+                raise ValueError(f"image_url 长度不能超过 2048 字符: {url[:50]}...")
+            validate_url_or_raise(url)
+            if url in seen:
+                raise ValueError(f"image_url 重复: {url[:50]}...")
+            seen.add(url)
+        return value
 
     @field_validator("asset_ids")
     @classmethod
