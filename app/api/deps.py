@@ -29,9 +29,15 @@ async def verify_api_key(
 ) -> None:
     """搜索接口 API Key 鉴权。
 
-    未配置 search_api_key（空字符串）时直接放行；配置后校验请求头 x-api-key，
-    缺失或不匹配抛 UnauthorizedError（映射 401，走全局异常处理器统一格式）。
+    运行时开关 auth_enabled 关闭时直接放行（管理页面可切换）；
+    开启但未配置 search_api_key（空字符串）时也直接放行；配置后校验请求头
+    x-api-key，缺失或不匹配抛 UnauthorizedError（映射 401，走全局异常处理器
+    统一格式）。
     """
+    from ..core.runtime_config import runtime_enabled
+
+    if not runtime_enabled("auth_enabled", bool(settings.search_api_key)):
+        return
     if not settings.search_api_key:
         return
     provided = request.headers.get("x-api-key")
@@ -58,10 +64,15 @@ async def rate_limit_guard(
 ) -> None:
     """搜索接口令牌桶限流。
 
+    运行时开关 rate_limit_enabled 关闭时直接放行（管理页面可切换）。
     从 app.state.rate_limiter 获取限流器，按客户端标识（API Key 或 IP）检查令牌。
     超限时抛 AppError(RATE_LIMITED)（映射 429），响应头带 X-RateLimit-Remaining。
     限流器不存在时直接放行（降级）。
     """
+    from ..core.runtime_config import runtime_enabled
+
+    if not runtime_enabled("rate_limit_enabled", True):
+        return
     limiter: TokenBucketRateLimiter | None = getattr(
         request.app.state, "rate_limiter", None
     )

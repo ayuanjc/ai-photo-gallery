@@ -83,5 +83,7 @@ def test_upstream_unavailable_returns_502(client):
 
 
 def test_method_not_allowed(client):
+    # catch-all 反代后，未匹配方法不再返回 405，而是转发到 Immich
+    # Immich 运行时返回 404，未运行时代理返回 502
     resp = client.get("/api/v1/search/smart")
-    assert resp.status_code == 405
+    assert resp.status_code in (404, 502)

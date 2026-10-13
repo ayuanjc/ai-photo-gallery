@@ -9,6 +9,7 @@ import logging
 from ..core.cache import CacheBackend
 from ..core.config import Settings
 from ..core.errors import UpstreamTimeoutError, UpstreamUnavailableError, VisionError
+from ..core.runtime_config import runtime_enabled
 from ..models.request import SearchRequest
 from ..models.response import SearchResponse, SearchResultItem
 from ..scene.analyzer import SceneAnalyzer
@@ -67,7 +68,9 @@ class SearchService:
         # 1b. 以图搜图：若请求携带 image_urls，从参考图提取相似 asset_id 并合并到候选集。
         image_query_used = False
         effective_asset_ids = list(request.asset_ids)
-        if request.image_urls and self._settings.image_query_enabled:
+        if request.image_urls and runtime_enabled(
+            "image_query_enabled", self._settings.image_query_enabled
+        ):
             image_service = ImageQueryService(self._settings, self._immich)
             try:
                 image_asset_ids, image_warnings = await image_service.resolve_asset_ids_from_images(
@@ -128,7 +131,7 @@ class SearchService:
         ]
 
         dedup_removed = 0
-        if self._settings.dedup_enabled:
+        if runtime_enabled("dedup_enabled", self._settings.dedup_enabled):
             try:
                 dedup_input, dedup_removed = dedup_items(
                     dedup_input,
@@ -139,7 +142,9 @@ class SearchService:
                 logger.warning("去重失败，降级为不去重: %s", exc)
                 dedup_removed = 0
 
-        explain_enabled = self._settings.explain_enabled
+        explain_enabled = runtime_enabled(
+            "explain_enabled", self._settings.explain_enabled
+        )
         results = []
         for item in dedup_input:
             asset = item["asset"]
@@ -249,7 +254,9 @@ class SearchService:
         成功时在 asset 上附加 scene_tags 与 primary_scene；整体异常时仅记日志，
         asset 不携带 scene 信息（对应响应中 scene=None）。
         """
-        if self._scene_analyzer is None or not self._settings.scene_enabled:
+        if self._scene_analyzer is None or not runtime_enabled(
+            "scene_enabled", self._settings.scene_enabled
+        ):
             return
         semantic = asyncio.Semaphore(self._settings.search_max_concurrent_scene)
 
