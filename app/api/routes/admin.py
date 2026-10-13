@@ -4,6 +4,8 @@
 - PUT  /admin/api/features  批量修改开关
 - GET  /admin/api/status    系统状态（版本/Immich 连通性/缓存后端/运行时长）
 - POST /admin/api/verify    校验管理员密钥（管理页面登录）
+- GET  /admin/api/settings  获取配置（敏感值脱敏）
+- PUT  /admin/api/settings  更新配置（写入 .env 文件，需重启生效）
 
 鉴权：未配置 admin_api_key 且 APP_ENV=development 时放行；否则请求头需携带
 x-admin-key（hmac.compare_digest 比较）。
@@ -11,8 +13,8 @@ x-admin-key（hmac.compare_digest 比较）。
 from __future__ import annotations
 
 import hmac
-
 import time
+from pathlib import Path
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
@@ -115,6 +117,82 @@ async def system_status(request: Request) -> dict:
         "cache_backend": cache_backend,
         "features_enabled": enabled_count,
         "features_total": len(features),
+    }
+
+
+def _mask(value: str) -> str:
+    """脱敏：空值返回空串，非空返回前4+后4+星号。"""
+    if not value:
+        return ""
+    if len(value) <= 8:
+        return "****"
+    return value[:4] + "****" + value[-4:]
+
+
+_SETTING_KEYS = {
+    "immich_base_url": "IMMICH_BASE_URL",
+    "immich_api_key": "IMMICH_API_KEY",
+    "search_api_key": "SEARCH_API_KEY",
+    "admin_api_key": "ADMIN_API_KEY",
+}
+
+_SENSITIVE_KEYS = {"immich_api_key", "search_api_key", "admin_api_key"}
+
+
+class SettingsUpdates(BaseModel):
+    updates: dict[str, str] = Field(..., min_length=1)
+
+
+@router.get("/admin/api/settings")
+async def get_settings_handler(request: Request) -> dict:
+    _verify_admin_key(request)
+    settings = get_settings()
+    result: dict[str, dict[str, str | bool]] = {}
+    for key, env_key in _SETTING_KEYS.items():
+        raw = getattr(settings, key)
+        result[key] = {
+            "env_key": env_key,
+            "value": _mask(raw) if key in _SENSITIVE_KEYS else raw,
+            "is_set": bool(raw),
+            "sensitive": key in _SENSITIVE_KEYS,
+        }
+    return {"settings": result}
+
+
+@router.put("/admin/api/settings")
+async def update_settings_handler(body: SettingsUpdates, request: Request) -> dict:
+    _verify_admin_key(request)
+    unknown = [k for k in body.updates if k not in _SETTING_KEYS]
+    if unknown:
+        raise AppError(ErrorCode.INVALID_PARAMS, f"未知的配置项: {','.join(unknown)}")
+
+    env_path = Path(".env")
+    lines: list[str] = []
+    if env_path.exists():
+        lines = env_path.read_text(encoding="utf-8").splitlines()
+
+    existing: dict[str, int] = {}
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and "=" in stripped:
+            k = stripped.split("=", 1)[0].strip()
+            existing[k.upper()] = i
+
+    for key, value in body.updates.items():
+        env_key = _SETTING_KEYS[key]
+        line_text = f"{env_key}={value}"
+        if env_key in existing:
+            lines[existing[env_key]] = line_text
+        else:
+            lines.append(line_text)
+
+    env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    updated_keys = list(body.updates.keys())
+    return {
+        "updated": True,
+        "keys": updated_keys,
+        "message": "配置已写入 .env 文件，重启服务后生效",
     }
 
 
