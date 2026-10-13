@@ -27,12 +27,14 @@ from .core.redis_client import RedisClient
 from .scene.analyzer import NullSceneInferrer, SceneAnalyzer
 from .scene.dictionary import get_scene_dict
 from .services.face_service import FaceService
+from .services.feedback_service import init_feedback_service
 from .services.immich import ImmichClient
 from .services.immich_uploader import ImmichAssetUploader
 from .services.importer import BatchImporter
 from .services.metadata import MetadataExtractor
 from .services.multi_condition_service import MultiConditionSearchService
 from .services.search_service import SearchService
+from .services.stats_provider import StatsProvider
 from .services.vision.base import NullVisionProvider, VisionProvider
 from .services.vision.huawei import HuaweiVisionProvider
 from .services.vision.huawei_face import HuaweiFaceClient
@@ -44,6 +46,7 @@ _REQUEST_ID_RE = re.compile(r"^[a-zA-Z0-9\-]{1,128}$")
 _SENSITIVE_PATTERNS = [
     (re.compile(r'://[^:\s]+:[^@\s]+@'), '://***@'),
     (re.compile(r'(password|secret|token|api[_-]?key|credential)\s*[=:]\s*\S+', re.IGNORECASE), r'\1=***'),
+    (re.compile(r'["\']?(password|secret|token|api[_-]?key|credential)["\']?\s*[:=]\s*["\']?([^"\'\s,}]+)', re.IGNORECASE), r'\1=***'),
 ]
 
 
@@ -102,6 +105,10 @@ async def lifespan(app: FastAPI):
     )
     app.state.multi_condition_service = MultiConditionSearchService(settings, immich)
 
+
+    # 搜索反馈闭环
+    init_feedback_service(cache, settings)
+
     # 批量导入：元数据提取 → 上传 Immich
     metadata_extractor = MetadataExtractor(settings.default_datetime_iso)
     immich_uploader = ImmichAssetUploader(settings)
@@ -117,13 +124,13 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        await redis_client.aclose()
-        await immich.aclose()
-        await immich_uploader.aclose()
-        if face_client is not None:
-            await face_client.aclose()
         if scene_analyzer is not None:
             await scene_analyzer.aclose()
+        if face_client is not None:
+            await face_client.aclose()
+        await immich_uploader.aclose()
+        await immich.aclose()
+        await redis_client.aclose()
         logger.info("应用关闭")
 
 
@@ -149,6 +156,9 @@ async def request_id_middleware(request: Request, call_next):
     request.state.request_id = request_id
     response = await call_next(request)
     response.headers["x-request-id"] = request_id
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
 

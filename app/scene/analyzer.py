@@ -117,6 +117,8 @@ class SceneAnalyzer:
         避免缓存 stampede（大量并发 miss 同时触发推理）。
         """
         asset_id = str(asset.get("id", "") or "")
+        if not asset_id:
+            logger.debug("场景分析：asset_id 为空，跳过 singleflight")
         if asset_id:
             cached = await self._get_cached(asset_id)
             if cached is not None:

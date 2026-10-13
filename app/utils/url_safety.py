@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import ipaddress
+import socket
 from urllib.parse import urlparse
 
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
@@ -31,7 +32,15 @@ def is_safe_url(url: str) -> bool:
     try:
         ip = ipaddress.ip_address(host)
     except ValueError:
-        return True
+        try:
+            infos = socket.getaddrinfo(host, None)
+            for info in infos:
+                ip = ipaddress.ip_address(info[4][0])
+                if not ip.is_global or ip.is_reserved or ip.is_multicast:
+                    return False
+            return True
+        except (socket.gaierror, ValueError):
+            return True
     return ip.is_global and not ip.is_reserved and not ip.is_multicast
 
 

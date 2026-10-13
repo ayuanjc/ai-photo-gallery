@@ -16,7 +16,7 @@ import hashlib
 import logging
 import mimetypes
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -80,9 +80,13 @@ class ImmichAssetUploader:
         return mime or "application/octet-stream"
 
     @staticmethod
-    def _read_file(file_path: str) -> tuple[os.stat_result, bytes]:
+    def _read_file(file_path: str, max_size_bytes: int = 0) -> tuple[os.stat_result, bytes]:
         """同步读取文件元信息与内容（供 asyncio.to_thread 包装，避免阻塞事件循环）。"""
         st = os.stat(file_path)
+        if max_size_bytes > 0 and st.st_size > max_size_bytes:
+            raise ValueError(
+                f"文件大小 {st.st_size} 字节超过上限 {max_size_bytes} 字节: {file_path}"
+            )
         with open(file_path, "rb") as fh:
             return st, fh.read()
 
@@ -110,7 +114,10 @@ class ImmichAssetUploader:
             UpstreamTimeoutError: 请求超时。
             UpstreamError: 上传被拒绝或响应异常。
         """
-        st, file_data = await asyncio.to_thread(self._read_file, file_path)
+        max_size_bytes = self._settings.import_max_file_size_mb * 1024 * 1024
+        st, file_data = await asyncio.to_thread(
+            self._read_file, file_path, max_size_bytes
+        )
         file_name = os.path.basename(file_path)
         device_asset_id = self._gen_device_asset_id(file_path, st.st_mtime_ns)
 
@@ -121,7 +128,7 @@ class ImmichAssetUploader:
             "deviceId": device_id,
             "fileCreatedAt": taken_at.isoformat(),
             "fileModifiedAt": datetime.fromtimestamp(
-                st.st_mtime, tz=taken_at.tzinfo
+                st.st_mtime, tz=timezone.utc
             ).isoformat(),
             "isFavorite": "true" if is_favorite else "false",
             "assetType": "image",
@@ -144,9 +151,10 @@ class ImmichAssetUploader:
                 "Immich API Key 无效或无上传权限", details={"status": resp.status_code}
             )
         if resp.status_code not in (200, 201):
+            logger.debug("Immich 上传失败 body=%s", resp.text[:500])
             raise UpstreamError(
                 "Immich 上传失败",
-                details={"status": resp.status_code, "body": resp.text[:500]},
+                details={"status": resp.status_code},
             )
         return self._parse_asset(resp)
 

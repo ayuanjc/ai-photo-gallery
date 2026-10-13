@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING, AsyncGenerator
+from typing import TYPE_CHECKING
 
 from .immich import ImmichClient
 
@@ -37,58 +37,55 @@ class StatsProvider:
     """统计数据 Provider：分页拉取 Immich 资产 + EXIF。
 
     只做数据获取，不做统计。上游失败时降级返回已拉到的部分。
-    warnings 列表记录降级原因，调用方可在迭代结束后检查。
-    并发安全：相同参数的并发请求通过 singleflight 共享同一个拉取任务。
+    并发安全：相同参数的并发请求通过 singleflight 共享同一个拉取任务（类级 _inflight）。
     """
+
+    _inflight: dict[str, asyncio.Future[tuple[list[dict], list[str]]]] = {}
 
     def __init__(self, settings: Settings, immich: ImmichClient) -> None:
         self._settings = settings
         self._immich = immich
-        self.warnings: list[str] = []
-        self._inflight: dict[str, asyncio.Future[list[dict]]] = {}
 
     @staticmethod
     def _make_key(
         page_size: int,
         max_items: int,
-        date_from: datetime | None,
-        date_to: datetime | None,
+        date_from: datetime | str | None,
+        date_to: datetime | str | None,
     ) -> str:
         """根据参数生成 singleflight 缓存键。"""
         parts = [f"ps={page_size}", f"mi={max_items}"]
         if date_from:
-            parts.append(f"df={date_from.isoformat()}")
+            parts.append(f"df={date_from.isoformat() if hasattr(date_from, 'isoformat') else date_from}")
         if date_to:
-            parts.append(f"dt={date_to.isoformat()}")
+            parts.append(f"dt={date_to.isoformat() if hasattr(date_to, 'isoformat') else date_to}")
         return "|".join(parts)
 
-    async def iter_assets(
+    async def fetch_assets(
         self,
         page_size: int | None = None,
         max_items: int | None = None,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
-    ) -> AsyncGenerator[dict, None]:
-        """异步迭代器：分页拉取 Immich 资产，逐个 yield。
+    ) -> tuple[list[dict], list[str]]:
+        """分页拉取 Immich 资产，返回 (资产列表, 警告列表)。
 
         参数:
             page_size: 单页拉取数量（默认走 Settings.stats_page_size）
-            max_items: 最多 yield 的资产数（默认走 Settings.stats_max_items）
-            date_from: 只 yield 此时间之后的资产（含）
-            date_to: 只 yield 此时间之前的资产（含）
+            max_items: 最多拉取的资产数（默认走 Settings.stats_max_items）
+            date_from: 只拉取此时间之后的资产（含）
+            date_to: 只拉取此时间之前的资产（含）
 
         降级:
-            - STATS_ENABLED=false → 不拉取，直接返回
-            - 上游异常 → 记录日志 + warnings，停止迭代，不抛
-            - page_size <= 0 → 钳制为 1
-            - max_items <= 0 → 返回空
+            - STATS_ENABLED=false → 返回空列表
+            - 上游异常 → 记录日志 + warnings，返回已拉到的部分
 
         并发安全:
             相同参数的并发请求通过 singleflight 共享同一个拉取任务，
             只向 Immich 发起一次分页拉取。
         """
         if not getattr(self._settings, "stats_enabled", True):
-            return
+            return [], []
 
         if page_size is None:
             page_size = getattr(self._settings, "stats_page_size", 100)
@@ -98,26 +95,24 @@ class StatsProvider:
         max_items = max(0, max_items)
 
         if max_items == 0:
-            return
+            return [], []
 
         key = self._make_key(page_size, max_items, date_from, date_to)
 
         inflight = self._inflight.get(key)
         if inflight is not None and not inflight.done():
-            items = await inflight
+            items, warnings = await inflight
         else:
-            self.warnings.clear()
             task = asyncio.create_task(
                 self._fetch_all(page_size, max_items, date_from, date_to)
             )
             self._inflight[key] = task
             try:
-                items = await task
+                items, warnings = await task
             finally:
                 self._inflight.pop(key, None)
 
-        for item in items:
-            yield item
+        return items, warnings
 
     async def _fetch_all(
         self,
@@ -125,12 +120,13 @@ class StatsProvider:
         max_items: int,
         date_from: datetime | None,
         date_to: datetime | None,
-    ) -> list[dict]:
-        """实际分页拉取逻辑，返回完整资产列表。
+    ) -> tuple[list[dict], list[str]]:
+        """实际分页拉取逻辑，返回 (资产列表, 警告列表)。
 
         上游异常时记录日志 + warnings，返回已拉到的部分。
         """
         results: list[dict] = []
+        warnings: list[str] = []
         skip = 0
 
         while len(results) < max_items:
@@ -146,24 +142,24 @@ class StatsProvider:
                         f"status={resp.status_code}, skip={skip}"
                     )
                     logger.warning(msg)
-                    self.warnings.append(msg)
-                    return results
+                    warnings.append(msg)
+                    return results, warnings
 
                 data = self._immich._parse_json(resp)
             except Exception as exc:
                 msg = f"Immich 资产拉取异常，停止迭代: {exc}"
                 logger.warning(msg)
-                self.warnings.append(msg)
-                return results
+                warnings.append(msg)
+                return results, warnings
 
             items = ImmichClient._extract_items(data)
 
             if not items:
-                return results
+                return results, warnings
 
             for item in items:
                 if len(results) >= max_items:
-                    return results
+                    return results, warnings
 
                 if date_from or date_to:
                     item_date = _get_asset_date(item)
@@ -178,6 +174,6 @@ class StatsProvider:
 
             skip += len(items)
             if len(items) < page_size:
-                return results
+                return results, warnings
 
-        return results
+        return results, warnings

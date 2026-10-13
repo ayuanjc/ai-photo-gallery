@@ -5,9 +5,11 @@ from fastapi import APIRouter, Depends
 
 from ...models.batch_import import ImportRequest, ImportResponse
 from ...services.importer import BatchImporter
-from ..deps import get_batch_importer, verify_api_key
+from ..deps import get_batch_importer, rate_limit_guard, verify_api_key
 
-router = APIRouter(tags=["import"], dependencies=[Depends(verify_api_key)])
+router = APIRouter(
+    tags=["import"], dependencies=[Depends(verify_api_key), Depends(rate_limit_guard)]
+)
 
 
 @router.post(

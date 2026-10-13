@@ -82,7 +82,7 @@ class MultiConditionSearchService:
 
         # 如果有候选 asset_id 但没有 query，直接返回候选列表
         if candidate_ids and not request.query:
-            return self._build_results_from_candidates(candidate_ids, person_assets, location_assets)
+            return self._build_results_from_candidates(candidate_ids, person_assets, location_assets, limit=request.limit)
 
         # 如果有 query，用候选 asset_id 调用语义搜索
         if request.query:
@@ -182,6 +182,12 @@ class MultiConditionSearchService:
         w_location = self._settings.multi_condition_weight_location
         w_query = self._settings.multi_condition_weight_query
 
+        w_total = w_person + w_location + w_query
+        if w_total > 0:
+            w_person /= w_total
+            w_location /= w_total
+            w_query /= w_total
+
         # 并发执行三个独立搜索
         person_task = self._safe_get_assets_by_person(request.person_id, warnings) if request.person_id else _empty()
         location_task = self._safe_search_by_location(request.location, warnings) if request.location else _empty()
@@ -199,7 +205,7 @@ class MultiConditionSearchService:
         # 合并所有 asset_id
         all_ids = set(person_scores) | set(location_scores) | set(query_scores)
 
-        # 计算加权评分并构建结果
+        # 记算加权评分并构建结果
         results: list[MultiConditionResultItem] = []
         for asset_id in all_ids:
             s_person = person_scores.get(asset_id, 0.0)
@@ -237,13 +243,12 @@ class MultiConditionSearchService:
         results = results[: request.limit]
 
         # 记录降级放宽的条件（按权重从低到高排序）
-        degraded_conditions: list[str] = []
-        if request.query:
-            degraded_conditions.append("query")
-        if request.location:
-            degraded_conditions.append("location")
-        if request.person_id:
-            degraded_conditions.append("person")
+        degraded_conditions = [
+            name for name, _ in sorted(
+                [("query", w_query), ("location", w_location), ("person", w_person)],
+                key=lambda x: x[1],
+            )
+        ]
 
         if not results:
             warnings.append("降级检索仍未找到匹配结果")
@@ -295,6 +300,7 @@ class MultiConditionSearchService:
         candidate_ids: list[str],
         person_assets: list[dict],
         location_assets: list[dict],
+        limit: int,
     ) -> list[MultiConditionResultItem]:
         """无 query 时直接从候选 asset_id 构建结果。"""
         person_scores = {a["id"]: clamp(safe_float(a.get("score", 0.0))) for a in person_assets if "id" in a}
@@ -325,7 +331,7 @@ class MultiConditionSearchService:
                 )
             )
         results.sort(key=lambda r: r.multi_score, reverse=True)
-        return results
+        return results[:limit]
 
 
 async def _empty() -> list[dict]:
