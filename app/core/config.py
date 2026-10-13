@@ -175,6 +175,12 @@ class Settings(BaseSettings):
     # 相册结果缓存 TTL（秒）。
     album_cache_ttl_seconds: int = 600
 
+    # ---- 排序维度切换 ----
+    # 开启后请求可携带 sort_by 参数选择排序方式；关闭后忽略 sort_by，始终用 relevance。
+    sort_by_enabled: bool = True
+    # random 排序的随机种子，相同种子产生相同顺序（0 = 默认种子）。
+    sort_by_random_seed: int = 0
+
     @field_validator("immich_base_url")
     @classmethod
     def _strip_trailing_slash(cls, value: str) -> str:

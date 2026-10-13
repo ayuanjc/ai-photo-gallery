@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import random as _random
 from datetime import datetime, timezone
 
 from ..utils.time_parsing import DEFAULT_SOURCE, parse_datetime, time_freshness
@@ -211,3 +212,58 @@ def apply_feedback_boost(final_score: float, boost: float) -> float:
     - boost == 0 → 分数不变（与无反馈时行为完全一致）。
     """
     return clamp(final_score + boost)
+
+# ---- 排序维度切换 ----
+
+# timezone-aware 兜底常量，用于 captured_at 为 None 时的排序占位。
+_SORT_DATETIME_MIN = datetime(1, 1, 1, tzinfo=timezone.utc)
+_SORT_DATETIME_MAX = datetime(9999, 12, 31, 23, 59, 59, 999999, tzinfo=timezone.utc)
+
+
+def _sort_key_newest(item: dict) -> datetime:
+    """newest 排序键：无有效时间用 MIN（降序时排最后）。"""
+    dt = item.get("captured_at")
+    if isinstance(dt, datetime):
+        return dt
+    return _SORT_DATETIME_MIN
+
+
+def _sort_key_oldest(item: dict) -> datetime:
+    """oldest 排序键：无有效时间用 MAX（升序时排最后）。"""
+    dt = item.get("captured_at")
+    if isinstance(dt, datetime):
+        return dt
+    return _SORT_DATETIME_MAX
+
+
+def apply_sort_by(
+    items: list[dict],
+    sort_by: str,
+    *,
+    random_seed: int = 0,
+) -> list[dict]:
+    """按 sort_by 维度重排搜索结果。
+
+    - relevance: 返回原顺序（rank_assets 已排好）。
+    - newest: 按 captured_at 降序，无时间排最后。
+    - oldest: 按 captured_at 升序，无时间排最后。
+    - random: 用 random.Random(seed) 打乱，相同 seed 产生相同顺序。
+
+    items 中每个 dict 需含 "captured_at" 键（datetime | None）。
+    不修改原列表，返回新列表。
+    """
+    if sort_by == "relevance":
+        return list(items)
+
+    if sort_by == "random":
+        shuffled = list(items)
+        _random.Random(random_seed).shuffle(shuffled)
+        return shuffled
+
+    if sort_by == "newest":
+        return sorted(items, key=_sort_key_newest, reverse=True)
+
+    if sort_by == "oldest":
+        return sorted(items, key=_sort_key_oldest)
+
+    return list(items)

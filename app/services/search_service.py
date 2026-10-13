@@ -16,6 +16,7 @@ from ..scene.analyzer import SceneAnalyzer
 from .explain import build_explanation
 from .immich import ImmichClient
 from .ranking import (
+    apply_sort_by,
     blend_scene_weights,
     calculate_dynamic_weights,
     clamp,
@@ -142,6 +143,19 @@ class SearchService:
                 logger.warning("去重失败，降级为不去重: %s", exc)
                 dedup_removed = 0
 
+        # 4b. 排序维度切换（去重之后、组装结果之前；关闭或 relevance 时跳过）。
+        if request.sort_by != "relevance" and runtime_enabled(
+            "sort_by_enabled", self._settings.sort_by_enabled
+        ):
+            try:
+                dedup_input = apply_sort_by(
+                    dedup_input,
+                    request.sort_by,
+                    random_seed=self._settings.sort_by_random_seed,
+                )
+            except Exception as exc:
+                logger.warning("排序维度切换失败，保持原顺序: %s", exc)
+
         explain_enabled = runtime_enabled(
             "explain_enabled", self._settings.explain_enabled
         )
@@ -215,6 +229,7 @@ class SearchService:
                 "similarity_weight": request.similarity_weight,
                 "include_metadata_fields": request.include_metadata_fields,
                 "include_original_url": request.include_original_url,
+                "sort_by": request.sort_by,
             },
             sort_keys=True,
             ensure_ascii=False,
