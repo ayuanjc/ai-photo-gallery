@@ -2782,6 +2782,215 @@ class TestExplainBrute:
 
 
 # ============================================================================
+# 第八类：搜索建议与纠错 — 输入畸形 / 数据污染 / 安全攻击
+# ============================================================================
+
+class TestSuggestBrute:
+    """对 suggest / correct 接口与 SuggestService 执行攻击性测试。
+
+    覆盖：
+        - 输入畸形：q 超长（>10000 字符）、limit=0 / 负数
+        - 数据污染：q 含 SQL 注入样式、emoji、控制字符
+        - 安全攻击：q 含路径遍历字符
+    """
+
+    # ---- 辅助 ----
+
+    @staticmethod
+    def _svc(**overrides):
+        from app.scene.dictionary import get_scene_dict
+        from app.services.suggest_service import SuggestService
+
+        defaults = dict(
+            immich_base_url="http://immich.test",
+            immich_api_key="test-key",
+        )
+        defaults.update(overrides)
+        return SuggestService(Settings(**defaults), get_scene_dict())
+
+    # ---- 输入畸形攻击 ----
+
+    def test_q_10001_chars_rejected_by_validation(self):
+        """q 超长（>10000 字符）→ 被 FastAPI Query max_length 拒绝（422）。"""
+        from app.api.deps import get_settings_dep
+
+        test_settings = Settings(
+            immich_base_url="http://immich.test",
+            immich_api_key="test-key",
+        )
+        original_overrides = app.dependency_overrides.copy()
+        app.dependency_overrides[get_settings_dep] = lambda: test_settings
+        try:
+            with TestClient(app) as client:
+                resp = client.get(
+                    "/api/v1/search/suggest",
+                    params={"q": "x" * 10001},
+                    headers={"x-api-key": ""},
+                )
+                assert resp.status_code == 400
+        finally:
+            app.dependency_overrides = original_overrides
+
+    def test_limit_zero_rejected_by_validation(self):
+        """limit=0 → 被校验拒绝（422）。"""
+        from app.api.deps import get_settings_dep
+
+        test_settings = Settings(
+            immich_base_url="http://immich.test",
+            immich_api_key="test-key",
+        )
+        original_overrides = app.dependency_overrides.copy()
+        app.dependency_overrides[get_settings_dep] = lambda: test_settings
+        try:
+            with TestClient(app) as client:
+                resp = client.get(
+                    "/api/v1/search/suggest",
+                    params={"q": "test", "limit": 0},
+                    headers={"x-api-key": ""},
+                )
+                assert resp.status_code == 400
+        finally:
+            app.dependency_overrides = original_overrides
+
+    def test_limit_negative_rejected_by_validation(self):
+        """limit=-1 → 被校验拒绝（400）。"""
+        from app.api.deps import get_settings_dep
+
+        test_settings = Settings(
+            immich_base_url="http://immich.test",
+            immich_api_key="test-key",
+        )
+        original_overrides = app.dependency_overrides.copy()
+        app.dependency_overrides[get_settings_dep] = lambda: test_settings
+        try:
+            with TestClient(app) as client:
+                resp = client.get(
+                    "/api/v1/search/suggest",
+                    params={"q": "test", "limit": -1},
+                    headers={"x-api-key": ""},
+                )
+                assert resp.status_code == 400
+        finally:
+            app.dependency_overrides = original_overrides
+
+    def test_limit_51_rejected_by_validation(self):
+        """limit=51（超过上限 50）→ 被校验拒绝（400）。"""
+        from app.api.deps import get_settings_dep
+
+        test_settings = Settings(
+            immich_base_url="http://immich.test",
+            immich_api_key="test-key",
+        )
+        original_overrides = app.dependency_overrides.copy()
+        app.dependency_overrides[get_settings_dep] = lambda: test_settings
+        try:
+            with TestClient(app) as client:
+                resp = client.get(
+                    "/api/v1/search/suggest",
+                    params={"q": "test", "limit": 51},
+                    headers={"x-api-key": ""},
+                )
+                assert resp.status_code == 400
+        finally:
+            app.dependency_overrides = original_overrides
+
+    # ---- 数据污染攻击 ----
+
+    def test_sql_injection_no_crash(self):
+        """q 含 SQL 注入样式字符串 → 不崩溃，正常返回建议。"""
+        svc = self._svc()
+        for payload in ["' OR 1=1 --", "'; DROP TABLE--", "UNION SELECT *"]:
+            suggestions, degraded, _ = svc.suggest(payload, 10)
+            assert degraded is False
+            assert isinstance(suggestions, list)
+
+    def test_emoji_no_crash(self):
+        """q 含 emoji → 不崩溃。"""
+        svc = self._svc()
+        suggestions, _, _ = svc.suggest("🐱🐶", 10)
+        assert isinstance(suggestions, list)
+
+    def test_control_chars_no_crash(self):
+        """q 含控制字符 → 不崩溃。"""
+        svc = self._svc()
+        suggestions, _, _ = svc.suggest("\x00\x01\x02test", 10)
+        assert isinstance(suggestions, list)
+
+    def test_null_byte_no_crash(self):
+        """q 含 null byte → 不崩溃。"""
+        svc = self._svc()
+        suggestions, _, _ = svc.suggest("test\x00malicious", 10)
+        assert isinstance(suggestions, list)
+
+    def test_correct_sql_injection_no_crash(self):
+        """correct 接口处理 SQL 注入样式 → 不崩溃。"""
+        svc = self._svc()
+        for payload in ["' OR 1=1 --", "'; DROP TABLE--"]:
+            corrected, degraded, _ = svc.correct(payload)
+            assert degraded is False
+            assert corrected is None or isinstance(corrected, str)
+
+    def test_correct_emoji_no_crash(self):
+        """correct 接口处理 emoji → 不崩溃。"""
+        svc = self._svc()
+        corrected, _, _ = svc.correct("🐱🐶")
+        assert corrected is None or isinstance(corrected, str)
+
+    # ---- 安全攻击 ----
+
+    def test_path_traversal_no_crash(self):
+        """q 含路径遍历字符 → 不崩溃，不泄露文件路径。"""
+        svc = self._svc()
+        for payload in ["../../etc/passwd", "..\\..\\windows\\system32", "/etc/shadow"]:
+            suggestions, _, _ = svc.suggest(payload, 10)
+            assert isinstance(suggestions, list)
+            # 建议中不应包含文件路径
+            for s in suggestions:
+                assert ".." not in s
+                assert "/" not in s
+                assert "\\" not in s
+
+    def test_correct_path_traversal_no_crash(self):
+        """correct 接口处理路径遍历 → 不崩溃。"""
+        svc = self._svc()
+        corrected, _, _ = svc.correct("../../etc/passwd")
+        assert corrected is None or isinstance(corrected, str)
+
+    def test_xss_payload_no_crash(self):
+        """q 含 XSS payload → 不崩溃。"""
+        svc = self._svc()
+        for payload in ["<script>alert(1)</script>", "<img src=x onerror=alert(1)>"]:
+            suggestions, _, _ = svc.suggest(payload, 10)
+            assert isinstance(suggestions, list)
+
+    # ---- 极端边界 ----
+
+    def test_very_long_q_within_limit_no_crash(self):
+        """q 500 字符（恰好上限）→ 不崩溃。"""
+        svc = self._svc()
+        suggestions, _, _ = svc.suggest("x" * 500, 10)
+        assert isinstance(suggestions, list)
+
+    def test_correct_exact_match_no_correction(self):
+        """correct 完全匹配 → 返回 None（不需要纠正）。"""
+        svc = self._svc()
+        corrected, _, _ = svc.correct("nature")
+        assert corrected is None
+
+    def test_record_empty_query_ignored(self):
+        """record_query 空字符串 → 被忽略。"""
+        svc = self._svc()
+        svc.record_query("")
+        assert svc.top_n(10) == []
+
+    def test_record_disabled_ignored(self):
+        """SUGGEST_ENABLED=false 时 record_query 被忽略。"""
+        svc = self._svc(suggest_enabled=False)
+        svc.record_query("海滩")
+        assert svc.top_n(10) == []
+
+
+# ============================================================================
 # 防御性测试报告
 # ============================================================================
 
