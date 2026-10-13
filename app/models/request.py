@@ -1,6 +1,8 @@
 """请求模型（Pydantic）与字段校验。"""
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 # 允许客户端请求返回的图片元数据字段白名单，防止任意字段注入。
@@ -59,6 +61,10 @@ class SearchRequest(BaseModel):
         default_factory=list,
         max_length=200,
         description="参考图 URL 列表，用于以图搜图（Immich 风格 URL）",
+    )
+    sort_by: Literal["relevance", "newest", "oldest", "random"] = Field(
+        default="relevance",
+        description="排序维度: relevance(默认，按相关度) | newest(按时间降序) | oldest(按时间升序) | random(随机打乱)",
     )
 
     @field_validator("image_urls")
