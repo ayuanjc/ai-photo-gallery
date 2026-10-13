@@ -49,6 +49,7 @@ from app.scene.analyzer import SceneAnalyzer
 from app.scene.dictionary import get_scene_dict
 from app.services.face_service import calculate_gaussian_probability
 from app.services.immich import ImmichClient
+from app.services.stats_provider import StatsProvider
 from app.services.ranking import (
     calculate_dynamic_weights,
     clamp,
@@ -1130,6 +1131,226 @@ class TestSecurityAttacks:
                 assert body["error"]["code"] == "INVALID_PARAMS"
         finally:
             app.dependency_overrides = original_overrides
+
+
+# ============================================================================
+# StatsProvider 破坏性测试
+# ============================================================================
+
+class TestStatsProviderBrute:
+    """对 StatsProvider 执行极端、畸形、恶意输入与故障场景的攻击性测试。"""
+
+    class _FakeResponse:
+        def __init__(self, status_code: int, data: list | dict) -> None:
+            self.status_code = status_code
+            self._data = data
+            self.text = str(data)
+
+        def json(self) -> list | dict:
+            return self._data
+
+    class _FakeImmich:
+        """模拟 ImmichClient，按 skip/take 参数返回资产切片。"""
+
+        def __init__(
+            self,
+            items: list[dict],
+            fail_on_call: int | None = None,
+            fail_status: int | None = None,
+        ) -> None:
+            self._items = items
+            self._fail_on_call = fail_on_call
+            self._fail_status = fail_status
+            self.call_count = 0
+
+        async def _request_with_retry(self, method: str, path: str, **kwargs):
+            self.call_count += 1
+            if self._fail_on_call is not None and self.call_count == self._fail_on_call:
+                raise RuntimeError("Immich down")
+            if self._fail_status is not None and self.call_count == self._fail_status:
+                return TestStatsProviderBrute._FakeResponse(500, {})
+            params = kwargs.get("params", {})
+            skip = int(params.get("skip", 0))
+            take = int(params.get("take", 100))
+            return TestStatsProviderBrute._FakeResponse(
+                200, self._items[skip:skip + take]
+            )
+
+        @staticmethod
+        def _parse_json(resp):
+            return resp._data
+
+    @staticmethod
+    def _asset(asset_id: str, date: str | None = None) -> dict:
+        dt = date or "2024-06-01T12:00:00+00:00"
+        return {
+            "id": asset_id,
+            "fileCreatedAt": dt,
+            "exifInfo": {"dateTimeOriginal": dt},
+        }
+
+    @staticmethod
+    def _settings(**kwargs) -> Settings:
+        defaults = dict(
+            immich_base_url="http://immich.test",
+            immich_api_key="test-key",
+            stats_enabled=True,
+        )
+        defaults.update(kwargs)
+        return Settings(**defaults)
+
+    @staticmethod
+    async def _collect(gen) -> list[dict]:
+        return [item async for item in gen]
+
+    # ---- 输入畸形与边界 ----
+
+    async def test_page_size_zero_clamped_to_one(self):
+        """page_size=0 钳制为 1，不崩溃。"""
+        fake = self._FakeImmich([self._asset("a1")])
+        provider = StatsProvider(self._settings(), fake)
+        items = await self._collect(provider.iter_assets(page_size=0, max_items=10))
+        assert len(items) == 1
+
+    async def test_page_size_negative_clamped_to_one(self):
+        """page_size 负数钳制为 1，不崩溃。"""
+        fake = self._FakeImmich([self._asset("a1")])
+        provider = StatsProvider(self._settings(), fake)
+        items = await self._collect(provider.iter_assets(page_size=-99, max_items=10))
+        assert len(items) == 1
+
+    async def test_max_items_zero_returns_empty(self):
+        """max_items=0 返回空，不拉取。"""
+        fake = self._FakeImmich([self._asset("a1"), self._asset("a2")])
+        provider = StatsProvider(self._settings(), fake)
+        items = await self._collect(provider.iter_assets(page_size=100, max_items=0))
+        assert items == []
+
+    async def test_date_from_after_date_to_returns_empty(self):
+        """date_from > date_to 时返回空（区间无交集）。"""
+        items = [
+            self._asset("p1", "2024-01-01T00:00:00+00:00"),
+            self._asset("p2", "2024-06-01T00:00:00+00:00"),
+        ]
+        fake = self._FakeImmich(items)
+        provider = StatsProvider(self._settings(), fake)
+        date_from = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        date_to = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        items = await self._collect(
+            provider.iter_assets(page_size=100, date_from=date_from, date_to=date_to)
+        )
+        assert items == []
+
+    # ---- 网络与上游故障 ----
+
+    async def test_immich_500_degrades_with_partial_results(self):
+        """Immich 返回 500，已拉到的部分正常返回，不抛异常。"""
+        items = [self._asset(f"a{i}") for i in range(200)]
+        fake = self._FakeImmich(items, fail_status=2)
+        provider = StatsProvider(self._settings(), fake)
+        result = await self._collect(provider.iter_assets(page_size=100))
+        assert len(result) == 100
+        assert len(provider.warnings) == 1
+
+    async def test_immich_timeout_degrades_gracefully(self):
+        """Immich 超时（模拟异常），不抛，返回已拉到的部分。"""
+        items = [self._asset(f"a{i}") for i in range(200)]
+        fake = self._FakeImmich(items, fail_on_call=2)
+        provider = StatsProvider(self._settings(), fake)
+        result = await self._collect(provider.iter_assets(page_size=100))
+        assert len(result) == 100
+        assert len(provider.warnings) == 1
+
+    async def test_immich_connection_failure_first_page_returns_empty(self):
+        """第一页就连接失败，返回空，不抛。"""
+        fake = self._FakeImmich([self._asset("a1")], fail_on_call=1)
+        provider = StatsProvider(self._settings(), fake)
+        items = await self._collect(provider.iter_assets(page_size=100))
+        assert items == []
+        assert len(provider.warnings) == 1
+
+    # ---- 并发与资源耗尽 ----
+
+    async def test_concurrent_100_same_params_singleflight(self):
+        """100 个相同参数的并发请求，singleflight 生效只拉一次。"""
+        items = [self._asset(f"a{i}") for i in range(50)]
+        fake = self._FakeImmich(items)
+        provider = StatsProvider(self._settings(), fake)
+
+        coros = [self._collect(provider.iter_assets(page_size=100)) for _ in range(100)]
+        results = await asyncio.gather(*coros)
+
+        assert fake.call_count == 1
+        for r in results:
+            assert len(r) == 50
+
+    # ---- 数据污染 ----
+
+    async def test_exif_special_characters_not_crash(self):
+        """EXIF 字段含特殊字符（SQL 注入、XSS、null byte），不崩溃。"""
+        items = [
+            {
+                "id": "a1",
+                "fileCreatedAt": "2024-01-01T00:00:00+00:00",
+                "exifInfo": {
+                    "dateTimeOriginal": "2024-01-01T00:00:00+00:00",
+                    "city": "'; DROP TABLE--",
+                    "country": "<script>alert(1)</script>",
+                    "description": "test\x00null",
+                },
+            },
+            {
+                "id": "a2",
+                "fileCreatedAt": "2024-06-01T00:00:00+00:00",
+                "exifInfo": {
+                    "dateTimeOriginal": "2024-06-01T00:00:00+00:00",
+                    "city": "北京🎉",
+                    "model": "日本語カメラ",
+                },
+            },
+        ]
+        fake = self._FakeImmich(items)
+        provider = StatsProvider(self._settings(), fake)
+        result = await self._collect(provider.iter_assets(page_size=100))
+        assert len(result) == 2
+
+    async def test_super_long_filename_not_crash(self):
+        """超长文件名（10000 字符），不崩溃。"""
+        items = [
+            {
+                "id": "a1",
+                "fileCreatedAt": "2024-01-01T00:00:00+00:00",
+                "originalFileName": "x" * 10000,
+                "exifInfo": {"dateTimeOriginal": "2024-01-01T00:00:00+00:00"},
+            },
+        ]
+        fake = self._FakeImmich(items)
+        provider = StatsProvider(self._settings(), fake)
+        result = await self._collect(provider.iter_assets(page_size=100))
+        assert len(result) == 1
+
+    # ---- 安全攻击 ----
+
+    async def test_pagination_skip_injection_not_crash(self):
+        """分页参数注入尝试（skip 被内部计算，不接受外部输入）。"""
+        items = [self._asset(f"a{i}") for i in range(10)]
+        fake = self._FakeImmich(items)
+        provider = StatsProvider(self._settings(), fake)
+        result = await self._collect(
+            provider.iter_assets(page_size=100, max_items=10)
+        )
+        assert len(result) == 10
+        assert fake.call_count == 1
+
+    async def test_stats_disabled_blocks_all_access(self):
+        """STATS_ENABLED=false 完全阻断拉取，即使参数恶意。"""
+        fake = self._FakeImmich([self._asset("a1")])
+        provider = StatsProvider(self._settings(stats_enabled=False), fake)
+        items = await self._collect(
+            provider.iter_assets(page_size=-1, max_items=999999)
+        )
+        assert items == []
+        assert fake.call_count == 0
 
 
 # ============================================================================
