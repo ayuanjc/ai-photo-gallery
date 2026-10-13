@@ -22,6 +22,8 @@ async def test_end_to_end_import(settings, tmp_path):
     mtime = 1700000000.0
     os.utime(str(f), (mtime, mtime))
 
+    settings = settings.model_copy(update={"import_allowed_dirs": [str(tmp_path)]})
+
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(201, json={"id": "asset-1", "status": "created"})
 
@@ -45,6 +47,8 @@ async def test_end_to_end_upload_failure(settings, tmp_path):
     """上传返回 400 时逐项失败。"""
     f = tmp_path / "photo.jpg"
     f.write_bytes(b"fake-image-content")
+
+    settings = settings.model_copy(update={"import_allowed_dirs": [str(tmp_path)]})
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(400, text="bad request")

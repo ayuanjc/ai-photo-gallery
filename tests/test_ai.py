@@ -237,8 +237,13 @@ def test_factory_returns_huawei():
 
 async def test_huawei_not_implemented():
     a = HuaweiFaceAnalyzer(Settings())
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(AIAnalyzerUnavailableError):
         await a.analyze("a", "b")
+
+
+async def test_huawei_health_check_returns_false():
+    a = HuaweiFaceAnalyzer(Settings())
+    assert await a.health_check() is False
 
 
 # ---- 集成测试 ----

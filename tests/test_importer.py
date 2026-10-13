@@ -2,10 +2,16 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 
 from app.core.errors import UpstreamError
 from app.models.batch_import import ExifMetadata, ImportRequest
 from app.services.importer import BatchImporter
+
+
+def _p(name: str) -> str:
+    """解析为绝对路径，与 importer 内部 validate_file_path 行为一致。"""
+    return str(Path(name).resolve())
 
 
 class FakeExtractor:
@@ -65,12 +71,12 @@ async def test_import_success(settings):
     assert resp.succeeded == 2
     assert resp.failed == 0
     assert all(r.success for r in resp.results)
-    assert resp.results[0].asset_id == "asset-a.jpg"
+    assert resp.results[0].asset_id == f"asset-{_p('a.jpg')}"
 
 
 async def test_import_file_not_found(settings):
     """文件不存在降级为逐项失败。"""
-    extractor = FakeExtractor(raise_on={"a.jpg": FileNotFoundError("no such file")})
+    extractor = FakeExtractor(raise_on={_p("a.jpg"): FileNotFoundError("no such file")})
     uploader = FakeUploader()
     importer = BatchImporter(settings, extractor, uploader)
 
@@ -83,7 +89,7 @@ async def test_import_file_not_found(settings):
 
 async def test_import_extract_error(settings):
     """元数据提取异常降级为警告，上传仍成功。"""
-    extractor = FakeExtractor(raise_on={"a.jpg": RuntimeError("corrupt exif")})
+    extractor = FakeExtractor(raise_on={_p("a.jpg"): RuntimeError("corrupt exif")})
     uploader = FakeUploader()
     importer = BatchImporter(settings, extractor, uploader)
 
@@ -97,7 +103,7 @@ async def test_import_extract_error(settings):
 async def test_import_upload_error(settings):
     """上传失败降级为逐项失败，但仍保留元数据。"""
     extractor = FakeExtractor()
-    uploader = FakeUploader(fail_on={"a.jpg"})
+    uploader = FakeUploader(fail_on={_p("a.jpg")})
     importer = BatchImporter(settings, extractor, uploader)
 
     resp = await importer.import_files(_request(["a.jpg"]))
@@ -109,7 +115,7 @@ async def test_import_upload_error(settings):
 
 async def test_import_partial_success(settings):
     """部分成功部分失败。"""
-    extractor = FakeExtractor(raise_on={"b.jpg": FileNotFoundError("no such file")})
+    extractor = FakeExtractor(raise_on={_p("b.jpg"): FileNotFoundError("no such file")})
     uploader = FakeUploader()
     importer = BatchImporter(settings, extractor, uploader)
 

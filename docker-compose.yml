@@ -8,8 +8,12 @@ services:
       - LOG_LEVEL=INFO
       - IMMICH_BASE_URL=http://immich-server:2283
       - IMMICH_API_KEY=${IMMICH_API_KEY}
+      - SEARCH_API_KEY=${SEARCH_API_KEY}
+      - DATA_DIR=/data
     env_file:
       - .env
+    volumes:
+      - api-data:/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/health')"]
@@ -17,3 +21,13 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "2.0"
+        reservations:
+          memory: 128M
+
+volumes:
+  api-data:
