@@ -88,3 +88,25 @@ class CorrectResponse(BaseModel):
     corrected: str | None = Field(default=None, description="纠正后的关键词，无匹配时为 null")
     degraded: bool = Field(default=False, description="是否发生降级")
     warnings: list[str] = Field(default_factory=list)
+
+class Album(BaseModel):
+    """自动相册。"""
+
+    album_id: str = Field(description="相册唯一标识")
+    title: str = Field(description="相册标题（场景 + 月份）")
+    scene: str = Field(description="大场景 key")
+    cover_asset_id: str = Field(description="封面资产 ID")
+    asset_ids: list[str] = Field(default_factory=list, description="相册内资产 ID 列表")
+    start_date: str = Field(description="相册起始时间（ISO 格式）")
+    end_date: str = Field(description="相册结束时间（ISO 格式）")
+    count: int = Field(ge=0, description="相册内资产数量")
+
+
+class AlbumListResponse(BaseModel):
+    """自动相册列表响应。"""
+
+    total_albums: int = Field(ge=0, description="相册总数")
+    degraded: bool = Field(default=False, description="是否发生降级")
+    warnings: list[str] = Field(default_factory=list)
+    albums: list[Album] = Field(default_factory=list)
+    cached: bool = Field(default=False, description="是否命中缓存")
