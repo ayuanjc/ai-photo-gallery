@@ -42,7 +42,7 @@ class FakeResponse:
 
 
 class FakeImmichClient:
-    """模拟 ImmichClient，按 skip/take 参数返回分页数据。"""
+    """模拟 ImmichClient，按 page/size 参数返回分页数据。"""
 
     def __init__(self, all_assets: list[dict], status_code: int = 200) -> None:
         self._all_assets = all_assets
@@ -53,10 +53,11 @@ class FakeImmichClient:
         self.call_count += 1
         if self._status_code != 200:
             raise UpstreamUnavailableError("Immich 服务不可用")
-        params = kwargs.get("params", {})
-        skip = int(params.get("skip", 0))
-        take = int(params.get("take", 100))
-        page = self._all_assets[skip : skip + take]
+        body = kwargs.get("json", {})
+        page_num = int(body.get("page", 1))
+        size = int(body.get("size", 100))
+        skip = (page_num - 1) * size
+        page = self._all_assets[skip : skip + size]
         return FakeResponse(200, page)
 
     @staticmethod

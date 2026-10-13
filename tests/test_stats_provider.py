@@ -27,9 +27,9 @@ class FakeResponse:
 
 
 class FakeImmichClient:
-    """模拟 ImmichClient，按 skip/take 参数返回资产切片。
+    """模拟 ImmichClient，按 page/size 参数返回资产切片。
 
-    模拟真实 Immich 服务端行为：每个请求独立，按 skip/take 返回对应切片。
+    模拟真实 Immich 服务端行为：每个请求独立，按 page/size 返回对应切片。
     fail_on_call: 第几次调用（1-based）抛异常
     fail_status: 第几次调用（1-based）返回非 200 状态码
     """
@@ -51,10 +51,11 @@ class FakeImmichClient:
             raise RuntimeError("Immich down")
         if self._fail_status is not None and self.call_count == self._fail_status:
             return FakeResponse(503, {})
-        params = kwargs.get("params", {})
-        skip = int(params.get("skip", 0))
-        take = int(params.get("take", 100))
-        return FakeResponse(200, self._items[skip:skip + take])
+        body = kwargs.get("json", {})
+        page = int(body.get("page", 1))
+        size = int(body.get("size", 100))
+        skip = (page - 1) * size
+        return FakeResponse(200, self._items[skip:skip + size])
 
     @staticmethod
     def _parse_json(resp: FakeResponse) -> list | dict:
