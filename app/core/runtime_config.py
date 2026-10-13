@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 
 from pathlib import Path
 from typing import Any
@@ -19,7 +20,8 @@ from .config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
-_PERSIST_PATH = Path("data/runtime_config.json")
+_DATA_DIR = Path(os.environ.get("DATA_DIR", "data"))
+_PERSIST_PATH = _DATA_DIR / "runtime_config.json"
 
 FEATURES_META: dict[str, dict[str, str | bool]] = {
     "scene_enabled": {

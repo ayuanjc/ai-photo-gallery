@@ -203,6 +203,11 @@ class Settings(BaseSettings):
                 raise ValueError("生产环境必须配置 SEARCH_API_KEY（非空）")
             if not self.immich_api_key:
                 raise ValueError("生产环境必须配置 IMMICH_API_KEY（非空）")
+            if not self.import_allowed_dirs:
+                raise ValueError(
+                    "生产环境必须配置 IMPORT_ALLOWED_DIRS（非空），"
+                    "防止批量导入接口被用于读取任意服务器文件"
+                )
         return self
 
     @property

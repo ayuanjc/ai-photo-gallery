@@ -62,6 +62,7 @@ def settings() -> Settings:
         similarity_weight=0.7,
         time_decay_half_life_days=365.0,
         default_datetime_iso="1970-01-01T00:00:00+00:00",
+        import_allowed_dirs=["/tmp", "C:\\Users"],
     )
 
 

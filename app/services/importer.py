@@ -18,12 +18,13 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ..core.config import Settings
-from ..core.errors import AppError
+from ..core.errors import AppError, ErrorCode
 from ..models.batch_import import (
     ImportRequest,
     ImportResponse,
     ImportResultItem,
 )
+from ..utils.path_safety import PathValidationError, validate_file_path
 from .immich_uploader import ImmichAssetUploader
 from .metadata import MetadataExtractor
 
@@ -63,13 +64,27 @@ class BatchImporter:
                 f"文件数量 {len(request.file_paths)} 超过上限 {self._settings.import_max_files}"
             )
 
+        max_size_bytes = self._settings.import_max_file_size_mb * 1024 * 1024
+        validated_paths: list[str] = []
+        for p in request.file_paths:
+            try:
+                resolved = validate_file_path(
+                    p,
+                    self._settings.import_allowed_dirs,
+                    max_size_bytes=max_size_bytes,
+                    check_exists=False,
+                )
+                validated_paths.append(resolved)
+            except PathValidationError as exc:
+                raise AppError(ErrorCode.INVALID_PARAMS, str(exc)) from exc
+
         collected_warnings: list[str] = []
 
         async def _one(file_path: str) -> ImportResultItem:
             async with sem:
                 return await self._import_single(file_path, device_id, request.is_favorite, collected_warnings)
 
-        results = await asyncio.gather(*(_one(p) for p in request.file_paths))
+        results = await asyncio.gather(*(_one(p) for p in validated_paths))
 
         succeeded = sum(1 for r in results if r.success)
         failed = len(results) - succeeded

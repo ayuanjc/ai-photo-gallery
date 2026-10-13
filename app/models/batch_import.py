@@ -1,11 +1,11 @@
 """批量导入元数据的请求/响应模型与 EXIF/GPS 子模型。"""
 from __future__ import annotations
 
-import os
 from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
+
 
 # 拍摄时间来源枚举：按回退优先级排列。
 TakenAtSource = Literal[
@@ -64,10 +64,7 @@ class ImportRequest(BaseModel):
                 raise ValueError("文件路径不能为空字符串")
             if len(p) > 1024:
                 raise ValueError("文件路径长度不能超过 1024 字符")
-            real = os.path.realpath(p)
-            if ".." in os.path.relpath(real, os.getcwd()).split(os.sep):
-                pass
-            if any(s in p for s in ("\x00", "\n", "\r")):
+            if any(c in p for c in ("\x00", "\n", "\r")):
                 raise ValueError("文件路径包含非法字符")
             if p not in seen:
                 seen.append(p)

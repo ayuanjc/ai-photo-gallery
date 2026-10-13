@@ -162,6 +162,9 @@ async def get_settings_handler(request: Request) -> dict:
 @router.put("/admin/api/settings")
 async def update_settings_handler(body: SettingsUpdates, request: Request) -> dict:
     _verify_admin_key(request)
+    settings = get_settings()
+    if settings.app_env == "production":
+        raise AppError(ErrorCode.INVALID_PARAMS, "生产环境禁止通过 API 修改 .env 配置")
     unknown = [k for k in body.updates if k not in _SETTING_KEYS]
     if unknown:
         raise AppError(ErrorCode.INVALID_PARAMS, f"未知的配置项: {','.join(unknown)}")
@@ -186,7 +189,14 @@ async def update_settings_handler(body: SettingsUpdates, request: Request) -> di
         else:
             lines.append(line_text)
 
-    env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    tmp_path = env_path.with_suffix(".env.tmp")
+    tmp_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    try:
+        tmp_path.replace(env_path)
+    except OSError as exc:
+        if tmp_path.exists():
+            tmp_path.unlink()
+        raise AppError(ErrorCode.INTERNAL_ERROR, f"配置写入失败: {exc}") from exc
 
     updated_keys = list(body.updates.keys())
     return {
