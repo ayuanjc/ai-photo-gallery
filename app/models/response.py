@@ -22,6 +22,9 @@ class SearchResultItem(BaseModel):
     final_score: float = Field(ge=0.0, le=1.0, description="加权融合后的最终排序分数")
     metadata: dict[str, Any] = Field(default_factory=dict, description="所选元数据字段")
     scene: SceneTags | None = Field(default=None, description="多标签场景分析结果")
+    explanation: dict[str, Any] | None = Field(
+        default=None, description="排序可解释性信息（为什么排这里）"
+    )
 
 
 class SearchResponse(BaseModel):

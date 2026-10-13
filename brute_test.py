@@ -26,7 +26,9 @@ import asyncio
 import json
 import math
 import os
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -49,6 +51,7 @@ from app.scene.analyzer import SceneAnalyzer
 from app.scene.dictionary import get_scene_dict
 from app.services.face_service import calculate_gaussian_probability
 from app.services.immich import ImmichClient
+from app.services.stats_provider import StatsProvider
 from app.services.ranking import (
     calculate_dynamic_weights,
     clamp,
@@ -1130,6 +1133,1652 @@ class TestSecurityAttacks:
                 assert body["error"]["code"] == "INVALID_PARAMS"
         finally:
             app.dependency_overrides = original_overrides
+
+
+
+# ============================================================================
+# 地图足迹接口 — 破坏性测试
+# ============================================================================
+
+
+class TestStatsMapBrute:
+    """地图足迹接口的混沌工程与安全渗透测试。
+
+    攻击场景：
+    1. 数学边界：经纬度 NaN / Infinity / 超出 ±90 / ±180
+    2. 数据污染：city / country 含特殊字符、超长字符串
+    3. 并发：相同参数并发请求，验证缓存只拉一次上游
+    """
+
+    class _FakeResp:
+        def __init__(self, status_code, data):
+            self.status_code = status_code
+            self._data = data
+
+        def json(self):
+            return self._data
+
+    class _FakeImmich:
+        def __init__(self, assets, status_code=200):
+            self._all = assets
+            self._status_code = status_code
+            self.call_count = 0
+
+        async def _request_with_retry(self, method, path, **kw):
+            self.call_count += 1
+            if self._status_code != 200:
+                from app.core.errors import UpstreamUnavailableError
+                raise UpstreamUnavailableError("Immich 服务不可用")
+            p = kw.get("params", {})
+            skip = int(p.get("skip", 0))
+            take = int(p.get("take", 100))
+            return TestStatsMapBrute._FakeResp(200, self._all[skip : skip + take])
+
+        @staticmethod
+        def _parse_json(resp):
+            return resp._data
+
+        @staticmethod
+        def _extract_items(data):
+            return [x for x in data if isinstance(x, dict)] if isinstance(data, list) else []
+
+    @contextmanager
+    def _client(self, immich, **settings_kw):
+        from app.api.deps import get_settings_dep
+        from app.core.cache import MemoryCache
+
+        defaults = dict(search_api_key="", rate_limit_enabled=False)
+        defaults.update(settings_kw)
+        settings = SimpleNamespace(**defaults)
+
+        app.dependency_overrides[get_settings_dep] = lambda: settings
+        try:
+            with TestClient(app) as c:
+                app.state.immich_client = immich
+                app.state.rate_limiter = None
+                app.state.cache = MemoryCache()
+                yield c
+        finally:
+            app.dependency_overrides.clear()
+
+    def _asset(self, aid="x", lat=None, lng=None, city=None, country=None):
+        exif = {}
+        if lat is not None:
+            exif["latitude"] = lat
+        if lng is not None:
+            exif["longitude"] = lng
+        if city is not None:
+            exif["city"] = city
+        if country is not None:
+            exif["country"] = country
+        asset = {"id": aid}
+        if exif:
+            asset["exifInfo"] = exif
+        return asset
+
+    # ---- 数学边界 ----
+
+    def test_nan_latlng_not_crash(self):
+        """纬度为 NaN：跳过并记 warnings，不崩溃。"""
+        assets = [
+            self._asset("1", lat=10.0, lng=20.0),
+            self._asset("2", lat=math.nan, lng=20.0),
+            self._asset("3", lat=10.0, lng=math.nan),
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/map", params={"cluster": "raw"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total_with_gps"] == 1
+        assert len(body["warnings"]) == 1
+        assert "2" in body["warnings"][0]
+
+    def test_infinity_latlng_not_crash(self):
+        """经纬度为 Infinity / -Infinity：跳过，不崩溃。"""
+        assets = [
+            self._asset("1", lat=10.0, lng=20.0),
+            self._asset("2", lat=math.inf, lng=20.0),
+            self._asset("3", lat=10.0, lng=-math.inf),
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/map", params={"cluster": "raw"})
+        assert resp.status_code == 200
+        assert resp.json()["total_with_gps"] == 1
+
+    def test_out_of_range_latlng_not_crash(self):
+        """经纬度超出 ±90 / ±180：跳过，不崩溃。"""
+        assets = [
+            self._asset("1", lat=90.0001, lng=0.0),
+            self._asset("2", lat=-90.0001, lng=0.0),
+            self._asset("3", lat=0.0, lng=180.0001),
+            self._asset("4", lat=0.0, lng=-180.0001),
+            self._asset("5", lat=0.0, lng=0.0),
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/map", params={"cluster": "raw"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total_with_gps"] == 1
+        assert len(body["warnings"]) == 1
+        assert "4" in body["warnings"][0]
+
+    def test_boundary_latlng_valid(self):
+        """恰好边界值 ±90 / ±180 视为合法，不崩溃。"""
+        assets = [
+            self._asset("1", lat=90.0, lng=180.0),
+            self._asset("2", lat=-90.0, lng=-180.0),
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/map", params={"cluster": "raw"})
+        assert resp.status_code == 200
+        assert resp.json()["total_with_gps"] == 2
+
+    # ---- 数据污染 ----
+
+    def test_city_country_special_chars_not_crash(self):
+        """city/country 含 XSS/SQL 注入特殊字符：不崩溃，原样保留。"""
+        assets = [
+            self._asset("1", lat=10.0, lng=20.0, city="<script>alert(1)</script>", country="'; DROP TABLE--"),
+            self._asset("2", lat=30.0, lng=40.0, city='test"quote\\backslash', country="<img src=x>"),
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/map", params={"cluster": "city"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total_with_gps"] == 2
+        cities = {x["city"] for x in body["cities"]}
+        assert "<script>alert(1)</script>" in cities
+        assert 'test"quote\\backslash' in cities
+
+    def test_city_super_long_not_crash(self):
+        """city 超长字符串（10000 字符）：不崩溃。"""
+        long_city = "京" * 10000
+        assets = [self._asset("1", lat=10.0, lng=20.0, city=long_city, country="中国")]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/map", params={"cluster": "city"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total_with_gps"] == 1
+        assert body["cities"][0]["city"] == long_city
+
+    # ---- 并发 ----
+
+    async def test_concurrent_same_params_cache_once(self):
+        """20 个相同参数并发请求：上游只被拉取一次（缓存去重）。"""
+        from app.api.routes import stats as stats_mod
+        from app.api.routes.stats import map_stats
+        from app.core.cache import MemoryCache
+
+        original = stats_mod._HAS_STATS_PROVIDER
+        stats_mod._HAS_STATS_PROVIDER = False
+        try:
+            assets = [self._asset("1", lat=10.0, lng=20.0, city="北京", country="中国")]
+            immich = self._FakeImmich(assets)
+            cache = MemoryCache()
+            settings = SimpleNamespace(
+                immich_base_url="http://immich.test",
+                immich_api_key="test-key",
+                stats_enabled=True,
+                stats_cache_ttl_seconds=600,
+                stats_max_items=10000,
+                stats_page_size=100,
+            )
+            request = SimpleNamespace(
+                app=SimpleNamespace(state=SimpleNamespace(immich_client=immich, cache=cache))
+            )
+
+            async def call():
+                return await map_stats(
+                    request=request,
+                    settings=settings,
+                    date_from=None,
+                    date_to=None,
+                    cluster="city",
+                    show_ids=False,
+                )
+
+            results = await asyncio.gather(*(call() for _ in range(20)))
+            assert all(r.total_with_gps == 1 for r in results)
+            assert immich.call_count == 1, "⚠️ 并发相同参数应通过缓存只拉取一次上游"
+        finally:
+            stats_mod._HAS_STATS_PROVIDER = original
+
+    async def test_concurrent_aggregate_consistency(self):
+        """并发聚合含边界值的大量资产：结果一致，不崩溃。"""
+        from app.api.routes.stats import _aggregate_map
+
+        assets = []
+        for i in range(500):
+            r = i % 5
+            if r == 0:
+                assets.append(self._asset(str(i), lat=math.nan, lng=0.0))
+            elif r == 1:
+                assets.append(self._asset(str(i), lat=0.0, lng=math.inf))
+            elif r == 2:
+                assets.append(self._asset(str(i), lat=100.0, lng=0.0))
+            elif r == 3:
+                assets.append(self._asset(str(i)))
+            else:
+                assets.append(self._asset(str(i), lat=10.0, lng=20.0, city="c", country="C"))
+
+        async def run():
+            warnings = []
+            return _aggregate_map(assets, cluster="raw", show_ids=True, warnings=warnings)
+
+        results = await asyncio.gather(*(run() for _ in range(30)))
+        assert all(r["total_with_gps"] == 100 for r in results)
+        assert all(len(r["points"]) == 1 for r in results)
+        assert all(r["points"][0].count == 100 for r in results)
+
+
+
+
+# ============================================================================
+# EXIF 统计接口 — 破坏性测试
+# ============================================================================
+
+
+class TestStatsExifBrute:
+    """EXIF 统计接口的混沌工程与安全渗透测试。
+
+    攻击场景：
+    1. 输入畸形：date_from/date_to 格式错误、超长时间范围
+    2. 数据污染：EXIF make/model 含特殊字符、超长字符串
+    3. 数学边界：total=0 时分布不除零
+    4. 安全攻击：SQL 注入样式字符串传入 date_from
+    5. 空值/负值：EXIF 字段为 null 或负数
+    """
+
+    class _FakeResp:
+        def __init__(self, data):
+            self.status_code = 200
+            self._data = data
+
+        def json(self):
+            return self._data
+
+    class _FakeImmich:
+        def __init__(self, assets):
+            self._all = assets
+            self.calls = 0
+
+        async def _request_with_retry(self, method, path, **kw):
+            self.calls += 1
+            p = kw.get("params", {})
+            skip = int(p.get("skip", 0))
+            take = int(p.get("take", 100))
+            return TestStatsExifBrute._FakeResp(self._all[skip : skip + take])
+
+# StatsProvider 破坏性测试
+# ============================================================================
+
+class TestStatsProviderBrute:
+    """对 StatsProvider 执行极端、畸形、恶意输入与故障场景的攻击性测试。"""
+
+    class _FakeResponse:
+        def __init__(self, status_code: int, data: list | dict) -> None:
+            self.status_code = status_code
+            self._data = data
+            self.text = str(data)
+
+        def json(self) -> list | dict:
+            return self._data
+
+    class _FakeImmich:
+        """模拟 ImmichClient，按 skip/take 参数返回资产切片。"""
+
+        def __init__(
+            self,
+            items: list[dict],
+            fail_on_call: int | None = None,
+            fail_status: int | None = None,
+        ) -> None:
+            self._items = items
+            self._fail_on_call = fail_on_call
+            self._fail_status = fail_status
+            self.call_count = 0
+
+        async def _request_with_retry(self, method: str, path: str, **kwargs):
+            self.call_count += 1
+            if self._fail_on_call is not None and self.call_count == self._fail_on_call:
+                raise RuntimeError("Immich down")
+            if self._fail_status is not None and self.call_count == self._fail_status:
+                return TestStatsProviderBrute._FakeResponse(500, {})
+            params = kwargs.get("params", {})
+            skip = int(params.get("skip", 0))
+            take = int(params.get("take", 100))
+            return TestStatsProviderBrute._FakeResponse(
+                200, self._items[skip:skip + take]
+            )
+
+        @staticmethod
+        def _parse_json(resp):
+            return resp._data
+
+        @staticmethod
+        def _extract_items(data):
+            return [x for x in data if isinstance(x, dict)] if isinstance(data, list) else []
+
+    @contextmanager
+    def _client(self, immich, **settings_kw):
+        from app.api.deps import get_settings_dep
+        from app.core.cache import MemoryCache
+
+        defaults = dict(search_api_key="", rate_limit_enabled=False)
+        defaults.update(settings_kw)
+        settings = SimpleNamespace(**defaults)
+
+        app.dependency_overrides[get_settings_dep] = lambda: settings
+        try:
+            with TestClient(app) as c:
+                app.state.immich_client = immich
+                app.state.rate_limiter = None
+                app.state.cache = MemoryCache()
+                yield c
+        finally:
+            app.dependency_overrides.clear()
+
+    # ---- 输入畸形 ----
+
+    def test_malformed_date_from_not_crash(self):
+        """date_from 格式错误（非 ISO 8601）不崩溃，正常返回。"""
+        immich = self._FakeImmich([])
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif", params={"date_from": "not-a-date"})
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 0
+
+    def test_malformed_date_to_not_crash(self):
+        """date_to 格式错误（非法月份/日期）不崩溃。"""
+        immich = self._FakeImmich([])
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif", params={"date_to": "9999-99-99"})
+        assert resp.status_code == 200
+
+    def test_extremely_long_date_range_not_crash(self):
+        """超长时间范围（0001~9999 年）不崩溃。"""
+        immich = self._FakeImmich([])
+        with self._client(immich) as c:
+            resp = c.get(
+                "/api/v1/stats/exif",
+                params={
+                    "date_from": "0001-01-01T00:00:00Z",
+                    "date_to": "9999-12-31T23:59:59Z",
+                },
+            )
+        assert resp.status_code == 200
+
+    # ---- 数据污染 ----
+
+    def test_exif_make_special_chars_not_crash(self):
+        """EXIF make/model 含 XSS/SQL 注入特殊字符不崩溃，原样保留在分布中。"""
+        assets = [
+            {
+                "id": "1",
+                "exifInfo": {
+                    "make": "Canon<script>alert(1)</script>",
+                    "model": "EOS'; DROP TABLE--",
+                },
+            },
+            {
+                "id": "2",
+                "exifInfo": {
+                    "make": "<img src=x onerror=alert(1)>",
+                    "model": 'test"quote\\backslash',
+                },
+            },
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 2
+        names = {b["name"] for b in body["camera_brands"]}
+        assert "Canon<script>alert(1)</script>" in names
+        assert "<img src=x onerror=alert(1)>" in names
+
+    def test_exif_make_super_long_not_crash(self):
+        """EXIF make 超长字符串（10000 字符）不崩溃。"""
+        long_make = "A" * 10000
+        assets = [{"id": "1", "exifInfo": {"make": long_make, "model": "X"}}]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 1
+        assert body["camera_brands"][0]["name"] == long_make
+
+    def test_exif_unicode_extreme_not_crash(self):
+        """EXIF 含极端 Unicode（零宽字符、emoji、RTL 标记）不崩溃。"""
+        assets = [
+            {
+                "id": "1",
+                "exifInfo": {
+                    "make": "Canon\u200b\u200c\u200d",  # 零宽字符
+                    "model": "EOS R5\U0001f4f7",  # emoji
+                    "lensModel": "\u202eRF 24-70",  # RTL 覆盖
+                },
+            },
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif")
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 1
+
+    # ---- 数学边界 ----
+
+    def test_total_zero_no_division_error(self):
+        """total=0 时所有分布为空，不触发除零异常。"""
+        immich = self._FakeImmich([])
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 0
+        assert body["camera_brands"] == []
+        assert body["aperture_distribution"] == []
+        assert body["iso_distribution"] == []
+        assert body["focal_length_distribution"] == []
+        assert body["shutter_speed_distribution"] == []
+
+    def test_single_asset_no_crash(self):
+        """仅 1 条资产时聚合不崩溃（边界：most_common 列表长度=1）。"""
+        assets = [
+            {"id": "1", "exifInfo": {"make": "Canon", "model": "EOS R5", "fNumber": 2.8, "iso": 100}},
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 1
+        assert body["camera_brands"] == [{"name": "Canon", "count": 1}]
+
+    # ---- 安全攻击 ----
+
+    def test_sql_injection_in_date_from_not_crash(self):
+        """SQL 注入字符串传入 date_from 不崩溃、不注入。"""
+        immich = self._FakeImmich([])
+        with self._client(immich) as c:
+            resp = c.get(
+                "/api/v1/stats/exif",
+                params={"date_from": "' OR 1=1; DROP TABLE assets; --"},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 0
+
+    def test_path_traversal_in_date_from_not_crash(self):
+        """路径遍历字符串传入 date_from 不崩溃。"""
+        immich = self._FakeImmich([])
+        with self._client(immich) as c:
+            resp = c.get(
+                "/api/v1/stats/exif",
+                params={"date_from": "../../../etc/passwd"},
+            )
+        assert resp.status_code == 200
+
+    # ---- 空值/负值 ----
+
+    def test_exif_null_fields_not_crash(self):
+        """EXIF 字段值为 null 不崩溃，跳过对应分布。"""
+        assets = [
+            {"id": "1", "exifInfo": {"make": None, "model": None, "fNumber": None, "iso": None}},
+            {"id": "2", "exifInfo": {"make": "Canon", "model": "EOS R5", "fNumber": 2.8, "iso": 100}},
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 2
+        assert body["camera_brands"] == [{"name": "Canon", "count": 1}]
+
+    def test_exif_negative_and_zero_values_not_crash(self):
+        """EXIF 数值字段为负数/零不崩溃，跳过对应分布。"""
+        assets = [
+            {
+                "id": "1",
+                "exifInfo": {"fNumber": -1, "iso": 0, "focalLength": -50, "exposureTime": 0},
+            },
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 1
+        assert body["aperture_distribution"] == []
+        assert body["iso_distribution"] == []
+        assert body["focal_length_distribution"] == []
+        assert body["shutter_speed_distribution"] == []
+
+    def test_exif_non_numeric_strings_not_crash(self):
+        """EXIF 数值字段为非数字字符串不崩溃，跳过对应分布。"""
+        assets = [
+            {
+                "id": "1",
+                "exifInfo": {
+                    "fNumber": "abc",
+                    "iso": "NaN",
+                    "focalLength": "undefined",
+                    "exposureTime": "null",
+                },
+            },
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 1
+        assert body["aperture_distribution"] == []
+        assert body["iso_distribution"] == []
+        assert body["focal_length_distribution"] == []
+        assert body["shutter_speed_distribution"] == []
+
+    @staticmethod
+    def _asset(asset_id: str, date: str | None = None) -> dict:
+        dt = date or "2024-06-01T12:00:00+00:00"
+        return {
+            "id": asset_id,
+            "fileCreatedAt": dt,
+            "exifInfo": {"dateTimeOriginal": dt},
+        }
+
+    @staticmethod
+    def _settings(**kwargs) -> Settings:
+        defaults = dict(
+            immich_base_url="http://immich.test",
+            immich_api_key="test-key",
+            stats_enabled=True,
+        )
+        defaults.update(kwargs)
+        return Settings(**defaults)
+
+    @staticmethod
+    async def _collect(gen) -> list[dict]:
+        return [item async for item in gen]
+
+    # ---- 输入畸形与边界 ----
+
+    async def test_page_size_zero_clamped_to_one(self):
+        """page_size=0 钳制为 1，不崩溃。"""
+        fake = self._FakeImmich([self._asset("a1")])
+        provider = StatsProvider(self._settings(), fake)
+        items = await self._collect(provider.iter_assets(page_size=0, max_items=10))
+        assert len(items) == 1
+
+    async def test_page_size_negative_clamped_to_one(self):
+        """page_size 负数钳制为 1，不崩溃。"""
+        fake = self._FakeImmich([self._asset("a1")])
+        provider = StatsProvider(self._settings(), fake)
+        items = await self._collect(provider.iter_assets(page_size=-99, max_items=10))
+        assert len(items) == 1
+
+    async def test_max_items_zero_returns_empty(self):
+        """max_items=0 返回空，不拉取。"""
+        fake = self._FakeImmich([self._asset("a1"), self._asset("a2")])
+        provider = StatsProvider(self._settings(), fake)
+        items = await self._collect(provider.iter_assets(page_size=100, max_items=0))
+        assert items == []
+
+    async def test_date_from_after_date_to_returns_empty(self):
+        """date_from > date_to 时返回空（区间无交集）。"""
+        items = [
+            self._asset("p1", "2024-01-01T00:00:00+00:00"),
+            self._asset("p2", "2024-06-01T00:00:00+00:00"),
+        ]
+        fake = self._FakeImmich(items)
+        provider = StatsProvider(self._settings(), fake)
+        date_from = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        date_to = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        items = await self._collect(
+            provider.iter_assets(page_size=100, date_from=date_from, date_to=date_to)
+        )
+        assert items == []
+
+    # ---- 网络与上游故障 ----
+
+    async def test_immich_500_degrades_with_partial_results(self):
+        """Immich 返回 500，已拉到的部分正常返回，不抛异常。"""
+        items = [self._asset(f"a{i}") for i in range(200)]
+        fake = self._FakeImmich(items, fail_status=2)
+        provider = StatsProvider(self._settings(), fake)
+        result = await self._collect(provider.iter_assets(page_size=100))
+        assert len(result) == 100
+        assert len(provider.warnings) == 1
+
+    async def test_immich_timeout_degrades_gracefully(self):
+        """Immich 超时（模拟异常），不抛，返回已拉到的部分。"""
+        items = [self._asset(f"a{i}") for i in range(200)]
+        fake = self._FakeImmich(items, fail_on_call=2)
+        provider = StatsProvider(self._settings(), fake)
+        result = await self._collect(provider.iter_assets(page_size=100))
+        assert len(result) == 100
+        assert len(provider.warnings) == 1
+
+    async def test_immich_connection_failure_first_page_returns_empty(self):
+        """第一页就连接失败，返回空，不抛。"""
+        fake = self._FakeImmich([self._asset("a1")], fail_on_call=1)
+        provider = StatsProvider(self._settings(), fake)
+        items = await self._collect(provider.iter_assets(page_size=100))
+        assert items == []
+        assert len(provider.warnings) == 1
+
+    # ---- 并发与资源耗尽 ----
+
+    async def test_concurrent_100_same_params_singleflight(self):
+        """100 个相同参数的并发请求，singleflight 生效只拉一次。"""
+        items = [self._asset(f"a{i}") for i in range(50)]
+        fake = self._FakeImmich(items)
+        provider = StatsProvider(self._settings(), fake)
+
+        coros = [self._collect(provider.iter_assets(page_size=100)) for _ in range(100)]
+        results = await asyncio.gather(*coros)
+
+        assert fake.call_count == 1
+        for r in results:
+            assert len(r) == 50
+
+    # ---- 数据污染 ----
+
+    async def test_exif_special_characters_not_crash(self):
+        """EXIF 字段含特殊字符（SQL 注入、XSS、null byte），不崩溃。"""
+        items = [
+            {
+                "id": "a1",
+                "fileCreatedAt": "2024-01-01T00:00:00+00:00",
+                "exifInfo": {
+                    "dateTimeOriginal": "2024-01-01T00:00:00+00:00",
+                    "city": "'; DROP TABLE--",
+                    "country": "<script>alert(1)</script>",
+                    "description": "test\x00null",
+                },
+            },
+            {
+                "id": "a2",
+                "fileCreatedAt": "2024-06-01T00:00:00+00:00",
+                "exifInfo": {
+                    "dateTimeOriginal": "2024-06-01T00:00:00+00:00",
+                    "city": "北京🎉",
+                    "model": "日本語カメラ",
+                },
+            },
+        ]
+        fake = self._FakeImmich(items)
+        provider = StatsProvider(self._settings(), fake)
+        result = await self._collect(provider.iter_assets(page_size=100))
+        assert len(result) == 2
+
+    async def test_super_long_filename_not_crash(self):
+        """超长文件名（10000 字符），不崩溃。"""
+        items = [
+            {
+                "id": "a1",
+                "fileCreatedAt": "2024-01-01T00:00:00+00:00",
+                "originalFileName": "x" * 10000,
+                "exifInfo": {"dateTimeOriginal": "2024-01-01T00:00:00+00:00"},
+            },
+        ]
+        fake = self._FakeImmich(items)
+        provider = StatsProvider(self._settings(), fake)
+        result = await self._collect(provider.iter_assets(page_size=100))
+        assert len(result) == 1
+
+    # ---- 安全攻击 ----
+
+    async def test_pagination_skip_injection_not_crash(self):
+        """分页参数注入尝试（skip 被内部计算，不接受外部输入）。"""
+        items = [self._asset(f"a{i}") for i in range(10)]
+        fake = self._FakeImmich(items)
+        provider = StatsProvider(self._settings(), fake)
+        result = await self._collect(
+            provider.iter_assets(page_size=100, max_items=10)
+        )
+        assert len(result) == 10
+        assert fake.call_count == 1
+
+    async def test_stats_disabled_blocks_all_access(self):
+        """STATS_ENABLED=false 完全阻断拉取，即使参数恶意。"""
+        fake = self._FakeImmich([self._asset("a1")])
+        provider = StatsProvider(self._settings(stats_enabled=False), fake)
+        items = await self._collect(
+            provider.iter_assets(page_size=-1, max_items=999999)
+        )
+        assert items == []
+        assert fake.call_count == 0
+
+
+
+# ============================================================================
+# EXIF 统计接口 — 破坏性测试
+# ============================================================================
+
+
+class TestStatsExifBrute:
+    """EXIF 统计接口的混沌工程与安全渗透测试。
+
+    攻击场景：
+    1. 输入畸形：date_from/date_to 格式错误、超长时间范围
+    2. 数据污染：EXIF make/model 含特殊字符、超长字符串
+    3. 数学边界：total=0 时分布不除零
+    4. 安全攻击：SQL 注入样式字符串传入 date_from
+    5. 空值/负值：EXIF 字段为 null 或负数
+    """
+
+    class _FakeResp:
+        def __init__(self, data):
+            self.status_code = 200
+            self._data = data
+
+        def json(self):
+            return self._data
+
+    class _FakeImmich:
+        def __init__(self, assets):
+            self._all = assets
+            self.calls = 0
+
+        async def _request_with_retry(self, method, path, **kw):
+            self.calls += 1
+            p = kw.get("params", {})
+            skip = int(p.get("skip", 0))
+            take = int(p.get("take", 100))
+            return TestStatsExifBrute._FakeResp(self._all[skip : skip + take])
+
+# StatsProvider 破坏性测试
+# ============================================================================
+
+class TestStatsProviderBrute:
+    """对 StatsProvider 执行极端、畸形、恶意输入与故障场景的攻击性测试。"""
+
+    class _FakeResponse:
+        def __init__(self, status_code: int, data: list | dict) -> None:
+            self.status_code = status_code
+            self._data = data
+            self.text = str(data)
+
+        def json(self) -> list | dict:
+            return self._data
+
+    class _FakeImmich:
+        """模拟 ImmichClient，按 skip/take 参数返回资产切片。"""
+
+        def __init__(
+            self,
+            items: list[dict],
+            fail_on_call: int | None = None,
+            fail_status: int | None = None,
+        ) -> None:
+            self._items = items
+            self._fail_on_call = fail_on_call
+            self._fail_status = fail_status
+            self.call_count = 0
+
+        async def _request_with_retry(self, method: str, path: str, **kwargs):
+            self.call_count += 1
+            if self._fail_on_call is not None and self.call_count == self._fail_on_call:
+                raise RuntimeError("Immich down")
+            if self._fail_status is not None and self.call_count == self._fail_status:
+                return TestStatsProviderBrute._FakeResponse(500, {})
+            params = kwargs.get("params", {})
+            skip = int(params.get("skip", 0))
+            take = int(params.get("take", 100))
+            return TestStatsProviderBrute._FakeResponse(
+                200, self._items[skip:skip + take]
+            )
+
+        @staticmethod
+        def _parse_json(resp):
+            return resp._data
+
+        @staticmethod
+        def _extract_items(data):
+            return [x for x in data if isinstance(x, dict)] if isinstance(data, list) else []
+
+    @contextmanager
+    def _client(self, immich, **settings_kw):
+        from app.api.deps import get_settings_dep
+        from app.core.cache import MemoryCache
+
+        defaults = dict(search_api_key="", rate_limit_enabled=False)
+        defaults.update(settings_kw)
+        settings = SimpleNamespace(**defaults)
+
+        app.dependency_overrides[get_settings_dep] = lambda: settings
+        try:
+            with TestClient(app) as c:
+                app.state.immich_client = immich
+                app.state.rate_limiter = None
+                app.state.cache = MemoryCache()
+                yield c
+        finally:
+            app.dependency_overrides.clear()
+
+    # ---- 输入畸形 ----
+
+    def test_malformed_date_from_not_crash(self):
+        """date_from 格式错误（非 ISO 8601）不崩溃，正常返回。"""
+        immich = self._FakeImmich([])
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif", params={"date_from": "not-a-date"})
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 0
+
+    def test_malformed_date_to_not_crash(self):
+        """date_to 格式错误（非法月份/日期）不崩溃。"""
+        immich = self._FakeImmich([])
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif", params={"date_to": "9999-99-99"})
+        assert resp.status_code == 200
+
+    def test_extremely_long_date_range_not_crash(self):
+        """超长时间范围（0001~9999 年）不崩溃。"""
+        immich = self._FakeImmich([])
+        with self._client(immich) as c:
+            resp = c.get(
+                "/api/v1/stats/exif",
+                params={
+                    "date_from": "0001-01-01T00:00:00Z",
+                    "date_to": "9999-12-31T23:59:59Z",
+                },
+            )
+        assert resp.status_code == 200
+
+    # ---- 数据污染 ----
+
+    def test_exif_make_special_chars_not_crash(self):
+        """EXIF make/model 含 XSS/SQL 注入特殊字符不崩溃，原样保留在分布中。"""
+        assets = [
+            {
+                "id": "1",
+                "exifInfo": {
+                    "make": "Canon<script>alert(1)</script>",
+                    "model": "EOS'; DROP TABLE--",
+                },
+            },
+            {
+                "id": "2",
+                "exifInfo": {
+                    "make": "<img src=x onerror=alert(1)>",
+                    "model": 'test"quote\\backslash',
+                },
+            },
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 2
+        names = {b["name"] for b in body["camera_brands"]}
+        assert "Canon<script>alert(1)</script>" in names
+        assert "<img src=x onerror=alert(1)>" in names
+
+    def test_exif_make_super_long_not_crash(self):
+        """EXIF make 超长字符串（10000 字符）不崩溃。"""
+        long_make = "A" * 10000
+        assets = [{"id": "1", "exifInfo": {"make": long_make, "model": "X"}}]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 1
+        assert body["camera_brands"][0]["name"] == long_make
+
+    def test_exif_unicode_extreme_not_crash(self):
+        """EXIF 含极端 Unicode（零宽字符、emoji、RTL 标记）不崩溃。"""
+        assets = [
+            {
+                "id": "1",
+                "exifInfo": {
+                    "make": "Canon\u200b\u200c\u200d",  # 零宽字符
+                    "model": "EOS R5\U0001f4f7",  # emoji
+                    "lensModel": "\u202eRF 24-70",  # RTL 覆盖
+                },
+            },
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif")
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 1
+
+    # ---- 数学边界 ----
+
+    def test_total_zero_no_division_error(self):
+        """total=0 时所有分布为空，不触发除零异常。"""
+        immich = self._FakeImmich([])
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 0
+        assert body["camera_brands"] == []
+        assert body["aperture_distribution"] == []
+        assert body["iso_distribution"] == []
+        assert body["focal_length_distribution"] == []
+        assert body["shutter_speed_distribution"] == []
+
+    def test_single_asset_no_crash(self):
+        """仅 1 条资产时聚合不崩溃（边界：most_common 列表长度=1）。"""
+        assets = [
+            {"id": "1", "exifInfo": {"make": "Canon", "model": "EOS R5", "fNumber": 2.8, "iso": 100}},
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 1
+        assert body["camera_brands"] == [{"name": "Canon", "count": 1}]
+
+    # ---- 安全攻击 ----
+
+    def test_sql_injection_in_date_from_not_crash(self):
+        """SQL 注入字符串传入 date_from 不崩溃、不注入。"""
+        immich = self._FakeImmich([])
+        with self._client(immich) as c:
+            resp = c.get(
+                "/api/v1/stats/exif",
+                params={"date_from": "' OR 1=1; DROP TABLE assets; --"},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 0
+
+    def test_path_traversal_in_date_from_not_crash(self):
+        """路径遍历字符串传入 date_from 不崩溃。"""
+        immich = self._FakeImmich([])
+        with self._client(immich) as c:
+            resp = c.get(
+                "/api/v1/stats/exif",
+                params={"date_from": "../../../etc/passwd"},
+            )
+        assert resp.status_code == 200
+
+    # ---- 空值/负值 ----
+
+    def test_exif_null_fields_not_crash(self):
+        """EXIF 字段值为 null 不崩溃，跳过对应分布。"""
+        assets = [
+            {"id": "1", "exifInfo": {"make": None, "model": None, "fNumber": None, "iso": None}},
+            {"id": "2", "exifInfo": {"make": "Canon", "model": "EOS R5", "fNumber": 2.8, "iso": 100}},
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 2
+        assert body["camera_brands"] == [{"name": "Canon", "count": 1}]
+
+    def test_exif_negative_and_zero_values_not_crash(self):
+        """EXIF 数值字段为负数/零不崩溃，跳过对应分布。"""
+        assets = [
+            {
+                "id": "1",
+                "exifInfo": {"fNumber": -1, "iso": 0, "focalLength": -50, "exposureTime": 0},
+            },
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 1
+        assert body["aperture_distribution"] == []
+        assert body["iso_distribution"] == []
+        assert body["focal_length_distribution"] == []
+        assert body["shutter_speed_distribution"] == []
+
+    def test_exif_non_numeric_strings_not_crash(self):
+        """EXIF 数值字段为非数字字符串不崩溃，跳过对应分布。"""
+        assets = [
+            {
+                "id": "1",
+                "exifInfo": {
+                    "fNumber": "abc",
+                    "iso": "NaN",
+                    "focalLength": "undefined",
+                    "exposureTime": "null",
+                },
+            },
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/exif")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 1
+        assert body["aperture_distribution"] == []
+        assert body["iso_distribution"] == []
+        assert body["focal_length_distribution"] == []
+        assert body["shutter_speed_distribution"] == []
+
+    @staticmethod
+    def _asset(asset_id: str, date: str | None = None) -> dict:
+        dt = date or "2024-06-01T12:00:00+00:00"
+        return {
+            "id": asset_id,
+            "fileCreatedAt": dt,
+            "exifInfo": {"dateTimeOriginal": dt},
+        }
+
+    @staticmethod
+    def _settings(**kwargs) -> Settings:
+        defaults = dict(
+            immich_base_url="http://immich.test",
+            immich_api_key="test-key",
+            stats_enabled=True,
+        )
+        defaults.update(kwargs)
+        return Settings(**defaults)
+
+    @staticmethod
+    async def _collect(gen) -> list[dict]:
+        return [item async for item in gen]
+
+    # ---- 输入畸形与边界 ----
+
+    async def test_page_size_zero_clamped_to_one(self):
+        """page_size=0 钳制为 1，不崩溃。"""
+        fake = self._FakeImmich([self._asset("a1")])
+        provider = StatsProvider(self._settings(), fake)
+        items = await self._collect(provider.iter_assets(page_size=0, max_items=10))
+        assert len(items) == 1
+
+    async def test_page_size_negative_clamped_to_one(self):
+        """page_size 负数钳制为 1，不崩溃。"""
+        fake = self._FakeImmich([self._asset("a1")])
+        provider = StatsProvider(self._settings(), fake)
+        items = await self._collect(provider.iter_assets(page_size=-99, max_items=10))
+        assert len(items) == 1
+
+    async def test_max_items_zero_returns_empty(self):
+        """max_items=0 返回空，不拉取。"""
+        fake = self._FakeImmich([self._asset("a1"), self._asset("a2")])
+        provider = StatsProvider(self._settings(), fake)
+        items = await self._collect(provider.iter_assets(page_size=100, max_items=0))
+        assert items == []
+
+    async def test_date_from_after_date_to_returns_empty(self):
+        """date_from > date_to 时返回空（区间无交集）。"""
+        items = [
+            self._asset("p1", "2024-01-01T00:00:00+00:00"),
+            self._asset("p2", "2024-06-01T00:00:00+00:00"),
+        ]
+        fake = self._FakeImmich(items)
+        provider = StatsProvider(self._settings(), fake)
+        date_from = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        date_to = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        items = await self._collect(
+            provider.iter_assets(page_size=100, date_from=date_from, date_to=date_to)
+        )
+        assert items == []
+
+    # ---- 网络与上游故障 ----
+
+    async def test_immich_500_degrades_with_partial_results(self):
+        """Immich 返回 500，已拉到的部分正常返回，不抛异常。"""
+        items = [self._asset(f"a{i}") for i in range(200)]
+        fake = self._FakeImmich(items, fail_status=2)
+        provider = StatsProvider(self._settings(), fake)
+        result = await self._collect(provider.iter_assets(page_size=100))
+        assert len(result) == 100
+        assert len(provider.warnings) == 1
+
+    async def test_immich_timeout_degrades_gracefully(self):
+        """Immich 超时（模拟异常），不抛，返回已拉到的部分。"""
+        items = [self._asset(f"a{i}") for i in range(200)]
+        fake = self._FakeImmich(items, fail_on_call=2)
+        provider = StatsProvider(self._settings(), fake)
+        result = await self._collect(provider.iter_assets(page_size=100))
+        assert len(result) == 100
+        assert len(provider.warnings) == 1
+
+    async def test_immich_connection_failure_first_page_returns_empty(self):
+        """第一页就连接失败，返回空，不抛。"""
+        fake = self._FakeImmich([self._asset("a1")], fail_on_call=1)
+        provider = StatsProvider(self._settings(), fake)
+        items = await self._collect(provider.iter_assets(page_size=100))
+        assert items == []
+        assert len(provider.warnings) == 1
+
+    # ---- 并发与资源耗尽 ----
+
+    async def test_concurrent_100_same_params_singleflight(self):
+        """100 个相同参数的并发请求，singleflight 生效只拉一次。"""
+        items = [self._asset(f"a{i}") for i in range(50)]
+        fake = self._FakeImmich(items)
+        provider = StatsProvider(self._settings(), fake)
+
+        coros = [self._collect(provider.iter_assets(page_size=100)) for _ in range(100)]
+        results = await asyncio.gather(*coros)
+
+        assert fake.call_count == 1
+        for r in results:
+            assert len(r) == 50
+
+    # ---- 数据污染 ----
+
+    async def test_exif_special_characters_not_crash(self):
+        """EXIF 字段含特殊字符（SQL 注入、XSS、null byte），不崩溃。"""
+        items = [
+            {
+                "id": "a1",
+                "fileCreatedAt": "2024-01-01T00:00:00+00:00",
+                "exifInfo": {
+                    "dateTimeOriginal": "2024-01-01T00:00:00+00:00",
+                    "city": "'; DROP TABLE--",
+                    "country": "<script>alert(1)</script>",
+                    "description": "test\x00null",
+                },
+            },
+            {
+                "id": "a2",
+                "fileCreatedAt": "2024-06-01T00:00:00+00:00",
+                "exifInfo": {
+                    "dateTimeOriginal": "2024-06-01T00:00:00+00:00",
+                    "city": "北京🎉",
+                    "model": "日本語カメラ",
+                },
+            },
+        ]
+        fake = self._FakeImmich(items)
+        provider = StatsProvider(self._settings(), fake)
+        result = await self._collect(provider.iter_assets(page_size=100))
+        assert len(result) == 2
+
+    async def test_super_long_filename_not_crash(self):
+        """超长文件名（10000 字符），不崩溃。"""
+        items = [
+            {
+                "id": "a1",
+                "fileCreatedAt": "2024-01-01T00:00:00+00:00",
+                "originalFileName": "x" * 10000,
+                "exifInfo": {"dateTimeOriginal": "2024-01-01T00:00:00+00:00"},
+            },
+        ]
+        fake = self._FakeImmich(items)
+        provider = StatsProvider(self._settings(), fake)
+        result = await self._collect(provider.iter_assets(page_size=100))
+        assert len(result) == 1
+
+    # ---- 安全攻击 ----
+
+    async def test_pagination_skip_injection_not_crash(self):
+        """分页参数注入尝试（skip 被内部计算，不接受外部输入）。"""
+        items = [self._asset(f"a{i}") for i in range(10)]
+        fake = self._FakeImmich(items)
+        provider = StatsProvider(self._settings(), fake)
+        result = await self._collect(
+            provider.iter_assets(page_size=100, max_items=10)
+        )
+        assert len(result) == 10
+        assert fake.call_count == 1
+
+    async def test_stats_disabled_blocks_all_access(self):
+        """STATS_ENABLED=false 完全阻断拉取，即使参数恶意。"""
+        fake = self._FakeImmich([self._asset("a1")])
+        provider = StatsProvider(self._settings(stats_enabled=False), fake)
+        items = await self._collect(
+            provider.iter_assets(page_size=-1, max_items=999999)
+        )
+        assert items == []
+        assert fake.call_count == 0
+
+
+# ============================================================================
+# 器材偏好接口 — 破坏性测试
+# ============================================================================
+
+
+class TestStatsGearBrute:
+    """器材偏好接口的混沌工程与安全渗透测试。
+
+    攻击场景：
+    1. 数学边界：total=0 时 ratio 防除零、shot_by_month 月份溢出
+    2. 数据污染：make / model / lensModel 含特殊字符、超长字符串
+    3. 输入畸形：date_from > date_to
+    """
+
+    class _FakeResp:
+        def __init__(self, status_code, data):
+            self.status_code = status_code
+            self._data = data
+
+        def json(self):
+            return self._data
+
+    class _FakeImmich:
+        def __init__(self, assets):
+            self._all = assets
+            self.call_count = 0
+
+        async def _request_with_retry(self, method, path, **kw):
+            self.call_count += 1
+            p = kw.get("params", {})
+            skip = int(p.get("skip", 0))
+            take = int(p.get("take", 100))
+            return TestStatsGearBrute._FakeResp(200, self._all[skip : skip + take])
+
+        @staticmethod
+        def _parse_json(resp):
+            return resp._data
+
+        @staticmethod
+        def _extract_items(data):
+            return [x for x in data if isinstance(x, dict)] if isinstance(data, list) else []
+
+    @contextmanager
+    def _client(self, immich, **settings_kw):
+        from app.api.deps import get_settings_dep
+        from app.core.cache import MemoryCache
+
+        defaults = dict(search_api_key="", rate_limit_enabled=False)
+        defaults.update(settings_kw)
+        settings = SimpleNamespace(**defaults)
+
+        app.dependency_overrides[get_settings_dep] = lambda: settings
+        try:
+            with TestClient(app) as c:
+                app.state.immich_client = immich
+                app.state.rate_limiter = None
+                app.state.cache = MemoryCache()
+                yield c
+        finally:
+            app.dependency_overrides.clear()
+
+    def _asset(self, aid="x", make=None, model=None, lens=None, date_time=None):
+        exif = {}
+        if make is not None:
+            exif["make"] = make
+        if model is not None:
+            exif["model"] = model
+        if lens is not None:
+            exif["lensModel"] = lens
+        if date_time is not None:
+            exif["dateTimeOriginal"] = date_time
+        asset = {"id": aid}
+        if exif:
+            asset["exifInfo"] = exif
+        return asset
+
+    # ---- 数学边界 ----
+
+    def test_total_zero_calc_ratio_no_division(self):
+        """直接调用 _calc_ratio：total=0 返回 0.0，不除零。"""
+        from app.api.routes.stats import _calc_ratio
+
+        assert _calc_ratio(10, 0) == 0.0
+        assert _calc_ratio(0, 0) == 0.0
+        assert _calc_ratio(10, -1) == 0.0
+
+    def test_month_overflow_not_crash(self):
+        """dateTimeOriginal 月份溢出（13 / 00 / 非数字）：不崩溃，跳过月度统计。"""
+        assets = [
+            self._asset("1", make="Canon", model="EOS R5", date_time="2026-13-05T10:00:00Z"),  # 月份 13
+            self._asset("2", make="Canon", model="EOS R5", date_time="2026-00-05T10:00:00Z"),  # 月份 00
+            self._asset("3", make="Nikon", model="Z7", date_time="not-a-date"),                 # 非日期
+            self._asset("4", make="Canon", model="EOS R5", date_time="2026-10-05T10:00:00Z"),   # 合法
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/gear")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 4
+        # 只有合法月份计入 shot_by_month
+        assert sum(m["count"] for m in body["shot_by_month"]) == 1
+
+    def test_date_year_extreme_not_crash(self):
+        """年份极端值（0000 / 9999）不崩溃。"""
+        assets = [
+            self._asset("1", make="Canon", model="EOS R5", date_time="9999-12-31T23:59:59Z"),
+            self._asset("2", make="Nikon", model="Z7", date_time="0000-01-01T00:00:00Z"),
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/gear")
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 2
+
+    # ---- 数据污染 ----
+
+    def test_make_model_lens_special_chars_not_crash(self):
+        """make/model/lensModel 含 XSS/SQL 注入特殊字符：不崩溃，原样保留。"""
+        assets = [
+            self._asset(
+                "1",
+                make="Canon<script>alert(1)</script>",
+                model="EOS'; DROP TABLE--",
+                lens="RF 24-70\" onerror=alert(1)",
+            ),
+            self._asset("2", make="<img src=x>", model='test"quote\\backslash', lens="Z 50mm"),
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/gear")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 2
+        names = {x["name"] for x in body["top_cameras"]}
+        assert "Canon<script>alert(1)</script> EOS'; DROP TABLE--" in names
+        assert "<img src=x> test\"quote\\backslash" in names
+
+    def test_make_model_lens_super_long_not_crash(self):
+        """make/model/lensModel 超长字符串（10000 字符）：不崩溃。"""
+        long_make = "A" * 10000
+        long_model = "B" * 10000
+        long_lens = "C" * 10000
+        assets = [
+            self._asset("1", make=long_make, model=long_model, lens=long_lens),
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/gear")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 1
+        assert body["top_cameras"][0]["name"] == f"{long_make} {long_model}"
+
+    # ---- 输入畸形 ----
+
+    def test_date_from_after_date_to_not_crash(self):
+        """date_from > date_to（倒置日期范围）：不崩溃。"""
+        assets = [self._asset("1", make="Canon", model="EOS R5", lens="RF 24-70")]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get(
+                "/api/v1/stats/gear",
+                params={"date_from": "2025-12-31", "date_to": "2024-01-01"},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 1
+
+    def test_sql_injection_in_date_not_crash(self):
+        """SQL 注入字符串传入 date 参数：不崩溃、不注入。"""
+        assets = [self._asset("1", make="Canon", model="EOS R5")]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get(
+                "/api/v1/stats/gear",
+                params={"date_from": "' OR 1=1; DROP TABLE assets; --"},
+            )
+        assert resp.status_code == 200
+
+
+# ============================================================================
+# 第七类：搜索结果可解释性 — 数学边界 / 数据污染 / 异常注入
+# ============================================================================
+
+class TestExplainBrute:
+    """对 build_explanation 与 explanation 组装链路执行攻击性测试。
+
+    覆盖：
+        - 数学边界：semantic_score / time_score 为 NaN / Infinity / 负数
+        - 数据污染：scene_tags 含未知场景、空字典、非预期类型
+        - 异常注入：build_explanation 抛异常时搜索仍正常返回
+    """
+
+    # ---- 数学边界攻击 ----
+
+    def test_semantic_score_nan_treated_as_zero(self):
+        """semantic_score=NaN → 降级为 0.0，不崩溃。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, float("nan"), 0.5, (0.3, 0.7), None)
+        assert exp["semantic_score"] == 0.0
+        assert exp["reasons"] == ["综合得分"]
+
+    def test_semantic_score_infinity_treated_as_zero(self):
+        """semantic_score=Infinity → 降级为 0.0。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, float("inf"), 0.5, (0.3, 0.7), None)
+        assert exp["semantic_score"] == 0.0
+
+    def test_semantic_score_negative_infinity_treated_as_zero(self):
+        """semantic_score=-Infinity → 降级为 0.0。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, float("-inf"), 0.5, (0.3, 0.7), None)
+        assert exp["semantic_score"] == 0.0
+
+    def test_time_score_nan_treated_as_zero(self):
+        """time_score=NaN → 降级为 0.0。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 0.85, float("nan"), (0.3, 0.7), None)
+        assert exp["time_score"] == 0.0
+        assert "拍摄时间较新" not in exp["reasons"]
+
+    def test_both_scores_nan_no_crash(self):
+        """两个分数都是 NaN → 不崩溃，返回降级解释。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation(
+            {}, float("nan"), float("nan"), (0.3, 0.7), None
+        )
+        assert exp["semantic_score"] == 0.0
+        assert exp["time_score"] == 0.0
+        assert exp["reasons"] == ["综合得分"]
+
+    def test_negative_scores_no_high_reasons(self):
+        """负数分数 → 不触发高分 reason，降级为"综合得分"。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, -0.5, -10.0, (0.3, 0.7), None)
+        assert "语义相似度高" not in exp["reasons"]
+        assert "拍摄时间较新" not in exp["reasons"]
+        assert exp["reasons"] == ["综合得分"]
+
+    def test_weights_nan_treated_as_zero(self):
+        """weights 含 NaN → 降级为 0.0。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 0.5, 0.5, (float("nan"), 0.7), None)
+        assert exp["weights_used"]["alpha"] == 0.0
+        assert exp["weights_used"]["beta"] == 0.7
+
+    def test_weights_infinity_treated_as_zero(self):
+        """weights 含 Infinity → 降级为 0.0。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 0.5, 0.5, (0.3, float("inf")), None)
+        assert exp["weights_used"]["alpha"] == 0.3
+        assert exp["weights_used"]["beta"] == 0.0
+
+    def test_scores_extremely_large_clamped_by_safe_score(self):
+        """极大分数 → safe_score 不崩溃（float 转换成功但 isinf 检测）。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 1e308, 1e308, (0.3, 0.7), None)
+        # 1e308 不是 inf，safe_score 直接返回
+        assert exp["semantic_score"] == round(1e308, 4)
+
+    # ---- 数据污染攻击 ----
+
+    def test_scene_tags_unknown_scene_filtered(self):
+        """scene_tags 含未知场景 → 被过滤，不出现在 matched_scenes。"""
+        from app.services.explain import build_explanation
+
+        scene_tags = {"scenes": ["totally_fake_scene", "nature"]}
+        exp = build_explanation({}, 0.3, 0.2, (0.3, 0.7), scene_tags)
+        assert "totally_fake_scene" not in exp["matched_scenes"]
+        assert exp["matched_scenes"] == ["nature"]
+
+    def test_scene_tags_empty_dict(self):
+        """scene_tags 为空字典 → 不崩溃，无场景 reason。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 0.3, 0.2, (0.3, 0.7), {})
+        assert exp["matched_scenes"] == []
+        assert exp["reasons"] == ["综合得分"]
+
+    def test_scene_tags_none(self):
+        """scene_tags 为 None → 不崩溃。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 0.3, 0.2, (0.3, 0.7), None)
+        assert exp["matched_scenes"] == []
+
+    def test_scene_tags_wrong_type(self):
+        """scene_tags 为非预期类型（int）→ 不崩溃。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 0.3, 0.2, (0.3, 0.7), 42)
+        assert exp["matched_scenes"] == []
+
+    def test_asset_none_no_crash(self):
+        """asset 为 None → 不崩溃。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation(None, 0.3, 0.2, (0.3, 0.7), None)
+        assert "reasons" in exp
+
+    def test_asset_with_garbage_scenes(self):
+        """asset 的 scenes 含非字符串元素 → 不崩溃。"""
+        from app.services.explain import build_explanation
+
+        asset = {"scenes": [123, None, "nature", "", "default"]}
+        exp = build_explanation(asset, 0.3, 0.2, (0.3, 0.7), None)
+        assert exp["matched_scenes"] == ["nature"]
+
+    def test_weights_wrong_type(self):
+        """weights 为非预期类型（int）→ 降级为 (0.0, 0.0)。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 0.5, 0.5, 42, None)
+        assert exp["weights_used"] == {"alpha": 0.0, "beta": 0.0}
+
+    def test_weights_none(self):
+        """weights 为 None → 降级为 (0.0, 0.0)。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 0.5, 0.5, None, None)
+        assert exp["weights_used"] == {"alpha": 0.0, "beta": 0.0}
+
+    def test_weights_empty_tuple(self):
+        """weights 为空 tuple → 降级为 (0.0, 0.0)。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 0.5, 0.5, (), None)
+        assert exp["weights_used"] == {"alpha": 0.0, "beta": 0.0}
+
+    def test_semantic_score_string_type(self):
+        """semantic_score 为字符串 → safe_score 降级为 0.0。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, "not_a_number", 0.5, (0.3, 0.7), None)
+        assert exp["semantic_score"] == 0.0
+
+    def test_semantic_score_none_type(self):
+        """semantic_score 为 None → safe_score 降级为 0.0。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, None, 0.5, (0.3, 0.7), None)
+        assert exp["semantic_score"] == 0.0
+
+    # ---- 异常注入攻击 ----
+
+    async def test_build_explanation_exception_does_not_block_search(
+        self, settings, monkeypatch
+    ):
+        """monkeypatch build_explanation 抛异常 → 搜索仍正常返回。"""
+        from app.core.errors import VisionError
+        from app.models.request import SearchRequest
+        from app.services.search_service import SearchService
+        from app.services.vision.base import VisionProvider, VisionResult
+
+        class FakeImmich:
+            async def smart_search(self, query, k=50, asset_ids=None):
+                return [{
+                    "id": "a",
+                    "score": 0.9,
+                    "exifInfo": {"dateTimeOriginal": "2023-06-15T10:00:00Z"},
+                }]
+
+            def thumbnail_url(self, asset_id, size="preview"):
+                return f"http://immich.test/{asset_id}/thumb"
+
+            def original_url(self, asset_id):
+                return f"http://immich.test/{asset_id}/orig"
+
+        class FakeVision(VisionProvider):
+            name = "fake"
+
+            async def analyze(self, image_url):
+                return VisionResult(labels=[])
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("injected explosion")
+
+        monkeypatch.setattr(
+            "app.services.search_service.build_explanation", boom
+        )
+
+        immich = FakeImmich()
+        vision = FakeVision()
+        svc = SearchService(settings, immich, vision)
+        resp = await svc.search(SearchRequest(query="test", asset_ids=["a1"]))
+
+        assert resp.total == 1
+        assert resp.results[0].explanation is None
+        assert resp.degraded is False
+
+    async def test_blend_scene_weights_exception_does_not_block_search(
+        self, settings, monkeypatch
+    ):
+        """monkeypatch blend_scene_weights 抛异常 → 搜索仍正常返回。"""
+        from app.models.request import SearchRequest
+        from app.services.search_service import SearchService
+        from app.services.vision.base import VisionProvider, VisionResult
+
+        class FakeImmich:
+            async def smart_search(self, query, k=50, asset_ids=None):
+                return [{
+                    "id": "a",
+                    "score": 0.9,
+                    "exifInfo": {"dateTimeOriginal": "2023-06-15T10:00:00Z"},
+                }]
+
+            def thumbnail_url(self, asset_id, size="preview"):
+                return f"http://immich.test/{asset_id}/thumb"
+
+            def original_url(self, asset_id):
+                return f"http://immich.test/{asset_id}/orig"
+
+        class FakeVision(VisionProvider):
+            name = "fake"
+
+            async def analyze(self, image_url):
+                return VisionResult(labels=[])
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("blend explosion")
+
+        monkeypatch.setattr(
+            "app.services.search_service.blend_scene_weights", boom
+        )
+
+        immich = FakeImmich()
+        vision = FakeVision()
+        svc = SearchService(settings, immich, vision)
+        resp = await svc.search(SearchRequest(query="test", asset_ids=["a1"]))
+
+        assert resp.total == 1
+        assert resp.results[0].explanation is None
 
 
 # ============================================================================
