@@ -21,6 +21,7 @@ from .ranking import (
     fuse_multimodal_query,
     rank_assets,
 )
+from .dedup import dedup_items
 from .vision.base import VisionProvider
 
 logger = logging.getLogger(__name__)
@@ -90,10 +91,40 @@ class SearchService:
             default_iso=self._settings.default_datetime_iso,
         )
 
-        # 6. 组装结果（EXPLAIN_ENABLED 时附加排序解释）。
+        # 6. 组装结果（去重在后、排序在前，保证保留高分图；EXPLAIN_ENABLED 时附加排序解释）。
+        dedup_input = [
+            {
+                "asset": asset,
+                "final_score": final,
+                "similarity": similarity,
+                "freshness": freshness,
+                "captured_at": captured_at,
+                "source": source,
+            }
+            for asset, final, similarity, freshness, captured_at, source in ranked[: request.limit]
+        ]
+
+        dedup_removed = 0
+        if self._settings.dedup_enabled:
+            try:
+                dedup_input, dedup_removed = dedup_items(
+                    dedup_input,
+                    time_window_sec=self._settings.dedup_time_window_seconds,
+                    similarity_threshold=self._settings.dedup_similarity_threshold,
+                )
+            except Exception as exc:
+                logger.warning("去重失败，降级为不去重: %s", exc)
+                dedup_removed = 0
+
         explain_enabled = self._settings.explain_enabled
         results = []
-        for asset, final, similarity, freshness, captured_at, source in ranked[: request.limit]:
+        for item in dedup_input:
+            asset = item["asset"]
+            final = item["final_score"]
+            similarity = item["similarity"]
+            freshness = item["freshness"]
+            captured_at = item["captured_at"]
+            source = item["source"]
             explanation = None
             if explain_enabled:
                 try:
@@ -129,6 +160,7 @@ class SearchService:
             warnings=warnings,
             results=results,
             enriched_query=enriched_query if enriched_query != request.query else None,
+            dedup_removed=dedup_removed,
         )
 
         # 写缓存：仅非降级结果写入，降级结果不缓存。
