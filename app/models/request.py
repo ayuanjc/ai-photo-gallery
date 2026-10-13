@@ -71,6 +71,11 @@ class SearchRequest(BaseModel):
         default="relevance",
         description="排序维度: relevance(默认，按相关度) | newest(按时间降序) | oldest(按时间升序) | random(随机打乱)",
     )
+    time_hint: str | None = Field(
+        default=None,
+        max_length=100,
+        description="显式时间提示词（如「去年夏天」），优先于 query 中解析出的时间表达",
+    )
 
 
     @field_validator("image_urls")

@@ -26,6 +26,7 @@ from .ranking import (
 from .dedup import dedup_items
 from .image_query_service import ImageQueryService
 from .negation_parser import filter_by_negations, parse_negations
+from .time_parser import filter_by_time_range, parse_time_hint
 from .vision.base import VisionProvider
 
 logger = logging.getLogger(__name__)
@@ -65,13 +66,40 @@ class SearchService:
                 cache_key = None
 
         # 1. 并发调用视觉识别，从图片 URL 提取标签，用于增强语义查询。
-        #    否定语义搜索：先从 query 中解析否定前缀，用清理后的正向 query 走搜索。
+        #    时间语义化 + 否定语义搜索：先解析时间表达，再解析否定前缀，用清理后的 query 走搜索。
         cleaned_query = request.query
         applied_negations: list[str] = list(request.negations)
+        applied_time_range: dict | None = None
+        time_filter_range: tuple | None = None
+
+        if runtime_enabled("time_parser_enabled", self._settings.time_parser_enabled):
+            try:
+                if request.time_hint:
+                    hint_query, hint_range = parse_time_hint(request.time_hint)
+                    if hint_range is not None:
+                        time_filter_range = hint_range
+                        applied_time_range = {
+                            "date_from": hint_range[0].isoformat(),
+                            "date_to": hint_range[1].isoformat(),
+                            "source": "explicit",
+                        }
+                if time_filter_range is None:
+                    cleaned_query, parsed_range = parse_time_hint(cleaned_query)
+                    if parsed_range is not None:
+                        time_filter_range = parsed_range
+                        applied_time_range = {
+                            "date_from": parsed_range[0].isoformat(),
+                            "date_to": parsed_range[1].isoformat(),
+                            "source": "natural_language",
+                        }
+            except Exception as exc:
+                logger.warning("时间解析失败，降级为原 query: %s", exc)
+                cleaned_query = request.query
+
         if runtime_enabled("negation_enabled", self._settings.negation_enabled):
             try:
                 cleaned_query, parsed_negations = parse_negations(
-                    request.query, self._settings.negation_prefixes
+                    cleaned_query, self._settings.negation_prefixes
                 )
                 if parsed_negations:
                     for tok in parsed_negations:
@@ -79,7 +107,6 @@ class SearchService:
                             applied_negations.append(tok)
             except Exception as exc:
                 logger.warning("否定解析失败，降级为原 query: %s", exc)
-                cleaned_query = request.query
 
         if not cleaned_query.strip():
             cleaned_query = request.query
@@ -124,6 +151,13 @@ class SearchService:
             )
 
         # 3. 为每条 asset 生成场景标签（失败不阻塞），并把 primary_scene 附加到 asset。
+        #    时间语义过滤：在排序之前按时间范围过滤结果。
+        if time_filter_range is not None:
+            date_from, date_to = time_filter_range
+            assets = filter_by_time_range(
+                assets, date_from, date_to, self._settings.default_datetime_iso
+            )
+
         await self._attach_scenes(assets)
 
         # 3b. 否定语义过滤：在排序之前过滤掉场景标签命中否定词的结果。
@@ -234,6 +268,7 @@ class SearchService:
             dedup_removed=dedup_removed,
             image_query_used=image_query_used,
             applied_negations=applied_negations if applied_negations else [],
+            applied_time_range=applied_time_range,
         )
 
         # 写缓存：仅非降级结果写入，降级结果不缓存。
@@ -255,6 +290,7 @@ class SearchService:
                 "asset_ids": request.asset_ids,
                 "image_urls": request.image_urls,
                 "negations": request.negations,
+                "time_hint": request.time_hint,
                 "limit": request.limit,
                 "time_weight": request.time_weight,
                 "similarity_weight": request.similarity_weight,
