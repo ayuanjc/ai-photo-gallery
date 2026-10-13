@@ -123,3 +123,13 @@ class MultiConditionSearchRequest(BaseModel):
         if value and len(value) > 500:
             raise ValueError("查询关键词长度不能超过 500 字符")
         return value
+
+class SuggestRequest(BaseModel):
+    """搜索建议请求（GET 查询参数）。
+
+    - q: 搜索关键词（空时返回热门词 top N）。
+    - limit: 返回建议数量上限。
+    """
+
+    q: str = Field(default="", description="搜索关键词（空时返回热门词）")
+    limit: int = Field(default=10, ge=1, le=50, description="返回建议数量上限")

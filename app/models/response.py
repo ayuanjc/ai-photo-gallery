@@ -22,6 +22,9 @@ class SearchResultItem(BaseModel):
     final_score: float = Field(ge=0.0, le=1.0, description="加权融合后的最终排序分数")
     metadata: dict[str, Any] = Field(default_factory=dict, description="所选元数据字段")
     scene: SceneTags | None = Field(default=None, description="多标签场景分析结果")
+    explanation: dict[str, Any] | None = Field(
+        default=None, description="排序可解释性信息（为什么排这里）"
+    )
 
 
 class SearchResponse(BaseModel):
@@ -61,3 +64,18 @@ class MultiConditionSearchResponse(BaseModel):
     )
     warnings: list[str] = Field(default_factory=list)
     results: list[MultiConditionResultItem] = Field(default_factory=list)
+
+class SuggestResponse(BaseModel):
+    """搜索建议响应。"""
+
+    suggestions: list[str] = Field(default_factory=list, description="建议词列表")
+    degraded: bool = Field(default=False, description="是否发生降级")
+    warnings: list[str] = Field(default_factory=list)
+
+
+class CorrectResponse(BaseModel):
+    """搜索纠错响应。"""
+
+    corrected: str | None = Field(default=None, description="纠正后的关键词，无匹配时为 null")
+    degraded: bool = Field(default=False, description="是否发生降级")
+    warnings: list[str] = Field(default_factory=list)
