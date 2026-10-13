@@ -38,6 +38,7 @@ class SearchResponse(BaseModel):
     enriched_query: str | None = Field(default=None, description="经视觉识别增强后的实际查询词")
     cached: bool = Field(default=False, description="是否命中缓存")
     dedup_removed: int = Field(default=0, description="去重移除的结果数量")
+    image_query_used: bool = Field(default=False, description="是否使用了以图搜图增强")
 
 
 
