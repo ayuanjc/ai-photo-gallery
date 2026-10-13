@@ -1,16 +1,20 @@
 """统计接口测试。
 
-覆盖地图足迹统计与 EXIF 分布统计两套接口：
+覆盖地图足迹统计、EXIF 分布统计与器材偏好统计三套接口：
 - 地图：有 GPS 聚合、cluster=city/raw 区分、show_ids 隐私控制、无 GPS 资产、
   GPS 格式异常、上游降级、STATS_ENABLED=false 503、鉴权、StatsProvider 降级、
   缓存命中、非法 cluster 回退。
 - EXIF：正常聚合、无 EXIF 资产、部分无 EXIF（侧载）、空数据、上游失败降级、
   STATS_ENABLED=false 503、无 API Key 401、缓存命中、StatsProvider 不可用 fallback、
   StatsProvider 可用正常工作、不同日期参数缓存隔离。
+- 器材：ratio 计算、favorite_combo、shot_by_month 近 12 个月、无器材信息资产、
+  无拍摄时间资产、空数据防除零、上游降级、STATS_ENABLED=false 503、鉴权、
+  StatsProvider 降级、缓存命中。
 """
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
 
@@ -94,8 +98,9 @@ def _asset(
     iso: Any = None,
     focal_length: Any = None,
     exposure_time: Any = None,
+    date_time: str | None = None,
 ) -> dict:
-    """构造测试资产（含 GPS/地点/EXIF 信息）。"""
+    """构造测试资产（含 GPS/地点/EXIF/器材/拍摄时间信息）。"""
     exif: dict[str, Any] = {}
     if lat is not None:
         exif["latitude"] = lat
@@ -119,6 +124,8 @@ def _asset(
         exif["focalLength"] = focal_length
     if exposure_time is not None:
         exif["exposureTime"] = exposure_time
+    if date_time is not None:
+        exif["dateTimeOriginal"] = date_time
     asset: dict[str, Any] = {"id": asset_id}
     if exif:
         asset["exifInfo"] = exif
@@ -169,6 +176,10 @@ def _get_map(client: TestClient, headers: dict | None = None, **params: Any):
 
 def _get_stats(client: TestClient, headers: dict | None = None, **params: Any):
     return client.get("/api/v1/stats/exif", params=params, headers=headers)
+
+
+def _get_gear(client: TestClient, headers: dict | None = None, **params: Any):
+    return client.get("/api/v1/stats/gear", params=params, headers=headers)
 
 
 # ============================================================================
@@ -845,3 +856,347 @@ def test_exif_degraded_result_not_cached():
     assert resp2.status_code == 200
     assert resp2.json()["total"] == 1
     assert resp2.json()["degraded"] is False
+
+
+# ============================================================================
+# 器材偏好统计测试
+# ============================================================================
+
+def test_gear_ratio_and_aggregation():
+    """ratio = count/total 保留 2 位小数，top/brand 聚合正确。"""
+    assets = [
+        _asset("1", make="Canon", model="EOS R5", lens="RF 24-70"),
+        _asset("2", make="Canon", model="EOS R5", lens="RF 24-70"),
+        _asset("3", make="Nikon", model="Z7", lens="Z 50mm"),
+        _asset("4", make="Sony", model="A7R4", lens="FE 35mm"),
+    ]
+    immich = FakeImmichClient(assets)
+    with make_client(immich=immich) as c:
+        resp = _get_gear(c)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 4
+
+    cams = {x["name"]: x for x in body["top_cameras"]}
+    assert cams["Canon EOS R5"]["count"] == 2
+    assert cams["Canon EOS R5"]["ratio"] == 0.5
+    assert cams["Nikon Z7"]["ratio"] == 0.25
+    assert cams["Sony A7R4"]["ratio"] == 0.25
+
+    lenses = {x["name"]: x for x in body["top_lenses"]}
+    assert lenses["RF 24-70"]["count"] == 2
+    assert lenses["RF 24-70"]["ratio"] == 0.5
+
+    brands = {x["brand"]: x for x in body["brand_ratio"]}
+    assert brands["Canon"]["count"] == 2
+    assert brands["Canon"]["ratio"] == 0.5
+    assert brands["Nikon"]["ratio"] == 0.25
+    assert brands["Sony"]["ratio"] == 0.25
+
+
+# ============================================================================
+# 2. favorite_combo 正确
+# ============================================================================
+
+
+def test_gear_favorite_combo():
+    """最常用相机+镜头组合正确。"""
+    assets = [
+        _asset("1", make="Canon", model="EOS R5", lens="RF 24-70"),
+        _asset("2", make="Canon", model="EOS R5", lens="RF 24-70"),
+        _asset("3", make="Canon", model="EOS R5", lens="RF 70-200"),
+        _asset("4", make="Nikon", model="Z7", lens="Z 50mm"),
+    ]
+    immich = FakeImmichClient(assets)
+    with make_client(immich=immich) as c:
+        resp = _get_gear(c)
+
+    body = resp.json()
+    combo = body["favorite_combo"]
+    assert combo is not None
+    assert combo["camera"] == "Canon EOS R5"
+    assert combo["lens"] == "RF 24-70"
+    assert combo["count"] == 2
+
+
+def test_gear_favorite_combo_none_when_no_pair():
+    """无相机+镜头成对时 favorite_combo 为 null。"""
+    assets = [
+        _asset("1", make="Canon", model="EOS R5"),  # 只有相机无镜头
+        _asset("2", lens="RF 24-70"),               # 只有镜头无相机
+    ]
+    immich = FakeImmichClient(assets)
+    with make_client(immich=immich) as c:
+        resp = _get_gear(c)
+
+    body = resp.json()
+    assert body["favorite_combo"] is None
+
+
+# ============================================================================
+# 3. shot_by_month 只返近 12 个月
+# ============================================================================
+
+
+def test_gear_shot_by_month_recent_12_months():
+    """直接调用聚合函数（固定 now）：只返最近 12 个月，升序。"""
+    from app.api.routes.stats import _aggregate_gear
+
+    assets = [
+        _asset("1", make="Canon", model="EOS R5", date_time="2026-10-05T10:00:00Z"),  # 当前月
+        _asset("2", make="Canon", model="EOS R5", date_time="2025-11-05T10:00:00Z"),  # 12 个月前边界
+        _asset("3", make="Nikon", model="Z7", date_time="2025-10-05T10:00:00Z"),      # 13 个月前，过滤
+        _asset("4", make="Sony", model="A7R4", date_time="2024-01-05T10:00:00Z"),     # 很久前，过滤
+    ]
+    now = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    warnings: list[str] = []
+    agg = _aggregate_gear(assets, warnings, now=now)
+
+    months = [m.month for m in agg["shot_by_month"]]
+    assert months == ["2025-11", "2026-10"]
+
+
+def test_gear_shot_by_month_only_exif_time():
+    """shot_by_month 只统计有拍摄时间的资产。"""
+    assets = [
+        _asset("1", make="Canon", model="EOS R5", date_time="2026-10-05T10:00:00Z"),
+        _asset("2", make="Canon", model="EOS R5"),  # 无拍摄时间
+    ]
+    immich = FakeImmichClient(assets)
+    with make_client(immich=immich) as c:
+        resp = _get_gear(c)
+
+    body = resp.json()
+    assert body["total"] == 2
+    months = {m["month"]: m["count"] for m in body["shot_by_month"]}
+    # 只有资产 1 的月份计入
+    assert sum(months.values()) == 1
+
+
+def test_gear_shot_by_month_exif_format_handling():
+    """兼容 EXIF 'YYYY:MM:DD' 与 ISO 'YYYY-MM-DD' 两种格式。"""
+    from app.api.routes.stats import _aggregate_gear
+
+    assets = [
+        _asset("1", make="Canon", model="EOS R5", date_time="2026:10:05 10:00:00"),
+        _asset("2", make="Nikon", model="Z7", date_time="2026-10-06T10:00:00Z"),
+    ]
+    now = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    warnings: list[str] = []
+    agg = _aggregate_gear(assets, warnings, now=now)
+
+    months = {m.month: m.count for m in agg["shot_by_month"]}
+    assert months == {"2026-10": 2}
+
+
+# ============================================================================
+# 4. 部分资产无器材信息：不计入 top，total 正常
+# ============================================================================
+
+
+def test_gear_no_gear_not_in_top_total_normal():
+    """无器材信息资产计入 total 但不在 top 系列。"""
+    assets = [
+        _asset("1", make="Canon", model="EOS R5", lens="RF 24-70"),
+        _asset("2"),  # 无 exifInfo
+        _asset("3", date_time="2026-10-05T10:00:00Z"),  # 有拍摄时间但无器材
+    ]
+    immich = FakeImmichClient(assets)
+    with make_client(immich=immich) as c:
+        resp = _get_gear(c)
+
+    body = resp.json()
+    assert body["total"] == 3
+    assert len(body["top_cameras"]) == 1
+    assert body["top_cameras"][0]["name"] == "Canon EOS R5"
+    assert body["top_cameras"][0]["ratio"] == 0.33  # 1/3 保留两位
+    assert len(body["top_lenses"]) == 1
+    # 缺器材信息记 warnings
+    assert len(body["warnings"]) == 1
+    assert "2" in body["warnings"][0]
+
+
+# ============================================================================
+# 5. 部分资产无拍摄时间：不计入 shot_by_month
+# ============================================================================
+
+
+def test_gear_no_date_not_in_month():
+    """无拍摄时间资产不计入 shot_by_month。"""
+    from app.api.routes.stats import _aggregate_gear
+
+    assets = [
+        _asset("1", make="Canon", model="EOS R5", date_time="2026-10-05T10:00:00Z"),
+        _asset("2", make="Nikon", model="Z7"),  # 无拍摄时间
+        _asset("3"),  # 无任何信息
+    ]
+    now = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    warnings: list[str] = []
+    agg = _aggregate_gear(assets, warnings, now=now)
+
+    months = {m.month: m.count for m in agg["shot_by_month"]}
+    assert months == {"2026-10": 1}
+    assert agg["total"] == 3
+
+
+# ============================================================================
+# 6. 空数据 total=0 不除零
+# ============================================================================
+
+
+def test_gear_empty_data_no_divide_by_zero():
+    """空数据 total=0：ratio 不除零，favorite_combo 为 null。"""
+    immich = FakeImmichClient([])
+    with make_client(immich=immich) as c:
+        resp = _get_gear(c)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 0
+    assert body["degraded"] is False
+    assert body["top_cameras"] == []
+    assert body["top_lenses"] == []
+    assert body["brand_ratio"] == []
+    assert body["favorite_combo"] is None
+    assert body["shot_by_month"] == []
+
+
+# ============================================================================
+# 7. 上游不可用返回 degraded=true + warnings
+# ============================================================================
+
+
+def test_gear_upstream_failure_degraded():
+    """Immich 上游不可用：降级返回 total=0 + degraded=true。"""
+    immich = FailingImmichClient()
+    with make_client(immich=immich) as c:
+        resp = _get_gear(c)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 0
+    assert body["degraded"] is True
+    assert len(body["warnings"]) == 1
+    assert "上游" in body["warnings"][0]
+
+
+# ============================================================================
+# 8. STATS_ENABLED=false 返回 503
+# ============================================================================
+
+
+def test_gear_stats_disabled_503():
+    """STATS_ENABLED=false：返回 503 + SERVICE_UNAVAILABLE。"""
+    settings = _fake_settings(stats_enabled=False)
+    with make_client(settings=settings) as c:
+        resp = _get_gear(c)
+
+    assert resp.status_code == 503
+    assert resp.json()["error"]["code"] == "SERVICE_UNAVAILABLE"
+
+
+# ============================================================================
+# 鉴权
+# ============================================================================
+
+
+def test_gear_no_api_key_401():
+    """配置 search_api_key 但未携带 x-api-key：返回 401。"""
+    settings = _fake_settings(search_api_key="secret-key")
+    with make_client(settings=settings) as c:
+        resp = _get_gear(c)
+
+    assert resp.status_code == 401
+    assert resp.json()["error"]["code"] == "UNAUTHORIZED"
+
+
+def test_gear_with_api_key_200():
+    """携带正确 x-api-key：返回 200。"""
+    settings = _fake_settings(search_api_key="secret-key")
+    with make_client(settings=settings, immich=FakeImmichClient([])) as c:
+        resp = _get_gear(c, headers={"x-api-key": "secret-key"})
+
+    assert resp.status_code == 200
+
+
+# ============================================================================
+# 9. StatsProvider 降级路径
+# ============================================================================
+
+
+def test_gear_stats_provider_unavailable_fallback(monkeypatch):
+    """_HAS_STATS_PROVIDER=False 时使用 fallback 分页拉取。"""
+    monkeypatch.setattr("app.api.routes.stats._HAS_STATS_PROVIDER", False)
+
+    assets = [_asset("1", make="Canon", model="EOS R5", lens="RF 24-70")]
+    immich = FakeImmichClient(assets)
+    with make_client(immich=immich) as c:
+        resp = _get_gear(c)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 1
+    assert body["top_cameras"][0]["name"] == "Canon EOS R5"
+    assert immich.call_count >= 1
+
+
+class FakeStatsProvider:
+    """模拟 StatsProvider，直接返回预设资产。"""
+
+    def __init__(self, settings: Any, immich: Any) -> None:
+        self._immich = immich
+
+    async def iter_assets(self):
+        for asset in getattr(self._immich, "_all_assets", []):
+            yield asset
+
+
+def test_gear_stats_provider_available(monkeypatch):
+    """_HAS_STATS_PROVIDER=True 且 StatsProvider 可用时正常聚合。"""
+    monkeypatch.setattr("app.api.routes.stats._HAS_STATS_PROVIDER", True)
+    monkeypatch.setattr("app.api.routes.stats.StatsProvider", FakeStatsProvider)
+
+    assets = [
+        _asset("1", make="Canon", model="EOS R5", lens="RF 24-70"),
+        _asset("2", make="Nikon", model="Z7", lens="Z 50mm"),
+    ]
+    immich = FakeImmichClient(assets)
+    with make_client(immich=immich) as c:
+        resp = _get_gear(c)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 2
+    assert len(body["top_cameras"]) == 2
+
+
+# ============================================================================
+# 缓存
+# ============================================================================
+
+
+def test_gear_cache_hit_no_refetch():
+    """第二次相同参数请求命中缓存：不再次调用 Immich。"""
+    assets = [_asset("1", make="Canon", model="EOS R5")]
+    immich = FakeImmichClient(assets)
+    with make_client(immich=immich) as c:
+        resp1 = _get_gear(c)
+        assert resp1.status_code == 200
+        assert immich.call_count == 1
+
+        resp2 = _get_gear(c)
+        assert resp2.status_code == 200
+        assert immich.call_count == 1
+
+
+def test_gear_different_date_cache_isolation():
+    """不同日期参数使用不同缓存 key，分别拉取。"""
+    assets = [_asset("1", make="Canon", model="EOS R5")]
+    immich = FakeImmichClient(assets)
+    with make_client(immich=immich) as c:
+        resp1 = _get_gear(c, date_from="2024-01-01")
+        resp2 = _get_gear(c, date_from="2025-01-01")
+        assert resp1.status_code == 200
+        assert resp2.status_code == 200
+        assert immich.call_count == 2

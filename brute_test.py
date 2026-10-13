@@ -2339,6 +2339,186 @@ class TestStatsProviderBrute:
 
 
 # ============================================================================
+# 器材偏好接口 — 破坏性测试
+# ============================================================================
+
+
+class TestStatsGearBrute:
+    """器材偏好接口的混沌工程与安全渗透测试。
+
+    攻击场景：
+    1. 数学边界：total=0 时 ratio 防除零、shot_by_month 月份溢出
+    2. 数据污染：make / model / lensModel 含特殊字符、超长字符串
+    3. 输入畸形：date_from > date_to
+    """
+
+    class _FakeResp:
+        def __init__(self, status_code, data):
+            self.status_code = status_code
+            self._data = data
+
+        def json(self):
+            return self._data
+
+    class _FakeImmich:
+        def __init__(self, assets):
+            self._all = assets
+            self.call_count = 0
+
+        async def _request_with_retry(self, method, path, **kw):
+            self.call_count += 1
+            p = kw.get("params", {})
+            skip = int(p.get("skip", 0))
+            take = int(p.get("take", 100))
+            return TestStatsGearBrute._FakeResp(200, self._all[skip : skip + take])
+
+        @staticmethod
+        def _parse_json(resp):
+            return resp._data
+
+        @staticmethod
+        def _extract_items(data):
+            return [x for x in data if isinstance(x, dict)] if isinstance(data, list) else []
+
+    @contextmanager
+    def _client(self, immich, **settings_kw):
+        from app.api.deps import get_settings_dep
+        from app.core.cache import MemoryCache
+
+        defaults = dict(search_api_key="", rate_limit_enabled=False)
+        defaults.update(settings_kw)
+        settings = SimpleNamespace(**defaults)
+
+        app.dependency_overrides[get_settings_dep] = lambda: settings
+        try:
+            with TestClient(app) as c:
+                app.state.immich_client = immich
+                app.state.rate_limiter = None
+                app.state.cache = MemoryCache()
+                yield c
+        finally:
+            app.dependency_overrides.clear()
+
+    def _asset(self, aid="x", make=None, model=None, lens=None, date_time=None):
+        exif = {}
+        if make is not None:
+            exif["make"] = make
+        if model is not None:
+            exif["model"] = model
+        if lens is not None:
+            exif["lensModel"] = lens
+        if date_time is not None:
+            exif["dateTimeOriginal"] = date_time
+        asset = {"id": aid}
+        if exif:
+            asset["exifInfo"] = exif
+        return asset
+
+    # ---- 数学边界 ----
+
+    def test_total_zero_calc_ratio_no_division(self):
+        """直接调用 _calc_ratio：total=0 返回 0.0，不除零。"""
+        from app.api.routes.stats import _calc_ratio
+
+        assert _calc_ratio(10, 0) == 0.0
+        assert _calc_ratio(0, 0) == 0.0
+        assert _calc_ratio(10, -1) == 0.0
+
+    def test_month_overflow_not_crash(self):
+        """dateTimeOriginal 月份溢出（13 / 00 / 非数字）：不崩溃，跳过月度统计。"""
+        assets = [
+            self._asset("1", make="Canon", model="EOS R5", date_time="2026-13-05T10:00:00Z"),  # 月份 13
+            self._asset("2", make="Canon", model="EOS R5", date_time="2026-00-05T10:00:00Z"),  # 月份 00
+            self._asset("3", make="Nikon", model="Z7", date_time="not-a-date"),                 # 非日期
+            self._asset("4", make="Canon", model="EOS R5", date_time="2026-10-05T10:00:00Z"),   # 合法
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/gear")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 4
+        # 只有合法月份计入 shot_by_month
+        assert sum(m["count"] for m in body["shot_by_month"]) == 1
+
+    def test_date_year_extreme_not_crash(self):
+        """年份极端值（0000 / 9999）不崩溃。"""
+        assets = [
+            self._asset("1", make="Canon", model="EOS R5", date_time="9999-12-31T23:59:59Z"),
+            self._asset("2", make="Nikon", model="Z7", date_time="0000-01-01T00:00:00Z"),
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/gear")
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 2
+
+    # ---- 数据污染 ----
+
+    def test_make_model_lens_special_chars_not_crash(self):
+        """make/model/lensModel 含 XSS/SQL 注入特殊字符：不崩溃，原样保留。"""
+        assets = [
+            self._asset(
+                "1",
+                make="Canon<script>alert(1)</script>",
+                model="EOS'; DROP TABLE--",
+                lens="RF 24-70\" onerror=alert(1)",
+            ),
+            self._asset("2", make="<img src=x>", model='test"quote\\backslash', lens="Z 50mm"),
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/gear")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 2
+        names = {x["name"] for x in body["top_cameras"]}
+        assert "Canon<script>alert(1)</script> EOS'; DROP TABLE--" in names
+        assert "<img src=x> test\"quote\\backslash" in names
+
+    def test_make_model_lens_super_long_not_crash(self):
+        """make/model/lensModel 超长字符串（10000 字符）：不崩溃。"""
+        long_make = "A" * 10000
+        long_model = "B" * 10000
+        long_lens = "C" * 10000
+        assets = [
+            self._asset("1", make=long_make, model=long_model, lens=long_lens),
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/gear")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 1
+        assert body["top_cameras"][0]["name"] == f"{long_make} {long_model}"
+
+    # ---- 输入畸形 ----
+
+    def test_date_from_after_date_to_not_crash(self):
+        """date_from > date_to（倒置日期范围）：不崩溃。"""
+        assets = [self._asset("1", make="Canon", model="EOS R5", lens="RF 24-70")]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get(
+                "/api/v1/stats/gear",
+                params={"date_from": "2025-12-31", "date_to": "2024-01-01"},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 1
+
+    def test_sql_injection_in_date_not_crash(self):
+        """SQL 注入字符串传入 date 参数：不崩溃、不注入。"""
+        assets = [self._asset("1", make="Canon", model="EOS R5")]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get(
+                "/api/v1/stats/gear",
+                params={"date_from": "' OR 1=1; DROP TABLE assets; --"},
+            )
+        assert resp.status_code == 200
+
+
+# ============================================================================
 # 防御性测试报告
 # ============================================================================
 
