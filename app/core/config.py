@@ -108,6 +108,20 @@ class Settings(BaseSettings):
     scene_cache_ttl_seconds: int = 86400
     search_cache_ttl_seconds: int = 300
 
+    # ---- 搜索建议与纠错 ----
+    # 开启后 /api/v1/search/suggest 和 /correct 可用；关闭后返回空结构，不报错。
+    suggest_enabled: bool = True
+    # 建议接口返回的默认条数上限。
+    suggest_limit: int = 10
+    # 热门搜索词内存 LRU 计数容量。
+    suggest_stats_cache_size: int = 1000
+    # 纠错接口的 Levenshtein 编辑距离上限（距离 <= 此值才返回纠正建议）。
+    suggest_edit_distance_max: int = 2
+
+    # ---- 搜索结果可解释性（为什么排在这里）----
+    # 开启后每条搜索结果附带 explanation 字段；关闭后 explanation 为 None，不影响主流程。
+    explain_enabled: bool = True
+
     # ---- 统计大屏（数据 Provider 基础层）----
     # 统计功能总开关，关闭后 iter_assets 返回空。
     stats_enabled: bool = True
@@ -122,6 +136,14 @@ class Settings(BaseSettings):
     feedback_enabled: bool = True
     feedback_ttl_seconds: int = 604800
     feedback_boost_max: float = 0.05
+
+    # ---- 搜索结果去重（连拍/相似图只保留一张）----
+    # 开启后排序结果中相似度极高的条目被去重，保留 final_score 最高的一张。
+    dedup_enabled: bool = True
+    # 拍摄时间窗口（秒），在此范围内 + 尺寸相同视为连拍。
+    dedup_time_window_seconds: int = 3
+    # 画面相似度阈值，超过此值 + 尺寸相同视为重复。
+    dedup_similarity_threshold: float = 0.95
 
     @field_validator("immich_base_url")
     @classmethod

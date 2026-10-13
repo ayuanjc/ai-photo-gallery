@@ -161,3 +161,14 @@ class FeedbackRequest(BaseModel):
         if value not in ("click", "skip"):
             raise ValueError("action 仅允许 click 或 skip")
         return value
+
+
+class SuggestRequest(BaseModel):
+    """搜索建议请求（GET 查询参数）。
+
+    - q: 搜索关键词（空时返回热门词 top N）。
+    - limit: 返回建议数量上限。
+    """
+
+    q: str = Field(default="", description="搜索关键词（空时返回热门词）")
+    limit: int = Field(default=10, ge=1, le=50, description="返回建议数量上限")

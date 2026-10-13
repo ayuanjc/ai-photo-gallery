@@ -75,3 +75,46 @@ async def record_feedback(
         degraded = True
         warnings.append("反馈记录异常，已降级")
     return FeedbackResponse(recorded=not degraded, degraded=degraded, warnings=warnings)
+
+
+# ---- 搜索建议与纠错（末尾追加，挂在同一个 router 下）----
+from fastapi import Query
+
+from ...core.config import Settings
+from ...models.response import CorrectResponse, SuggestResponse
+from ...services.suggest_service import get_suggest_service
+from ..deps import get_settings_dep
+
+
+@router.get(
+    "/search/suggest",
+    response_model=SuggestResponse,
+    summary="搜索建议",
+    description="基于场景词典与热门搜索词，返回前缀/包含匹配的建议词。空 q 时返回热门词 top N。",
+)
+async def suggest(
+    q: str = Query(default="", max_length=500, description="搜索关键词"),
+    limit: int = Query(default=10, ge=1, le=50, description="返回数量上限"),
+    settings: Settings = Depends(get_settings_dep),
+) -> SuggestResponse:
+    service = get_suggest_service(settings)
+    stripped = q.strip()
+    if stripped:
+        service.record_query(stripped)
+    suggestions, degraded, warnings = service.suggest(q, limit)
+    return SuggestResponse(suggestions=suggestions, degraded=degraded, warnings=warnings)
+
+
+@router.get(
+    "/search/correct",
+    response_model=CorrectResponse,
+    summary="搜索纠错",
+    description="基于 Levenshtein 编辑距离对场景词典进行纠错匹配，距离 <= 阈值时返回建议词。",
+)
+async def correct(
+    q: str = Query(default="", max_length=500, description="搜索关键词"),
+    settings: Settings = Depends(get_settings_dep),
+) -> CorrectResponse:
+    service = get_suggest_service(settings)
+    corrected, degraded, warnings = service.correct(q)
+    return CorrectResponse(corrected=corrected, degraded=degraded, warnings=warnings)

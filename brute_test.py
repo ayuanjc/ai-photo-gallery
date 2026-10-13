@@ -1864,17 +1864,7 @@ class TestStatsProviderBrute:
 # ============================================================================
 
 
-class TestStatsExifBrute:
-    """EXIF 统计接口的混沌工程与安全渗透测试。
-
-    攻击场景：
-    1. 输入畸形：date_from/date_to 格式错误、超长时间范围
-    2. 数据污染：EXIF make/model 含特殊字符、超长字符串
-    3. 数学边界：total=0 时分布不除零
-    4. 安全攻击：SQL 注入样式字符串传入 date_from
-    5. 空值/负值：EXIF 字段为 null 或负数
-    """
-
+    class _FakeResp:
     class _FakeResp:
         def __init__(self, data):
             self.status_code = 200
@@ -1898,9 +1888,7 @@ class TestStatsExifBrute:
 # StatsProvider 破坏性测试
 # ============================================================================
 
-class TestStatsProviderBrute:
-    """对 StatsProvider 执行极端、畸形、恶意输入与故障场景的攻击性测试。"""
-
+    class _FakeResponse:
     class _FakeResponse:
         def __init__(self, status_code: int, data: list | dict) -> None:
             self.status_code = status_code
@@ -2336,6 +2324,1007 @@ class TestStatsProviderBrute:
         )
         assert items == []
         assert fake.call_count == 0
+
+
+
+
+
+# ============================================================================
+# 第九类：搜索结果去重 — 数学边界 / 数据污染 / 并发一致性
+# ============================================================================
+
+class TestDedupBrute:
+    """对 dedup_items 执行攻击性测试：极端参数、畸形数据、并发安全。"""
+
+    # ---- 辅助 ----
+
+    @staticmethod
+    def _item(
+        aid: str = "a",
+        final: float = 0.5,
+        similarity: float = 0.5,
+        captured_at=None,
+        width=4000,
+        height=3000,
+    ):
+        from datetime import datetime, timezone
+        exif = {}
+        if width is not None:
+            exif["exifImageWidth"] = width
+        if height is not None:
+            exif["exifImageHeight"] = height
+        return {
+            "asset": {"id": aid, "exifInfo": exif},
+            "final_score": final,
+            "similarity": similarity,
+            "captured_at": captured_at,
+            "freshness": 0.5,
+            "source": "exif",
+        }
+
+    # ---- 数学边界攻击 ----
+
+    def test_time_window_zero_only_exact_match(self):
+        """time_window_sec=0：只有完全相同时间才去重。"""
+        from app.services.dedup import dedup_items
+        from datetime import datetime, timezone
+
+        t = datetime(2023, 6, 15, 10, 0, 0, tzinfo=timezone.utc)
+        items = [
+            self._item("a", final=0.9, captured_at=t),
+            self._item("b", final=0.8, captured_at=t),  # 完全相同 → 去重
+        ]
+        result, removed = dedup_items(items, time_window_sec=0)
+        assert len(result) == 1
+        assert removed == 1
+
+    def test_time_window_zero_different_times_kept(self):
+        """time_window_sec=0：时间差 1 秒不去重。"""
+        from app.services.dedup import dedup_items
+        from datetime import datetime, timezone
+
+        t1 = datetime(2023, 6, 15, 10, 0, 0, tzinfo=timezone.utc)
+        t2 = datetime(2023, 6, 15, 10, 0, 1, tzinfo=timezone.utc)
+        items = [
+            self._item("a", final=0.9, captured_at=t1),
+            self._item("b", final=0.8, captured_at=t2),
+        ]
+        result, removed = dedup_items(items, time_window_sec=0)
+        assert len(result) == 2
+        assert removed == 0
+
+    def test_time_window_negative_treated_as_zero(self):
+        """time_window_sec 负数：当作 0 处理，不崩溃。"""
+        from app.services.dedup import dedup_items
+
+        items = [self._item("a", final=0.9), self._item("b", final=0.8)]
+        result, removed = dedup_items(items, time_window_sec=-100)
+        assert isinstance(result, list)
+        assert isinstance(removed, int)
+
+    def test_time_window_huge_all_burst_deduped(self):
+        """time_window_sec 超大值：所有同尺寸的都视为连拍。"""
+        from app.services.dedup import dedup_items
+        from datetime import datetime, timezone
+
+        t1 = datetime(2023, 1, 1, tzinfo=timezone.utc)
+        t2 = datetime(2023, 12, 31, tzinfo=timezone.utc)
+        items = [
+            self._item("a", final=0.9, captured_at=t1),
+            self._item("b", final=0.8, captured_at=t2),
+        ]
+        result, removed = dedup_items(items, time_window_sec=999999999)
+        assert len(result) == 1
+        assert removed == 1
+
+    def test_similarity_threshold_zero_all_deduped(self):
+        """similarity_threshold=0：同尺寸的都去重。"""
+        from app.services.dedup import dedup_items
+
+        items = [
+            self._item("a", final=0.9, similarity=0.01, captured_at=None),
+            self._item("b", final=0.8, similarity=0.01, captured_at=None),
+        ]
+        result, removed = dedup_items(items, similarity_threshold=0.0)
+        assert len(result) == 1
+        assert removed == 1
+
+    def test_similarity_threshold_one_no_dedup(self):
+        """similarity_threshold=1.0：几乎不去重（除非分数恰好 1.0）。"""
+        from app.services.dedup import dedup_items
+
+        items = [
+            self._item("a", final=0.9, similarity=0.99, captured_at=None),
+            self._item("b", final=0.8, similarity=0.98, captured_at=None),
+        ]
+        result, removed = dedup_items(items, similarity_threshold=1.0)
+        assert len(result) == 2
+        assert removed == 0
+
+    def test_similarity_threshold_negative_clamped(self):
+        """similarity_threshold 负数：clamp 到 0，不崩溃。"""
+        from app.services.dedup import dedup_items
+
+        items = [self._item("a", final=0.9), self._item("b", final=0.8)]
+        result, removed = dedup_items(items, similarity_threshold=-1.0)
+        assert isinstance(result, list)
+
+    def test_similarity_threshold_above_one_clamped(self):
+        """similarity_threshold > 1：clamp 到 1，不崩溃。"""
+        from app.services.dedup import dedup_items
+
+        items = [self._item("a", final=0.9), self._item("b", final=0.8)]
+        result, removed = dedup_items(items, similarity_threshold=42.0)
+        assert isinstance(result, list)
+
+    # ---- 数据污染攻击 ----
+
+    def test_exif_time_malformed_no_crash(self):
+        """EXIF 时间格式异常：captured_at 为 None，不崩溃。"""
+        from app.services.dedup import dedup_items
+
+        items = [
+            self._item("a", final=0.9, captured_at=None),
+            self._item("b", final=0.8, captured_at=None),
+        ]
+        result, removed = dedup_items(items, time_window_sec=3)
+        assert len(result) == 2
+        assert removed == 0
+
+    def test_dimensions_missing_no_crash(self):
+        """尺寸缺失：跳过连拍检测，不崩溃。"""
+        from app.services.dedup import dedup_items
+        from datetime import datetime, timezone
+
+        t1 = datetime(2023, 6, 15, 10, 0, 0, tzinfo=timezone.utc)
+        t2 = datetime(2023, 6, 15, 10, 0, 1, tzinfo=timezone.utc)
+        items = [
+            self._item("a", final=0.9, captured_at=t1, width=None, height=None),
+            self._item("b", final=0.8, captured_at=t2, width=None, height=None),
+        ]
+        result, removed = dedup_items(items, time_window_sec=3)
+        assert len(result) == 2
+        assert removed == 0
+
+    def test_dimensions_non_numeric_no_crash(self):
+        """尺寸为非数字字符串：不崩溃。"""
+        from app.services.dedup import dedup_items
+        from datetime import datetime, timezone
+
+        t1 = datetime(2023, 6, 15, 10, 0, 0, tzinfo=timezone.utc)
+        t2 = datetime(2023, 6, 15, 10, 0, 1, tzinfo=timezone.utc)
+        items = [
+            self._item("a", final=0.9, captured_at=t1, width="not_a_number", height="bad"),
+            self._item("b", final=0.8, captured_at=t2, width="not_a_number", height="bad"),
+        ]
+        result, removed = dedup_items(items, time_window_sec=3)
+        assert len(result) == 2
+        assert removed == 0
+
+    def test_asset_id_empty_string(self):
+        """asset_id 为空字符串：不去重（空 id 不参与比较）。"""
+        from app.services.dedup import dedup_items
+
+        items = [
+            self._item("", final=0.9),
+            self._item("", final=0.8),
+        ]
+        result, removed = dedup_items(items)
+        assert len(result) == 2
+        assert removed == 0
+
+    def test_asset_missing_id_field(self):
+        """asset 缺少 id 字段：不崩溃。"""
+        from app.services.dedup import dedup_items
+
+        items = [
+            {"asset": {}, "final_score": 0.9, "similarity": 0.5, "captured_at": None},
+            {"asset": {}, "final_score": 0.8, "similarity": 0.5, "captured_at": None},
+        ]
+        result, removed = dedup_items(items)
+        assert len(result) == 2
+
+    def test_asset_none(self):
+        """asset 为 None：不崩溃。"""
+        from app.services.dedup import dedup_items
+
+        items = [
+            {"asset": None, "final_score": 0.9, "similarity": 0.5, "captured_at": None},
+            {"asset": None, "final_score": 0.8, "similarity": 0.5, "captured_at": None},
+        ]
+        result, removed = dedup_items(items)
+        assert len(result) == 2
+
+    def test_exifinfo_none(self):
+        """exifInfo 为 None：不崩溃。"""
+        from app.services.dedup import dedup_items
+
+        items = [
+            {"asset": {"id": "a", "exifInfo": None}, "final_score": 0.9, "similarity": 0.5, "captured_at": None},
+            {"asset": {"id": "b", "exifInfo": None}, "final_score": 0.8, "similarity": 0.5, "captured_at": None},
+        ]
+        result, removed = dedup_items(items)
+        assert len(result) == 2
+
+    def test_final_score_nan_no_crash(self):
+        """final_score 为 NaN：不崩溃。"""
+        from app.services.dedup import dedup_items
+
+        items = [
+            self._item("a", final=float("nan"), similarity=0.5, captured_at=None),
+            self._item("b", final=0.8, similarity=0.5, captured_at=None),
+        ]
+        result, removed = dedup_items(items)
+        assert isinstance(result, list)
+
+    def test_similarity_nan_no_crash(self):
+        """similarity 为 NaN：不崩溃。"""
+        from app.services.dedup import dedup_items
+
+        items = [
+            self._item("a", final=0.9, similarity=float("nan"), captured_at=None),
+            self._item("b", final=0.8, similarity=float("nan"), captured_at=None),
+        ]
+        result, removed = dedup_items(items)
+        assert isinstance(result, list)
+
+    # ---- 并发一致性 ----
+
+    def test_concurrent_calls_produce_same_result(self):
+        """同一输入并发调用，去重结果一致（函数是纯函数，无共享状态）。"""
+        from app.services.dedup import dedup_items
+        from datetime import datetime, timezone
+
+        t1 = datetime(2023, 6, 15, 10, 0, 0, tzinfo=timezone.utc)
+        t2 = datetime(2023, 6, 15, 10, 0, 10, tzinfo=timezone.utc)
+        items = [
+            self._item("a", final=0.9, captured_at=t1),
+            self._item("b", final=0.8, captured_at=t2),
+            self._item("c", final=0.7, captured_at=t2),  # 与 b 连拍（同时间同尺寸）
+        ]
+
+        results = []
+        for _ in range(100):
+            r, _ = dedup_items(items, time_window_sec=3)
+            results.append(tuple(i["asset"]["id"] for i in r))
+
+        # 所有结果应完全一致
+        assert all(r == results[0] for r in results)
+        assert results[0] == ("a", "b")  # c 被去重
+
+    # ---- 极端规模 ----
+
+    def test_large_input_no_crash(self):
+        """大量输入（10000 条）：不崩溃。"""
+        from app.services.dedup import dedup_items
+
+        items = [self._item(f"id_{i}", final=1.0 - i * 0.0001) for i in range(10000)]
+        result, removed = dedup_items(items)
+        assert len(result) + removed == 10000
+
+
+# ============================================================================
+# 防御性测试报告
+# ============================================================================
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """在 pytest 输出末尾生成防御性测试报告。"""
+    stats = terminalreporter.stats
+
+    passed = len(stats.get("passed", []))
+    failed = len(stats.get("failed", []))
+    errors = len(stats.get("error", []))
+    skipped = len(stats.get("skipped", []))
+    total = passed + failed + errors + skipped
+
+    terminalreporter.write_line("")
+    terminalreporter.write_line("=" * 72, yellow=True)
+    terminalreporter.write_line("  防御性测试报告 — 混沌工程与安全渗透测试", yellow=True)
+    terminalreporter.write_line("=" * 72, yellow=True)
+    terminalreporter.write_line(f"  测试场景总数:  {total}")
+    terminalreporter.write_line(f"  通过数:        {passed}", green=True)
+    terminalreporter.write_line(f"  失败数:        {failed}", red=bool(failed))
+    terminalreporter.write_line(f"  错误数:        {errors}", red=bool(errors))
+    terminalreporter.write_line(f"  跳过数:        {skipped}")
+    terminalreporter.write_line("")
+
+    if failed == 0 and errors == 0:
+        terminalreporter.write_line("  结论: 未发现系统漏洞（所有攻击场景均被正确防御）。", green=True)
+    else:
+        terminalreporter.write_line("  发现的系统漏洞清单:", red=True)
+        terminalreporter.write_line("")
+
+        severity_map = {
+            "ssrf": "P0-严重",
+            "localhost": "P0-严重",
+            "leak": "P2-中危",
+            "nan": "P1-高危",
+            "crash": "P1-高危",
+            "deadlock": "P1-高危",
+            "maxsize": "P2-中危",
+        }
+
+        vuln_id = 0
+        for failed_report in stats.get("failed", []):
+            vuln_id += 1
+            test_name = failed_report.nodeid
+            failure_msg = str(failed_report.longrepr) if failed_report.longrepr else "未知"
+
+            severity = "P3-低危"
+            lower_msg = failure_msg.lower()
+            for keyword, level in severity_map.items():
+                if keyword in lower_msg or keyword in test_name.lower():
+                    severity = level
+                    break
+
+            terminalreporter.write_line(f"  [{severity}] 漏洞 #{vuln_id}", red=True)
+            terminalreporter.write_line(f"    测试: {test_name}")
+            short_msg = failure_msg.split("\n")[0][:120] if failure_msg else "未知"
+            terminalreporter.write_line(f"    描述: {short_msg}")
+            terminalreporter.write_line(f"    复现: python -m pytest {test_name} -v")
+            terminalreporter.write_line("")
+
+        for error_report in stats.get("error", []):
+            vuln_id += 1
+            test_name = error_report.nodeid
+            terminalreporter.write_line(f"  [P1-高危] 漏洞 #{vuln_id} (ERROR)", red=True)
+            terminalreporter.write_line(f"    测试: {test_name}")
+            terminalreporter.write_line(f"    复现: python -m pytest {test_name} -v")
+            terminalreporter.write_line("")
+
+    terminalreporter.write_line("=" * 72, yellow=True)
+
+
+# ============================================================================
+# 器材偏好接口 — 破坏性测试
+# ============================================================================
+
+
+class TestStatsGearBrute:
+    """器材偏好接口的混沌工程与安全渗透测试。
+
+    攻击场景：
+    1. 数学边界：total=0 时 ratio 防除零、shot_by_month 月份溢出
+    2. 数据污染：make / model / lensModel 含特殊字符、超长字符串
+    3. 输入畸形：date_from > date_to
+    """
+
+    class _FakeResp:
+        def __init__(self, status_code, data):
+            self.status_code = status_code
+            self._data = data
+
+        def json(self):
+            return self._data
+
+    class _FakeImmich:
+        def __init__(self, assets):
+            self._all = assets
+            self.call_count = 0
+
+        async def _request_with_retry(self, method, path, **kw):
+            self.call_count += 1
+            p = kw.get("params", {})
+            skip = int(p.get("skip", 0))
+            take = int(p.get("take", 100))
+            return TestStatsGearBrute._FakeResp(200, self._all[skip : skip + take])
+
+        @staticmethod
+        def _parse_json(resp):
+            return resp._data
+
+        @staticmethod
+        def _extract_items(data):
+            return [x for x in data if isinstance(x, dict)] if isinstance(data, list) else []
+
+    @contextmanager
+    def _client(self, immich, **settings_kw):
+        from app.api.deps import get_settings_dep
+        from app.core.cache import MemoryCache
+
+        defaults = dict(search_api_key="", rate_limit_enabled=False)
+        defaults.update(settings_kw)
+        settings = SimpleNamespace(**defaults)
+
+        app.dependency_overrides[get_settings_dep] = lambda: settings
+        try:
+            with TestClient(app) as c:
+                app.state.immich_client = immich
+                app.state.rate_limiter = None
+                app.state.cache = MemoryCache()
+                yield c
+        finally:
+            app.dependency_overrides.clear()
+
+    def _asset(self, aid="x", make=None, model=None, lens=None, date_time=None):
+        exif = {}
+        if make is not None:
+            exif["make"] = make
+        if model is not None:
+            exif["model"] = model
+        if lens is not None:
+            exif["lensModel"] = lens
+        if date_time is not None:
+            exif["dateTimeOriginal"] = date_time
+        asset = {"id": aid}
+        if exif:
+            asset["exifInfo"] = exif
+        return asset
+
+    # ---- 数学边界 ----
+
+    def test_total_zero_calc_ratio_no_division(self):
+        """直接调用 _calc_ratio：total=0 返回 0.0，不除零。"""
+        from app.api.routes.stats import _calc_ratio
+
+        assert _calc_ratio(10, 0) == 0.0
+        assert _calc_ratio(0, 0) == 0.0
+        assert _calc_ratio(10, -1) == 0.0
+
+    def test_month_overflow_not_crash(self):
+        """dateTimeOriginal 月份溢出（13 / 00 / 非数字）：不崩溃，跳过月度统计。"""
+        assets = [
+            self._asset("1", make="Canon", model="EOS R5", date_time="2026-13-05T10:00:00Z"),  # 月份 13
+            self._asset("2", make="Canon", model="EOS R5", date_time="2026-00-05T10:00:00Z"),  # 月份 00
+            self._asset("3", make="Nikon", model="Z7", date_time="not-a-date"),                 # 非日期
+            self._asset("4", make="Canon", model="EOS R5", date_time="2026-10-05T10:00:00Z"),   # 合法
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/gear")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 4
+        # 只有合法月份计入 shot_by_month
+        assert sum(m["count"] for m in body["shot_by_month"]) == 1
+
+    def test_date_year_extreme_not_crash(self):
+        """年份极端值（0000 / 9999）不崩溃。"""
+        assets = [
+            self._asset("1", make="Canon", model="EOS R5", date_time="9999-12-31T23:59:59Z"),
+            self._asset("2", make="Nikon", model="Z7", date_time="0000-01-01T00:00:00Z"),
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/gear")
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 2
+
+    # ---- 数据污染 ----
+
+    def test_make_model_lens_special_chars_not_crash(self):
+        """make/model/lensModel 含 XSS/SQL 注入特殊字符：不崩溃，原样保留。"""
+        assets = [
+            self._asset(
+                "1",
+                make="Canon<script>alert(1)</script>",
+                model="EOS'; DROP TABLE--",
+                lens="RF 24-70\" onerror=alert(1)",
+            ),
+            self._asset("2", make="<img src=x>", model='test"quote\\backslash', lens="Z 50mm"),
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/gear")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 2
+        names = {x["name"] for x in body["top_cameras"]}
+        assert "Canon<script>alert(1)</script> EOS'; DROP TABLE--" in names
+        assert "<img src=x> test\"quote\\backslash" in names
+
+    def test_make_model_lens_super_long_not_crash(self):
+        """make/model/lensModel 超长字符串（10000 字符）：不崩溃。"""
+        long_make = "A" * 10000
+        long_model = "B" * 10000
+        long_lens = "C" * 10000
+        assets = [
+            self._asset("1", make=long_make, model=long_model, lens=long_lens),
+        ]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get("/api/v1/stats/gear")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 1
+        assert body["top_cameras"][0]["name"] == f"{long_make} {long_model}"
+
+    # ---- 输入畸形 ----
+
+    def test_date_from_after_date_to_not_crash(self):
+        """date_from > date_to（倒置日期范围）：不崩溃。"""
+        assets = [self._asset("1", make="Canon", model="EOS R5", lens="RF 24-70")]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get(
+                "/api/v1/stats/gear",
+                params={"date_from": "2025-12-31", "date_to": "2024-01-01"},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 1
+
+    def test_sql_injection_in_date_not_crash(self):
+        """SQL 注入字符串传入 date 参数：不崩溃、不注入。"""
+        assets = [self._asset("1", make="Canon", model="EOS R5")]
+        immich = self._FakeImmich(assets)
+        with self._client(immich) as c:
+            resp = c.get(
+                "/api/v1/stats/gear",
+                params={"date_from": "' OR 1=1; DROP TABLE assets; --"},
+            )
+        assert resp.status_code == 200
+
+
+# ============================================================================
+# 第七类：搜索结果可解释性 — 数学边界 / 数据污染 / 异常注入
+# ============================================================================
+
+class TestExplainBrute:
+    """对 build_explanation 与 explanation 组装链路执行攻击性测试。
+
+    覆盖：
+        - 数学边界：semantic_score / time_score 为 NaN / Infinity / 负数
+        - 数据污染：scene_tags 含未知场景、空字典、非预期类型
+        - 异常注入：build_explanation 抛异常时搜索仍正常返回
+    """
+
+    # ---- 数学边界攻击 ----
+
+    def test_semantic_score_nan_treated_as_zero(self):
+        """semantic_score=NaN → 降级为 0.0，不崩溃。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, float("nan"), 0.5, (0.3, 0.7), None)
+        assert exp["semantic_score"] == 0.0
+        assert exp["reasons"] == ["综合得分"]
+
+    def test_semantic_score_infinity_treated_as_zero(self):
+        """semantic_score=Infinity → 降级为 0.0。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, float("inf"), 0.5, (0.3, 0.7), None)
+        assert exp["semantic_score"] == 0.0
+
+    def test_semantic_score_negative_infinity_treated_as_zero(self):
+        """semantic_score=-Infinity → 降级为 0.0。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, float("-inf"), 0.5, (0.3, 0.7), None)
+        assert exp["semantic_score"] == 0.0
+
+    def test_time_score_nan_treated_as_zero(self):
+        """time_score=NaN → 降级为 0.0。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 0.85, float("nan"), (0.3, 0.7), None)
+        assert exp["time_score"] == 0.0
+        assert "拍摄时间较新" not in exp["reasons"]
+
+    def test_both_scores_nan_no_crash(self):
+        """两个分数都是 NaN → 不崩溃，返回降级解释。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation(
+            {}, float("nan"), float("nan"), (0.3, 0.7), None
+        )
+        assert exp["semantic_score"] == 0.0
+        assert exp["time_score"] == 0.0
+        assert exp["reasons"] == ["综合得分"]
+
+    def test_negative_scores_no_high_reasons(self):
+        """负数分数 → 不触发高分 reason，降级为"综合得分"。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, -0.5, -10.0, (0.3, 0.7), None)
+        assert "语义相似度高" not in exp["reasons"]
+        assert "拍摄时间较新" not in exp["reasons"]
+        assert exp["reasons"] == ["综合得分"]
+
+    def test_weights_nan_treated_as_zero(self):
+        """weights 含 NaN → 降级为 0.0。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 0.5, 0.5, (float("nan"), 0.7), None)
+        assert exp["weights_used"]["alpha"] == 0.0
+        assert exp["weights_used"]["beta"] == 0.7
+
+    def test_weights_infinity_treated_as_zero(self):
+        """weights 含 Infinity → 降级为 0.0。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 0.5, 0.5, (0.3, float("inf")), None)
+        assert exp["weights_used"]["alpha"] == 0.3
+        assert exp["weights_used"]["beta"] == 0.0
+
+    def test_scores_extremely_large_clamped_by_safe_score(self):
+        """极大分数 → safe_score 不崩溃（float 转换成功但 isinf 检测）。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 1e308, 1e308, (0.3, 0.7), None)
+        # 1e308 不是 inf，safe_score 直接返回
+        assert exp["semantic_score"] == round(1e308, 4)
+
+    # ---- 数据污染攻击 ----
+
+    def test_scene_tags_unknown_scene_filtered(self):
+        """scene_tags 含未知场景 → 被过滤，不出现在 matched_scenes。"""
+        from app.services.explain import build_explanation
+
+        scene_tags = {"scenes": ["totally_fake_scene", "nature"]}
+        exp = build_explanation({}, 0.3, 0.2, (0.3, 0.7), scene_tags)
+        assert "totally_fake_scene" not in exp["matched_scenes"]
+        assert exp["matched_scenes"] == ["nature"]
+
+    def test_scene_tags_empty_dict(self):
+        """scene_tags 为空字典 → 不崩溃，无场景 reason。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 0.3, 0.2, (0.3, 0.7), {})
+        assert exp["matched_scenes"] == []
+        assert exp["reasons"] == ["综合得分"]
+
+    def test_scene_tags_none(self):
+        """scene_tags 为 None → 不崩溃。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 0.3, 0.2, (0.3, 0.7), None)
+        assert exp["matched_scenes"] == []
+
+    def test_scene_tags_wrong_type(self):
+        """scene_tags 为非预期类型（int）→ 不崩溃。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 0.3, 0.2, (0.3, 0.7), 42)
+        assert exp["matched_scenes"] == []
+
+    def test_asset_none_no_crash(self):
+        """asset 为 None → 不崩溃。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation(None, 0.3, 0.2, (0.3, 0.7), None)
+        assert "reasons" in exp
+
+    def test_asset_with_garbage_scenes(self):
+        """asset 的 scenes 含非字符串元素 → 不崩溃。"""
+        from app.services.explain import build_explanation
+
+        asset = {"scenes": [123, None, "nature", "", "default"]}
+        exp = build_explanation(asset, 0.3, 0.2, (0.3, 0.7), None)
+        assert exp["matched_scenes"] == ["nature"]
+
+    def test_weights_wrong_type(self):
+        """weights 为非预期类型（int）→ 降级为 (0.0, 0.0)。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 0.5, 0.5, 42, None)
+        assert exp["weights_used"] == {"alpha": 0.0, "beta": 0.0}
+
+    def test_weights_none(self):
+        """weights 为 None → 降级为 (0.0, 0.0)。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 0.5, 0.5, None, None)
+        assert exp["weights_used"] == {"alpha": 0.0, "beta": 0.0}
+
+    def test_weights_empty_tuple(self):
+        """weights 为空 tuple → 降级为 (0.0, 0.0)。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, 0.5, 0.5, (), None)
+        assert exp["weights_used"] == {"alpha": 0.0, "beta": 0.0}
+
+    def test_semantic_score_string_type(self):
+        """semantic_score 为字符串 → safe_score 降级为 0.0。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, "not_a_number", 0.5, (0.3, 0.7), None)
+        assert exp["semantic_score"] == 0.0
+
+    def test_semantic_score_none_type(self):
+        """semantic_score 为 None → safe_score 降级为 0.0。"""
+        from app.services.explain import build_explanation
+
+        exp = build_explanation({}, None, 0.5, (0.3, 0.7), None)
+        assert exp["semantic_score"] == 0.0
+
+    # ---- 异常注入攻击 ----
+
+    async def test_build_explanation_exception_does_not_block_search(
+        self, settings, monkeypatch
+    ):
+        """monkeypatch build_explanation 抛异常 → 搜索仍正常返回。"""
+        from app.core.errors import VisionError
+        from app.models.request import SearchRequest
+        from app.services.search_service import SearchService
+        from app.services.vision.base import VisionProvider, VisionResult
+
+        class FakeImmich:
+            async def smart_search(self, query, k=50, asset_ids=None):
+                return [{
+                    "id": "a",
+                    "score": 0.9,
+                    "exifInfo": {"dateTimeOriginal": "2023-06-15T10:00:00Z"},
+                }]
+
+            def thumbnail_url(self, asset_id, size="preview"):
+                return f"http://immich.test/{asset_id}/thumb"
+
+            def original_url(self, asset_id):
+                return f"http://immich.test/{asset_id}/orig"
+
+        class FakeVision(VisionProvider):
+            name = "fake"
+
+            async def analyze(self, image_url):
+                return VisionResult(labels=[])
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("injected explosion")
+
+        monkeypatch.setattr(
+            "app.services.search_service.build_explanation", boom
+        )
+
+        immich = FakeImmich()
+        vision = FakeVision()
+        svc = SearchService(settings, immich, vision)
+        resp = await svc.search(SearchRequest(query="test", asset_ids=["a1"]))
+
+        assert resp.total == 1
+        assert resp.results[0].explanation is None
+        assert resp.degraded is False
+
+    async def test_blend_scene_weights_exception_does_not_block_search(
+        self, settings, monkeypatch
+    ):
+        """monkeypatch blend_scene_weights 抛异常 → 搜索仍正常返回。"""
+        from app.models.request import SearchRequest
+        from app.services.search_service import SearchService
+        from app.services.vision.base import VisionProvider, VisionResult
+
+        class FakeImmich:
+            async def smart_search(self, query, k=50, asset_ids=None):
+                return [{
+                    "id": "a",
+                    "score": 0.9,
+                    "exifInfo": {"dateTimeOriginal": "2023-06-15T10:00:00Z"},
+                }]
+
+            def thumbnail_url(self, asset_id, size="preview"):
+                return f"http://immich.test/{asset_id}/thumb"
+
+            def original_url(self, asset_id):
+                return f"http://immich.test/{asset_id}/orig"
+
+        class FakeVision(VisionProvider):
+            name = "fake"
+
+            async def analyze(self, image_url):
+                return VisionResult(labels=[])
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("blend explosion")
+
+        monkeypatch.setattr(
+            "app.services.search_service.blend_scene_weights", boom
+        )
+
+        immich = FakeImmich()
+        vision = FakeVision()
+        svc = SearchService(settings, immich, vision)
+        resp = await svc.search(SearchRequest(query="test", asset_ids=["a1"]))
+
+        assert resp.total == 1
+        assert resp.results[0].explanation is None
+
+
+# ============================================================================
+# 第八类：搜索建议与纠错 — 输入畸形 / 数据污染 / 安全攻击
+# ============================================================================
+
+class TestSuggestBrute:
+    """对 suggest / correct 接口与 SuggestService 执行攻击性测试。
+
+    覆盖：
+        - 输入畸形：q 超长（>10000 字符）、limit=0 / 负数
+        - 数据污染：q 含 SQL 注入样式、emoji、控制字符
+        - 安全攻击：q 含路径遍历字符
+    """
+
+    # ---- 辅助 ----
+
+    @staticmethod
+    def _svc(**overrides):
+        from app.scene.dictionary import get_scene_dict
+        from app.services.suggest_service import SuggestService
+
+        defaults = dict(
+            immich_base_url="http://immich.test",
+            immich_api_key="test-key",
+        )
+        defaults.update(overrides)
+        return SuggestService(Settings(**defaults), get_scene_dict())
+
+    # ---- 输入畸形攻击 ----
+
+    def test_q_10001_chars_rejected_by_validation(self):
+        """q 超长（>10000 字符）→ 被 FastAPI Query max_length 拒绝（422）。"""
+        from app.api.deps import get_settings_dep
+
+        test_settings = Settings(
+            immich_base_url="http://immich.test",
+            immich_api_key="test-key",
+        )
+        original_overrides = app.dependency_overrides.copy()
+        app.dependency_overrides[get_settings_dep] = lambda: test_settings
+        try:
+            with TestClient(app) as client:
+                resp = client.get(
+                    "/api/v1/search/suggest",
+                    params={"q": "x" * 10001},
+                    headers={"x-api-key": ""},
+                )
+                assert resp.status_code == 400
+        finally:
+            app.dependency_overrides = original_overrides
+
+    def test_limit_zero_rejected_by_validation(self):
+        """limit=0 → 被校验拒绝（422）。"""
+        from app.api.deps import get_settings_dep
+
+        test_settings = Settings(
+            immich_base_url="http://immich.test",
+            immich_api_key="test-key",
+        )
+        original_overrides = app.dependency_overrides.copy()
+        app.dependency_overrides[get_settings_dep] = lambda: test_settings
+        try:
+            with TestClient(app) as client:
+                resp = client.get(
+                    "/api/v1/search/suggest",
+                    params={"q": "test", "limit": 0},
+                    headers={"x-api-key": ""},
+                )
+                assert resp.status_code == 400
+        finally:
+            app.dependency_overrides = original_overrides
+
+    def test_limit_negative_rejected_by_validation(self):
+        """limit=-1 → 被校验拒绝（400）。"""
+        from app.api.deps import get_settings_dep
+
+        test_settings = Settings(
+            immich_base_url="http://immich.test",
+            immich_api_key="test-key",
+        )
+        original_overrides = app.dependency_overrides.copy()
+        app.dependency_overrides[get_settings_dep] = lambda: test_settings
+        try:
+            with TestClient(app) as client:
+                resp = client.get(
+                    "/api/v1/search/suggest",
+                    params={"q": "test", "limit": -1},
+                    headers={"x-api-key": ""},
+                )
+                assert resp.status_code == 400
+        finally:
+            app.dependency_overrides = original_overrides
+
+    def test_limit_51_rejected_by_validation(self):
+        """limit=51（超过上限 50）→ 被校验拒绝（400）。"""
+        from app.api.deps import get_settings_dep
+
+        test_settings = Settings(
+            immich_base_url="http://immich.test",
+            immich_api_key="test-key",
+        )
+        original_overrides = app.dependency_overrides.copy()
+        app.dependency_overrides[get_settings_dep] = lambda: test_settings
+        try:
+            with TestClient(app) as client:
+                resp = client.get(
+                    "/api/v1/search/suggest",
+                    params={"q": "test", "limit": 51},
+                    headers={"x-api-key": ""},
+                )
+                assert resp.status_code == 400
+        finally:
+            app.dependency_overrides = original_overrides
+
+    # ---- 数据污染攻击 ----
+
+    def test_sql_injection_no_crash(self):
+        """q 含 SQL 注入样式字符串 → 不崩溃，正常返回建议。"""
+        svc = self._svc()
+        for payload in ["' OR 1=1 --", "'; DROP TABLE--", "UNION SELECT *"]:
+            suggestions, degraded, _ = svc.suggest(payload, 10)
+            assert degraded is False
+            assert isinstance(suggestions, list)
+
+    def test_emoji_no_crash(self):
+        """q 含 emoji → 不崩溃。"""
+        svc = self._svc()
+        suggestions, _, _ = svc.suggest("🐱🐶", 10)
+        assert isinstance(suggestions, list)
+
+    def test_control_chars_no_crash(self):
+        """q 含控制字符 → 不崩溃。"""
+        svc = self._svc()
+        suggestions, _, _ = svc.suggest("\x00\x01\x02test", 10)
+        assert isinstance(suggestions, list)
+
+    def test_null_byte_no_crash(self):
+        """q 含 null byte → 不崩溃。"""
+        svc = self._svc()
+        suggestions, _, _ = svc.suggest("test\x00malicious", 10)
+        assert isinstance(suggestions, list)
+
+    def test_correct_sql_injection_no_crash(self):
+        """correct 接口处理 SQL 注入样式 → 不崩溃。"""
+        svc = self._svc()
+        for payload in ["' OR 1=1 --", "'; DROP TABLE--"]:
+            corrected, degraded, _ = svc.correct(payload)
+            assert degraded is False
+            assert corrected is None or isinstance(corrected, str)
+
+    def test_correct_emoji_no_crash(self):
+        """correct 接口处理 emoji → 不崩溃。"""
+        svc = self._svc()
+        corrected, _, _ = svc.correct("🐱🐶")
+        assert corrected is None or isinstance(corrected, str)
+
+    # ---- 安全攻击 ----
+
+    def test_path_traversal_no_crash(self):
+        """q 含路径遍历字符 → 不崩溃，不泄露文件路径。"""
+        svc = self._svc()
+        for payload in ["../../etc/passwd", "..\\..\\windows\\system32", "/etc/shadow"]:
+            suggestions, _, _ = svc.suggest(payload, 10)
+            assert isinstance(suggestions, list)
+            # 建议中不应包含文件路径
+            for s in suggestions:
+                assert ".." not in s
+                assert "/" not in s
+                assert "\\" not in s
+
+    def test_correct_path_traversal_no_crash(self):
+        """correct 接口处理路径遍历 → 不崩溃。"""
+        svc = self._svc()
+        corrected, _, _ = svc.correct("../../etc/passwd")
+        assert corrected is None or isinstance(corrected, str)
+
+    def test_xss_payload_no_crash(self):
+        """q 含 XSS payload → 不崩溃。"""
+        svc = self._svc()
+        for payload in ["<script>alert(1)</script>", "<img src=x onerror=alert(1)>"]:
+            suggestions, _, _ = svc.suggest(payload, 10)
+            assert isinstance(suggestions, list)
+
+    # ---- 极端边界 ----
+
+    def test_very_long_q_within_limit_no_crash(self):
+        """q 500 字符（恰好上限）→ 不崩溃。"""
+        svc = self._svc()
+        suggestions, _, _ = svc.suggest("x" * 500, 10)
+        assert isinstance(suggestions, list)
+
+    def test_correct_exact_match_no_correction(self):
+        """correct 完全匹配 → 返回 None（不需要纠正）。"""
+        svc = self._svc()
+        corrected, _, _ = svc.correct("nature")
+        assert corrected is None
+
+    def test_record_empty_query_ignored(self):
+        """record_query 空字符串 → 被忽略。"""
+        svc = self._svc()
+        svc.record_query("")
+        assert svc.top_n(10) == []
+
+    def test_record_disabled_ignored(self):
+        """SUGGEST_ENABLED=false 时 record_query 被忽略。"""
+        svc = self._svc(suggest_enabled=False)
+        svc.record_query("海滩")
+        assert svc.top_n(10) == []
 
 
 # ============================================================================

@@ -12,8 +12,16 @@ from ..core.errors import UpstreamTimeoutError, UpstreamUnavailableError, Vision
 from ..models.request import SearchRequest
 from ..models.response import SearchResponse, SearchResultItem
 from ..scene.analyzer import SceneAnalyzer
+from .explain import build_explanation
 from .immich import ImmichClient
-from .ranking import calculate_dynamic_weights, clamp, fuse_multimodal_query, rank_assets
+from .ranking import (
+    blend_scene_weights,
+    calculate_dynamic_weights,
+    clamp,
+    fuse_multimodal_query,
+    rank_assets,
+)
+from .dedup import dedup_items
 from .vision.base import VisionProvider
 
 logger = logging.getLogger(__name__)
@@ -83,20 +91,67 @@ class SearchService:
             default_iso=self._settings.default_datetime_iso,
         )
 
-        # 6. 组装结果。
-        results = [
-            self._to_item(
-                asset,
-                final=final,
-                similarity=similarity,
-                freshness=freshness,
-                captured_at=captured_at,
-                source=source,
-                fields=request.include_metadata_fields,
-                include_original=request.include_original_url,
-            )
+        # 6. 组装结果（去重在后、排序在前，保证保留高分图；EXPLAIN_ENABLED 时附加排序解释）。
+        dedup_input = [
+            {
+                "asset": asset,
+                "final_score": final,
+                "similarity": similarity,
+                "freshness": freshness,
+                "captured_at": captured_at,
+                "source": source,
+            }
             for asset, final, similarity, freshness, captured_at, source in ranked[: request.limit]
         ]
+
+        dedup_removed = 0
+        if self._settings.dedup_enabled:
+            try:
+                dedup_input, dedup_removed = dedup_items(
+                    dedup_input,
+                    time_window_sec=self._settings.dedup_time_window_seconds,
+                    similarity_threshold=self._settings.dedup_similarity_threshold,
+                )
+            except Exception as exc:
+                logger.warning("去重失败，降级为不去重: %s", exc)
+                dedup_removed = 0
+
+        explain_enabled = self._settings.explain_enabled
+        results = []
+        for item in dedup_input:
+            asset = item["asset"]
+            final = item["final_score"]
+            similarity = item["similarity"]
+            freshness = item["freshness"]
+            captured_at = item["captured_at"]
+            source = item["source"]
+            explanation = None
+            if explain_enabled:
+                try:
+                    alpha, beta = blend_scene_weights(
+                        asset.get("scenes") or [asset.get("primary_scene")],
+                        default_alpha=time_weight,
+                        default_beta=similarity_weight,
+                    )
+                    explanation = build_explanation(
+                        asset, similarity, freshness, (alpha, beta), asset.get("scene_tags")
+                    )
+                except Exception as exc:
+                    logger.warning("解释生成失败，跳过该条解释: %s", exc)
+                    explanation = None
+            results.append(
+                self._to_item(
+                    asset,
+                    final=final,
+                    similarity=similarity,
+                    freshness=freshness,
+                    captured_at=captured_at,
+                    source=source,
+                    fields=request.include_metadata_fields,
+                    include_original=request.include_original_url,
+                    explanation=explanation,
+                )
+            )
 
         response = SearchResponse(
             query=request.query,
@@ -105,6 +160,7 @@ class SearchService:
             warnings=warnings,
             results=results,
             enriched_query=enriched_query if enriched_query != request.query else None,
+            dedup_removed=dedup_removed,
         )
 
         # 写缓存：仅非降级结果写入，降级结果不缓存。
@@ -212,6 +268,7 @@ class SearchService:
         source: str,
         fields: list[str],
         include_original: bool,
+        explanation: dict | None = None,
     ) -> SearchResultItem:
         asset_id = str(asset.get("id", ""))
         metadata = self._extract_metadata(asset, fields)
@@ -227,6 +284,7 @@ class SearchService:
             final_score=round(final, 6),
             metadata=metadata,
             scene=asset.get("scene_tags"),
+            explanation=explanation,
         )
 
     @staticmethod
