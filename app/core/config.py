@@ -222,11 +222,7 @@ class Settings(BaseSettings):
                     "生产环境必须配置 IMPORT_ALLOWED_DIRS（非空），"
                     "防止批量导入接口被用于读取任意服务器文件"
                 )
-            if not self.watermark_allowed_dirs:
-                raise ValueError(
-                    "生产环境必须配置 WATERMARK_ALLOWED_DIRS（非空），"
-                    "防止水印接口被用于读取任意服务器文件"
-                )
+
         return self
 
     @property
