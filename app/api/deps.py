@@ -17,6 +17,7 @@ from ..services.importer import BatchImporter
 from ..services.multi_condition_service import MultiConditionSearchService
 from ..services.search_service import SearchService
 from ..services.vision.base import VisionProvider
+from ..services.watermark_processor import BatchWatermarkProcessor
 
 
 def get_settings_dep() -> Settings:
@@ -130,3 +131,7 @@ def get_ai_analyzer(request: Request) -> ImageAnalyzer:
 def get_batch_importer(request: Request) -> BatchImporter:
     """返回批量导入编排服务。"""
     return request.app.state.batch_importer
+
+def get_watermark_processor(request: Request) -> BatchWatermarkProcessor:
+    """返回批量水印处理器。"""
+    return request.app.state.watermark_processor

@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .ai.factory import build_ai_analyzer
-from .api.routes import ai, admin, batch_import, faces, scene, search, stats
+from .api.routes import ai, admin, batch_import, faces, scene, search, stats, watermark
 from .core.cache import get_cache
 from .core.config import get_settings
 from .core.errors import AppError, ErrorCode
@@ -40,6 +40,7 @@ from .services.stats_provider import StatsProvider
 from .services.vision.base import NullVisionProvider, VisionProvider
 from .services.vision.huawei import HuaweiVisionProvider
 from .services.vision.huawei_face import HuaweiFaceClient
+from .services.watermark_processor import BatchWatermarkProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +118,9 @@ async def lifespan(app: FastAPI):
     app.state.immich_uploader = immich_uploader
     app.state.batch_importer = BatchImporter(settings, metadata_extractor, immich_uploader)
 
+    # 水印管理：模板解析 + 子进程批量渲染
+    app.state.watermark_processor = BatchWatermarkProcessor(settings)
+
     # 令牌桶限流器：基于 Redis 原子操作，不可用时降级放行
     app.state.rate_limiter = TokenBucketRateLimiter(
         settings, redis=redis_client.redis
@@ -150,6 +154,7 @@ app = FastAPI(
         {"name": "ai", "description": "AI 分析：同人/相似图片判定"},
         {"name": "stats", "description": "统计大屏：地图足迹、EXIF 分布、器材偏好"},
         {"name": "import", "description": "批量导入：本地图片 EXIF 提取并上传 Immich"},
+        {"name": "watermark", "description": "水印管理：预置模板、授权类型、批量添加水印"},
         {"name": "system", "description": "系统接口：健康检查"},
     ],
 )
@@ -160,6 +165,7 @@ app.include_router(faces.router, prefix="/api/v1")
 app.include_router(ai.router, prefix="/api/v1")
 app.include_router(stats.router, prefix="/api/v1")
 app.include_router(batch_import.router, prefix="/api/v1")
+app.include_router(watermark.router, prefix="/api/v1")
 app.include_router(admin.router)
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
