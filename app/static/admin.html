@@ -436,6 +436,34 @@
     .empty.err-state { color: var(--err); }
     .empty .actions { display: flex; gap: var(--sp-2); justify-content: center; }
 
+    /* ---- 统计大屏 ---- */
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--sp-4); }
+    .stats-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-4); }
+    .stats-card h3 { margin: 0 0 var(--sp-3); font-size: var(--fs-sm); font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; display: flex; align-items: center; gap: 6px; }
+    .stats-card h3 svg { width: 16px; height: 16px; opacity: 0.7; }
+    .bar-list { display: flex; flex-direction: column; gap: var(--sp-2); }
+    .bar-row { display: flex; align-items: center; gap: var(--sp-2); }
+    .bar-row .label { flex: 0 0 120px; font-size: var(--fs-xs); color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bar-row .track { flex: 1; height: 22px; background: var(--surface-2); border-radius: var(--r-sm); overflow: hidden; position: relative; }
+    .bar-row .fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); border-radius: var(--r-sm); transition: width 0.4s var(--ease); }
+    .bar-row .count { flex: 0 0 auto; font-size: var(--fs-xs); color: var(--text-faint); min-width: 36px; text-align: right; }
+    .map-wrap { position: relative; height: 280px; background: var(--surface-2); border-radius: var(--r-sm); overflow: hidden; border: 1px solid var(--border); }
+    .map-wrap svg { width: 100%; height: 100%; display: block; }
+    .map-dot { fill: var(--accent); opacity: 0.7; transition: opacity 0.2s; }
+    .map-dot:hover { opacity: 1; }
+    .map-legend { position: absolute; bottom: 8px; right: 8px; background: rgba(5,5,6,0.8); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 4px 8px; font-size: var(--fs-xs); color: var(--text-dim); }
+    .stats-summary { display: flex; gap: var(--sp-4); margin-bottom: var(--sp-4); flex-wrap: wrap; }
+    .stats-summary .item { display: flex; flex-direction: column; gap: 2px; }
+    .stats-summary .item .k { font-size: var(--fs-xs); color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.04em; }
+    .stats-summary .item .v { font-size: var(--fs-xl); font-weight: 660; }
+    .combo-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: var(--accent-soft); border: 1px solid var(--accent-glow); border-radius: var(--r-pill); font-size: var(--fs-xs); color: var(--accent-2); }
+    .month-chart { display: flex; align-items: flex-end; gap: 3px; height: 80px; margin-top: var(--sp-2); }
+    .month-bar { flex: 1; background: var(--accent); border-radius: 2px 2px 0 0; min-height: 2px; transition: height 0.4s var(--ease); position: relative; }
+    .month-bar:hover { background: var(--accent-2); }
+    .month-labels { display: flex; gap: 3px; margin-top: 4px; }
+    .month-labels span { flex: 1; text-align: center; font-size: 9px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .degraded-notice { display: flex; align-items: center; gap: 6px; padding: 6px 10px; background: var(--warn-soft); border: 1px solid rgba(251,191,36,0.2); border-radius: var(--r-sm); font-size: var(--fs-xs); color: var(--warn); margin-bottom: var(--sp-3); }
+
     /* ---- 登录 ---- */
     .login-mask {
       position: fixed; inset: 0; z-index: 100;
@@ -561,6 +589,10 @@
         <button class="nav-item" type="button" data-route="settings">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 0 1-4 0v-.2a1.6 1.6 0 0 0-2.7-1.1l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 3.6 15H3a2 2 0 0 1 0-4h.2a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 9 3.6V3a2 2 0 0 1 4 0v.2a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.6 1.6 0 0 0 20.4 9H21a2 2 0 0 1 0 4h-.2a1.6 1.6 0 0 0-1.4.9z"/></svg>
           <span>配置管理</span>
+        </button>
+        <button class="nav-item" type="button" data-route="stats">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 16l4-6 3 4 5-8"/></svg>
+          <span>统计大屏</span>
         </button>
       </nav>
 
@@ -725,6 +757,23 @@
               <button class="btn green" type="button" id="saveSettingsBtn" disabled>保存配置</button>
             </div>
           </section>
+
+          <!-- 统计大屏 -->
+          <section class="page" id="page-stats" aria-labelledby="statsTitle">
+            <div class="page-head-row">
+              <div class="page-head">
+                <h2 id="statsTitle">统计大屏</h2>
+                <p>图库足迹地图、EXIF 分布与器材偏好可视化。数据来自后端 <span class="mono">/api/v1/stats</span> 接口。</p>
+              </div>
+              <div class="toolbar-right">
+                <button class="btn ghost" type="button" id="statsRefreshBtn">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 4v5h-5"/></svg>
+                  刷新
+                </button>
+              </div>
+            </div>
+            <div id="statsBody" aria-live="polite"></div>
+          </section>
         </div>
       </main>
     </div>
@@ -795,7 +844,7 @@
     };
 
     // 页面路由标题
-    var ROUTE_TITLES = { overview: "总览", features: "功能开关", status: "系统状态", settings: "配置管理" };
+    var ROUTE_TITLES = { overview: "总览", features: "功能开关", status: "系统状态", settings: "配置管理", stats: "统计大屏" };
 
     // SVG 图标（常量字符串，仅用于 trusted innerHTML 注入，不含任何用户输入）
     var ICON = {
@@ -976,6 +1025,7 @@
       if (route === "features") renderFeatures();
       if (route === "status") renderStatus();
       if (route === "settings") loadSettings();
+      if (route === "stats") loadStats();
     }
 
     function openDrawer() {
@@ -1414,6 +1464,209 @@
       return true;
     }
 
+    /* =======================================================================
+       统计大屏
+       ======================================================================= */
+    async function loadStats() {
+      var body = $("statsBody");
+      clear(body);
+      body.appendChild(el("div", { class: "skeleton", style: { height: "400px", borderRadius: "var(--r-md)" } }));
+
+      var results = await Promise.allSettled([
+        request("/api/v1/stats/map?cluster=city"),
+        request("/api/v1/stats/exif"),
+        request("/api/v1/stats/gear")
+      ]);
+
+      var mapRes = results[0].status === "fulfilled" ? results[0].value : null;
+      var exifRes = results[1].status === "fulfilled" ? results[1].value : null;
+      var gearRes = results[2].status === "fulfilled" ? results[2].value : null;
+
+      renderStats(mapRes, exifRes, gearRes);
+    }
+
+    function barRow(label, count, maxCount) {
+      var pct = maxCount > 0 ? Math.round((count / maxCount) * 100) : 0;
+      return el("div", { class: "bar-row" }, [
+        el("span", { class: "label", title: label, text: label || "未知" }),
+        el("div", { class: "track" }, [el("div", { class: "fill", style: { width: pct + "%" } })]),
+        el("span", { class: "count", text: String(count) })
+      ]);
+    }
+
+    function barList(items, maxCount) {
+      var list = el("div", { class: "bar-list" });
+      items.forEach(function (item) {
+        list.appendChild(barRow(item.name || item.value || "未知", item.count, maxCount));
+      });
+      return list;
+    }
+
+    function renderMapSection(data) {
+      var card = el("div", { class: "stats-card" }, [
+        el("h3", {}, [iconNode("link"), document.createTextNode("地图足迹分布")])
+      ]);
+
+      if (!data || !data.ok) {
+        card.appendChild(emptyState("warn", "地图数据加载失败"));
+        return card;
+      }
+      var d = data.data;
+      if (d.degraded) {
+        card.appendChild(el("div", { class: "degraded-notice" }, [iconNode("warn"), document.createTextNode("上游降级: " + (d.warnings || []).join("; "))]));
+      }
+
+      var summary = el("div", { class: "stats-summary" }, [
+        el("div", { class: "item" }, [el("span", { class: "k", text: "带 GPS 照片" }), el("span", { class: "v", text: String(d.total_with_gps) })]),
+        el("div", { class: "item" }, [el("span", { class: "k", text: "城市数" }), el("span", { class: "v", text: String((d.cities || []).length) })]),
+        el("div", { class: "item" }, [el("span", { class: "k", text: "国家数" }), el("span", { class: "v", text: String((d.countries || []).length) })])
+      ]);
+      card.appendChild(summary);
+
+      if (d.cities && d.cities.length > 0) {
+        var maxCount = Math.max.apply(null, d.cities.map(function (c) { return c.count; }));
+        card.appendChild(el("div", { style: { marginTop: "var(--sp-3)" } }, [
+          el("div", { class: "bar-list" },
+            d.cities.slice(0, 10).map(function (c) {
+              return barRow(c.city + (c.country ? ", " + c.country : ""), c.count, maxCount);
+            })
+          )
+        ]));
+      } else {
+        card.appendChild(el("p", { style: { color: "var(--text-faint)", fontSize: "var(--fs-sm)", marginTop: "var(--sp-3)" }, text: "暂无带 GPS 坐标的照片" }));
+      }
+
+      return card;
+    }
+
+    function renderExifSection(data) {
+      var card = el("div", { class: "stats-card" }, [
+        el("h3", {}, [iconNode("photo"), document.createTextNode("EXIF 分布")])
+      ]);
+
+      if (!data || !data.ok) {
+        card.appendChild(emptyState("warn", "EXIF 数据加载失败"));
+        return card;
+      }
+      var d = data.data;
+      if (d.degraded) {
+        card.appendChild(el("div", { class: "degraded-notice" }, [iconNode("warn"), document.createTextNode("上游降级: " + (d.warnings || []).join("; "))]));
+      }
+
+      card.appendChild(el("div", { class: "stats-summary" }, [
+        el("div", { class: "item" }, [el("span", { class: "k", text: "处理资产数" }), el("span", { class: "v", text: String(d.total) })])
+      ]));
+
+      var grid = el("div", { class: "stats-grid", style: { marginTop: "var(--sp-3)" } });
+
+      function addBarList(title, items) {
+        if (!items || items.length === 0) return;
+        var maxCount = Math.max.apply(null, items.map(function (i) { return i.count; }));
+        grid.appendChild(el("div", { class: "stats-card", style: { padding: "var(--sp-3)" } }, [
+          el("h3", { style: { fontSize: "var(--fs-xs)", marginBottom: "var(--sp-2)" }, text: title }),
+          barList(items.slice(0, 8), maxCount)
+        ]));
+      }
+
+      addBarList("相机品牌", d.camera_brands);
+      addBarList("相机型号", d.cameras);
+      addBarList("镜头", d.lenses);
+      addBarList("光圈", d.aperture_distribution);
+      addBarList("焦距", d.focal_length_distribution);
+      addBarList("ISO", d.iso_distribution);
+
+      card.appendChild(grid);
+      return card;
+    }
+
+    function renderGearSection(data) {
+      var card = el("div", { class: "stats-card" }, [
+        el("h3", {}, [iconNode("gear"), document.createTextNode("器材偏好")])
+      ]);
+
+      if (!data || !data.ok) {
+        card.appendChild(emptyState("warn", "器材数据加载失败"));
+        return card;
+      }
+      var d = data.data;
+      if (d.degraded) {
+        card.appendChild(el("div", { class: "degraded-notice" }, [iconNode("warn"), document.createTextNode("上游降级: " + (d.warnings || []).join("; "))]));
+      }
+
+      var summary = el("div", { class: "stats-summary" }, [
+        el("div", { class: "item" }, [el("span", { class: "k", text: "处理资产数" }), el("span", { class: "v", text: String(d.total) })])
+      ]);
+      if (d.favorite_combo) {
+        summary.appendChild(el("div", { class: "item" }, [
+          el("span", { class: "k", text: "最常用组合" }),
+          el("div", { class: "combo-badge", text: d.favorite_combo.camera + " + " + d.favorite_combo.lens })
+        ]));
+      }
+      card.appendChild(summary);
+
+      var grid = el("div", { class: "stats-grid", style: { marginTop: "var(--sp-3)" } });
+
+      if (d.top_cameras && d.top_cameras.length > 0) {
+        var maxCam = Math.max.apply(null, d.top_cameras.map(function (i) { return i.count; }));
+        grid.appendChild(el("div", { class: "stats-card", style: { padding: "var(--sp-3)" } }, [
+          el("h3", { style: { fontSize: "var(--fs-xs)", marginBottom: "var(--sp-2)" }, text: "常用相机 Top 10" }),
+          barList(d.top_cameras, maxCam)
+        ]));
+      }
+      if (d.top_lenses && d.top_lenses.length > 0) {
+        var maxLens = Math.max.apply(null, d.top_lenses.map(function (i) { return i.count; }));
+        grid.appendChild(el("div", { class: "stats-card", style: { padding: "var(--sp-3)" } }, [
+          el("h3", { style: { fontSize: "var(--fs-xs)", marginBottom: "var(--sp-2)" }, text: "常用镜头 Top 10" }),
+          barList(d.top_lenses, maxLens)
+        ]));
+      }
+      if (d.brand_ratio && d.brand_ratio.length > 0) {
+        var maxBrand = Math.max.apply(null, d.brand_ratio.map(function (i) { return i.count; }));
+        grid.appendChild(el("div", { class: "stats-card", style: { padding: "var(--sp-3)" } }, [
+          el("h3", { style: { fontSize: "var(--fs-xs)", marginBottom: "var(--sp-2)" }, text: "品牌占比" }),
+          barList(d.brand_ratio.map(function (b) { return { name: b.brand, count: b.count }; }), maxBrand)
+        ]));
+      }
+
+      card.appendChild(grid);
+
+      if (d.shot_by_month && d.shot_by_month.length > 0) {
+        var maxMonth = Math.max.apply(null, d.shot_by_month.map(function (i) { return i.count; }));
+        var chart = el("div", { style: { marginTop: "var(--sp-4)" } }, [
+          el("h3", { style: { fontSize: "var(--fs-xs)", marginBottom: "var(--sp-2)", color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.04em" }, text: "近 12 个月拍摄趋势" })
+        ]);
+        var bars = el("div", { class: "month-chart" });
+        var labels = el("div", { class: "month-labels" });
+        d.shot_by_month.forEach(function (m) {
+          var h = maxMonth > 0 ? Math.round((m.count / maxMonth) * 76) : 0;
+          bars.appendChild(el("div", { class: "month-bar", style: { height: h + "px" }, title: m.month + ": " + m.count + " 张" }));
+          labels.appendChild(el("span", { text: m.month.slice(5) }));
+        });
+        chart.appendChild(bars);
+        chart.appendChild(labels);
+        card.appendChild(chart);
+      }
+
+      return card;
+    }
+
+    function renderStats(mapRes, exifRes, gearRes) {
+      var body = $("statsBody");
+      clear(body);
+
+      var anyError = (!mapRes || !mapRes.ok) && (!exifRes || !exifRes.ok) && (!gearRes || !gearRes.ok);
+      if (anyError && (!mapRes || !mapRes.data) && (!exifRes || !exifRes.data) && (!gearRes || !gearRes.data)) {
+        body.appendChild(emptyState("err", "统计接口全部不可用", "请确认 Immich 已连接且统计功能已启用"));
+        return;
+      }
+
+      var grid = el("div", { class: "stats-grid" });
+      grid.appendChild(renderMapSection(mapRes));
+      grid.appendChild(renderExifSection(exifRes));
+      grid.appendChild(renderGearSection(gearRes));
+      body.appendChild(grid);
+    }
+
     async function refreshAll(silent) {
       var btn = $("refreshBtn");
       if (btn && !silent) { btn.disabled = true; btn.dataset.loading = "1"; }
@@ -1540,6 +1793,11 @@
       $("statusRefreshBtn").addEventListener("click", async function () {
         var b = $("statusRefreshBtn"); b.disabled = true;
         await loadStatus();
+        b.disabled = false;
+      });
+      $("statsRefreshBtn").addEventListener("click", async function () {
+        var b = $("statsRefreshBtn"); b.disabled = true;
+        await loadStats();
         b.disabled = false;
       });
 
