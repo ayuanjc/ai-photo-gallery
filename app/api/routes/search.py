@@ -39,9 +39,39 @@ router = APIRouter(
 )
 async def smart_search(
     request: SearchRequest,
+    req: Request,
     service: SearchService = Depends(get_search_service),
 ) -> SearchResponse:
-    return await service.search(request)
+    """语义搜索端点，支持评分附加与 min_rating 过滤。
+
+    搜索完成后批量查询评分（避免 N+1），附加到每条结果。
+    若请求携带 min_rating，则过滤掉评分低于阈值的资产。
+    """
+    response = await service.search(request)
+
+    rating_service = getattr(req.app.state, "rating_service", None)
+    if rating_service is None:
+        return response
+
+    asset_ids = [item.asset_id for item in response.results]
+    if not asset_ids:
+        return response
+
+    try:
+        rating_map = await rating_service.get_rating_map(asset_ids, "default")
+    except Exception as exc:
+        logger.warning("批量查询评分失败，降级不附加评分: %s", exc)
+        return response
+
+    for item in response.results:
+        item.rating = rating_map.get(item.asset_id)
+
+    if request.min_rating is not None:
+        filtered = [item for item in response.results if item.rating is not None and item.rating >= request.min_rating]
+        response.results = filtered
+        response.total = len(filtered)
+
+    return response
 
 
 @router.post(
