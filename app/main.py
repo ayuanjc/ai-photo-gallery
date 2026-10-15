@@ -37,6 +37,7 @@ from .services.scene_writeback import SceneWriteBack
 from .services.album_writeback import AlbumWriteBack
 from .services.image_proxy import ImageProxyService
 from .services.incremental_sync import IncrementalSync
+from .services.writeback_manager import WriteBackManager
 
 from .services.immich_uploader import ImmichAssetUploader
 from .services.importer import BatchImporter
@@ -144,6 +145,9 @@ async def lifespan(app: FastAPI):
 
     # 增量水位同步：按 updatedAt 增量拉取 Immich 资产变更
     app.state.incremental_sync = IncrementalSync(immich, settings)
+
+    # 写回管理：审计日志 + 一键回滚
+    app.state.writeback_manager = WriteBackManager(writeback, settings)
 
     # 批量导入：元数据提取 → 上传 Immich
     metadata_extractor = MetadataExtractor(settings.default_datetime_iso)

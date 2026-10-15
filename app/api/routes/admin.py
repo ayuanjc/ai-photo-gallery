@@ -80,6 +80,43 @@ async def reset_sync(request: Request) -> dict:
     return {"reset": True}
 
 
+@router.get("/admin/api/writeback/audit")
+async def get_audit_log(
+    request: Request,
+    action: str | None = None,
+    asset_id: str | None = None,
+    limit: int = 100,
+) -> dict:
+    _verify_admin_key(request)
+    mgr = getattr(request.app.state, "writeback_manager", None)
+    if mgr is None:
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "写回管理服务未初始化")
+    entries = mgr.read_audit_log(action=action, asset_id=asset_id, limit=limit)
+    return {"entries": entries, "count": len(entries)}
+
+
+@router.post("/admin/api/writeback/rollback")
+async def rollback_writeback(request: Request) -> dict:
+    _verify_admin_key(request)
+    mgr = getattr(request.app.state, "writeback_manager", None)
+    if mgr is None:
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "写回管理服务未初始化")
+    body = await request.json()
+    count = body.get("count", 10) if body else 10
+    result = await mgr.rollback_recent(count=count)
+    return {"rollback": result}
+
+
+@router.post("/admin/api/writeback/rollback/asset/{asset_id}")
+async def rollback_asset(asset_id: str, request: Request) -> dict:
+    _verify_admin_key(request)
+    mgr = getattr(request.app.state, "writeback_manager", None)
+    if mgr is None:
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "写回管理服务未初始化")
+    result = await mgr.rollback_by_asset(asset_id)
+    return {"rollback": result}
+
+
 @router.put("/admin/api/features")
 async def update_features(body: FeatureUpdates, request: Request) -> dict:
     _verify_admin_key(request)
