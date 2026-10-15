@@ -58,6 +58,7 @@ class ImmichAssetUploader:
             base_url=self.base_url,
             timeout=timeout,
             headers={"x-api-key": self._settings.immich_api_key, "Accept": "application/json"},
+            trust_env=False,
         )
         return self._client
 

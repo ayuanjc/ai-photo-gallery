@@ -110,7 +110,7 @@ class RuntimeConfig:
             "ai_enabled": True,
             "feedback_enabled": settings.feedback_enabled,
             "suggest_enabled": settings.suggest_enabled,
-            "correct_enabled": settings.suggest_enabled,
+            "correct_enabled": settings.correct_enabled,
             "huawei_enabled": settings.huawei_enabled,
             "huawei_face_enabled": settings.huawei_face_enabled,
         }

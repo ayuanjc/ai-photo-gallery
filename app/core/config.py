@@ -137,6 +137,8 @@ class Settings(BaseSettings):
     # ---- 搜索建议与纠错 ----
     # 开启后 /api/v1/search/suggest 和 /correct 可用；关闭后返回空结构，不报错。
     suggest_enabled: bool = True
+    # 纠错功能独立开关（关闭后 /api/v1/search/correct 返回 503）。
+    correct_enabled: bool = True
     # 建议接口返回的默认条数上限。
     suggest_limit: int = 10
     # 热门搜索词内存 LRU 计数容量。

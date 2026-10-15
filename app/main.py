@@ -13,13 +13,14 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .ai.factory import build_ai_analyzer
 from .api.routes import ai, admin, batch_import, faces, scene, search, stats, watermark
+from .api.deps import rate_limit_guard
 from .core.cache import get_cache
 from .core.config import get_settings
 from .core.errors import AppError, ErrorCode
@@ -143,11 +144,17 @@ async def lifespan(app: FastAPI):
         logger.info("应用关闭")
 
 
+_settings = get_settings()
+_prod = _settings.app_env == "production"
+
 app = FastAPI(
     title="AI 图像语义搜索微服务",
     description="基于 FastAPI 的 AI 图像语义搜索微服务，对接 Immich 图库与华为云 FRS 人脸识别。",
     version="1.0.0",
     lifespan=lifespan,
+    docs_url=None if _prod else "/docs",
+    redoc_url=None if _prod else "/redoc",
+    openapi_url=None if _prod else "/openapi.json",
     openapi_tags=[
         {"name": "search", "description": "搜索接口：语义搜索、复合条件搜索、反馈、建议、纠错"},
         {"name": "scene", "description": "场景词典：多标签场景体系（只读）"},
@@ -174,7 +181,7 @@ _STATIC_DIR = str(Path(__file__).parent / "static")
 app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
 
-@app.get("/admin", include_in_schema=False)
+@app.get("/admin", include_in_schema=False, dependencies=[Depends(rate_limit_guard)])
 async def admin_page() -> FileResponse:
     """管理页面：项目功能开关及系统状态。"""
     return FileResponse(str(Path(_STATIC_DIR) / "admin.html"))

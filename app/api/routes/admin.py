@@ -16,18 +16,19 @@ import hmac
 import time
 from pathlib import Path
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
 from ...core.config import get_settings
 from ...core.errors import AppError, ErrorCode, UnauthorizedError
+from ..deps import rate_limit_guard
 from ...core.runtime_config import (
     FEATURES_META,
     get_runtime_config,
     runtime_enabled,
 )
 
-router = APIRouter(tags=["admin"])
+router = APIRouter(tags=["admin"], dependencies=[Depends(rate_limit_guard)])
 
 _STARTED_AT = time.time()
 
