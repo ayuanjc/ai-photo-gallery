@@ -217,6 +217,14 @@ class Settings(BaseSettings):
     # 开启后从 query 中识别「去年夏天」「上个月」等时间表达，转成日期范围过滤结果。
     time_parser_enabled: bool = True
 
+    # ---- 照片评分系统（持久化到 SQLite/PostgreSQL）----
+    # 评分功能总开关，关闭后 /api/v1/ratings 返回 503，搜索结果不附加评分。
+    rating_enabled: bool = True
+    # SQLAlchemy 异步数据库 URL。
+    # SQLite 示例: sqlite+aiosqlite:///./data/ratings.db
+    # PostgreSQL 示例: postgresql+asyncpg://user:pass@localhost:5432/photo_ratings
+    database_url: str = "sqlite+aiosqlite:///./data/ratings.db"
+
     @field_validator("immich_base_url")
     @classmethod
     def _strip_trailing_slash(cls, value: str) -> str:

@@ -15,6 +15,7 @@ from ..services.face_service import FaceService
 from ..services.immich import ImmichClient
 from ..services.importer import BatchImporter
 from ..services.multi_condition_service import MultiConditionSearchService
+from ..services.rating_service import RatingService
 from ..services.search_service import SearchService
 from ..services.vision.base import VisionProvider
 from ..services.watermark_processor import BatchWatermarkProcessor
@@ -131,6 +132,10 @@ def get_ai_analyzer(request: Request) -> ImageAnalyzer:
 def get_batch_importer(request: Request) -> BatchImporter:
     """返回批量导入编排服务。"""
     return request.app.state.batch_importer
+
+def get_rating_service(request: Request) -> RatingService:
+    """返回评分业务服务（未启用时返回 None，由路由层处理 503）。"""
+    return getattr(request.app.state, "rating_service", None)
 
 def get_watermark_processor(request: Request) -> BatchWatermarkProcessor:
     """返回批量水印处理器（检查功能开关）。"""

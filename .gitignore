@@ -115,3 +115,6 @@ data/
 
 # Windows 误创建
 nul
+# Rating database
+data/ratings.db
+data/ratings.db-*
