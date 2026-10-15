@@ -33,34 +33,40 @@ def _settings(**overrides) -> Settings:
 
 
 class FakeImmich:
-    """假 Immich 客户端，模拟分页拉取。"""
+    """假 Immich 客户端，模拟分页拉取。
+
+    与 ImmichClient 的公开接口保持一致：AlbumService 经 StatsProvider 调用
+    request_json(POST /api/search/metadata) + extract_items，因此响应形状
+    与真实后端一致（assets.items + total + nextPage），页码取自 json payload。
+    """
 
     def __init__(self, assets: list[dict]) -> None:
         self._assets = assets
 
-    async def _request_with_retry(self, method, path, **kw):
-        from app.services.immich import ImmichClient
-
-        params = kw.get("params", {})
-        skip = int(params.get("skip", 0))
-        take = int(params.get("take", 100))
-        items = self._assets[skip : skip + take]
-
-        class _Resp:
-            status_code = 200
-
-            def json(self):
-                return items
-
-        return _Resp()
-
-    @staticmethod
-    def _parse_json(resp):
-        return resp.json()
-
     @staticmethod
     def _extract_items(data):
-        return [x for x in data if isinstance(x, dict)]
+        if isinstance(data, dict):
+            items = (data.get("assets") or {}).get("items", [])
+        else:
+            items = data
+        return [x for x in (items or []) if isinstance(x, dict)]
+
+    @staticmethod
+    def extract_items(data):
+        return FakeImmich._extract_items(data)
+
+    async def request_json(self, method, path, **kw):
+        payload = kw.get("json") or {}
+        page = int(payload.get("page", 1))
+        size = int(payload.get("size", 100))
+        start = (page - 1) * size
+        return {
+            "assets": {
+                "items": self._assets[start : start + size],
+                "total": len(self._assets),
+                "nextPage": str(page + 1),
+            }
+        }
 
 
 def _asset(
@@ -293,6 +299,13 @@ class TestGenerateAlbums:
 
             @staticmethod
             def _extract_items(data):
+                return []
+
+            async def request_json(self, method, path, **kw):
+                raise RuntimeError("Immich down")
+
+            @staticmethod
+            def extract_items(data):
                 return []
 
         svc = AlbumService(_settings(), _FailImmich())

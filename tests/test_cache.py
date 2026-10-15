@@ -304,7 +304,8 @@ async def test_memory_cache_ttl_expire():
     cache = MemoryCache(maxsize=10, default_ttl=60)
     await cache.set("k1", "v1", ttl=0.05)
     assert await cache.get("k1") == "v1"
-    await asyncio.sleep(0.1)
+    # 留足余量：0.1s 在 Windows 定时器粒度与整套件负载下偶发不足（实测 p50≈0.109s）
+    await asyncio.sleep(0.5)
     assert await cache.get("k1") is None
 
 
@@ -312,7 +313,8 @@ async def test_memory_cache_default_ttl_expire():
     cache = MemoryCache(maxsize=10, default_ttl=0.05)
     await cache.set("k1", "v1")
     assert await cache.get("k1") == "v1"
-    await asyncio.sleep(0.1)
+    # 同上：加宽时序余量，避免调度抖动导致的偶发失败
+    await asyncio.sleep(0.5)
     assert await cache.get("k1") is None
 
 

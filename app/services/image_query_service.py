@@ -32,6 +32,7 @@ class ImageQueryService:
     def __init__(self, settings: Settings, immich: ImmichClient) -> None:
         self._settings = settings
         self._immich = immich
+        self._sem = asyncio.Semaphore(_MAX_CONCURRENT)
 
     async def resolve_asset_ids_from_images(
         self,
@@ -53,7 +54,7 @@ class ImageQueryService:
             return result, warnings
 
         timeout = self._settings.image_query_timeout_seconds
-        sem = asyncio.Semaphore(_MAX_CONCURRENT)
+        sem = self._sem
 
         async def _one(url: str) -> tuple[set[str], list[str]]:
             asset_id = self._extract_asset_id(url)

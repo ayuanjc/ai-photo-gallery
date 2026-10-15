@@ -5,7 +5,6 @@ import asyncio
 
 import httpx
 import pytest
-import respx
 
 from app.scene.analyzer import HttpSceneInferrer, SceneAnalyzer, SceneInferrer
 from app.scene.dictionary import SceneDict, load_scene_dict
@@ -124,22 +123,44 @@ async def test_scene_tags_defaults():
     assert tags.has_scene() is False
 
 
-@respx.mock
-async def test_http_inferrer_with_respx():
-    respx.post("http://clip.test/infer").respond(
-        json={"scenes": ["nature", "city"]}
+def _mock_client(handler) -> httpx.AsyncClient:
+    """构造注入了 MockTransport 的客户端，用于替换真实网络调用。"""
+    return httpx.AsyncClient(
+        base_url="http://clip.test", transport=httpx.MockTransport(handler), timeout=5.0
     )
-    inferrer = HttpSceneInferrer("http://clip.test")
 
-    scenes = await inferrer.infer_scenes({"id": "a"})
+
+async def test_http_inferrer_returns_scenes():
+    """真实 HTTP 推理器：POST {endpoint}/infer 并解析 scenes 字段。
+
+    通过构造函数注入客户端（HttpSceneInferrer 支持 client 参数），
+    避免依赖 respx 与 httpx 的版本耦合。
+    """
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["path"] = request.url.path
+        return httpx.Response(200, json={"scenes": ["nature", "city"]})
+
+    client = _mock_client(handler)
+    try:
+        inferrer = HttpSceneInferrer("http://clip.test", client=client)
+        scenes = await inferrer.infer_scenes({"id": "a"})
+    finally:
+        await client.aclose()
 
     assert scenes == ["nature", "city"]
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/infer"
 
 
-@respx.mock
 async def test_http_inferrer_error_raises():
-    respx.post("http://clip.test/infer").respond(500)
-    inferrer = HttpSceneInferrer("http://clip.test")
-
-    with pytest.raises(httpx.HTTPStatusError):
-        await inferrer.infer_scenes({"id": "a"})
+    """上游 5xx 时抛 HTTPStatusError，交由上层做超时/降级处理。"""
+    client = _mock_client(lambda request: httpx.Response(500))
+    try:
+        inferrer = HttpSceneInferrer("http://clip.test", client=client)
+        with pytest.raises(httpx.HTTPStatusError):
+            await inferrer.infer_scenes({"id": "a"})
+    finally:
+        await client.aclose()

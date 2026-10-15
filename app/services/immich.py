@@ -112,6 +112,16 @@ class ImmichClient:
                 details={"status": resp.status_code},
             ) from exc
 
+    async def request_json(self, method: str, path: str, **kwargs: Any) -> Any:
+        """公开方法：发送请求并返回解析后的 JSON，自动重试 + 安全解析。"""
+        resp = await self._request_with_retry(method, path, **kwargs)
+        return self._parse_json(resp)
+
+    @staticmethod
+    def extract_items(data: Any) -> list[dict]:
+        """公开方法：从 Immich 响应中提取资产列表（兼容多种格式）。"""
+        return ImmichClient._extract_items(data)
+
     async def smart_search(self, query: str, k: int = 50, asset_ids: list[str] | None = None) -> list[dict]:
         """调用 POST /api/search/smart 执行语义搜索，返回资产列表。
 

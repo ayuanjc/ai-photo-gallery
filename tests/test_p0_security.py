@@ -50,13 +50,13 @@ class TestPathSafety:
 class TestHuaweiVisionProvider:
     """P0.2 占位 AI 功能修复。"""
 
-    async def test_huawei_vision_raises_not_stub(self):
+    async def test_huawei_vision_raises_without_credentials(self):
         from app.services.vision.huawei import HuaweiVisionProvider
         from app.core.config import Settings
         from app.core.errors import VisionUnavailableError
 
         provider = HuaweiVisionProvider(Settings())
-        with pytest.raises(VisionUnavailableError, match="experimental"):
+        with pytest.raises(VisionUnavailableError, match="AK/SK"):
             await provider.analyze("http://example.com/img.jpg")
 
     async def test_huawei_analyzer_health_check_false(self):
