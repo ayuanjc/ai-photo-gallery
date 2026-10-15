@@ -11,6 +11,7 @@ import logging
 import re
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -137,7 +138,7 @@ async def lifespan(app: FastAPI):
             await face_client.aclose()
         await immich_uploader.aclose()
         await immich.aclose()
-
+        app.state.watermark_processor.close()
         await redis_client.aclose()
         logger.info("应用关闭")
 
@@ -168,13 +169,15 @@ app.include_router(batch_import.router, prefix="/api/v1")
 app.include_router(watermark.router, prefix="/api/v1")
 app.include_router(admin.router)
 
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
+_STATIC_DIR = str(Path(__file__).parent / "static")
+
+app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
 
 @app.get("/admin", include_in_schema=False)
 async def admin_page() -> FileResponse:
     """管理页面：项目功能开关及系统状态。"""
-    return FileResponse("app/static/admin.html")
+    return FileResponse(str(Path(_STATIC_DIR) / "admin.html"))
 
 
 @app.middleware("http")

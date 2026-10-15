@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 _ALLOWED_IMAGE_EXTENSIONS = frozenset(
-    {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif", ".heic", ".avif"}
+    {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif"}
 )
 
 _ALLOWED_MIME_PREFIXES = frozenset({"image/"})
@@ -43,10 +43,11 @@ def validate_file_path(
     if any(c in p for c in ("\x00", "\n", "\r")):
         raise PathValidationError("文件路径包含非法字符")
 
-    resolved = Path(p).resolve()
-
-    if resolved.is_symlink():
+    p_path = Path(p)
+    if p_path.is_symlink():
         raise PathValidationError("拒绝符号链接")
+
+    resolved = p_path.resolve()
 
     if not allowed_dirs:
         raise PathValidationError("未配置导入目录白名单（IMPORT_ALLOWED_DIRS）")

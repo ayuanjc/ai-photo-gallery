@@ -88,6 +88,7 @@ class TestAdminSettingsSecurity:
             search_api_key="prod-key",
             immich_api_key="immich-key",
             import_allowed_dirs=["/data"],
+            watermark_allowed_dirs=["/data"],
         )
         assert prod_settings.app_env == "production"
 

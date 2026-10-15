@@ -150,9 +150,12 @@ def merged_template(
     if license_type is not None:
         merged.license_type = license_type
         if text is None and merged.text is not None:
-            merged.text = merged.text.model_copy(
-                update={"text": LICENSE_TEXT[license_type]}
-            )
+            if license_type == LicenseType.NONE:
+                merged.text = None
+            else:
+                merged.text = merged.text.model_copy(
+                    update={"text": LICENSE_TEXT[license_type]}
+                )
     if text is not None:
         merged.text = text
     if image is not None:

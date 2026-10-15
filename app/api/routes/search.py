@@ -171,7 +171,7 @@ async def list_albums(
         except Exception as exc:
             logger.warning("相册缓存读取失败: %s", exc)
 
-    immich_client = ImmichClient(settings)
+    immich_client = request.app.state.immich_client
     scene_analyzer = getattr(request.app.state, "scene_analyzer", None)
     service = AlbumService(settings, immich_client, scene_analyzer)
 

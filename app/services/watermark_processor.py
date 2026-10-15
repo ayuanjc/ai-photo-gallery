@@ -43,6 +43,11 @@ class BatchWatermarkProcessor:
         self._max_files = int(getattr(settings, "watermark_max_files", 200))
         self._max_file_size_mb = int(getattr(settings, "watermark_max_file_size_mb", 100))
         self._allowed_dirs = list(getattr(settings, "watermark_allowed_dirs", []) or [])
+        self._pool = ProcessPoolExecutor(max_workers=self._max_workers)
+
+    def close(self) -> None:
+        """关闭持久化进程池，在应用 lifespan 中调用。"""
+        self._pool.shutdown(wait=False)
 
     async def process(self, request: WatermarkRequest) -> WatermarkResponse:
         """批量应用水印并返回逐项结果。
@@ -59,7 +64,16 @@ class BatchWatermarkProcessor:
                 f"文件数量 {len(request.source_paths)} 超过上限 {self._max_files}",
             )
 
-        template = self._resolve_template(request)
+        try:
+            template = self._resolve_template(request)
+        except ValueError as exc:
+            raise AppError(ErrorCode.INVALID_PARAMS, str(exc)) from exc
+
+        if template.image is not None and template.image.image_path:
+            self._validate_extra_path(template.image.image_path, "图片水印路径")
+        if template.text is not None and template.text.font_path:
+            self._validate_extra_path(template.text.font_path, "字体路径")
+
         text_dict = template.text.model_dump() if template.text is not None else None
         image_dict = template.image.model_dump() if template.image is not None else None
         tile_dict = template.tile.model_dump() if template.tile is not None else None
@@ -137,9 +151,10 @@ class BatchWatermarkProcessor:
             if any(c in p for c in ("\x00", "\n", "\r")):
                 raise ValueError("源文件路径包含非法字符")
 
-            resolved = Path(p).resolve()
-            if resolved.is_symlink():
+            p_path = Path(p)
+            if p_path.is_symlink():
                 raise ValueError("拒绝符号链接")
+            resolved = p_path.resolve()
             if not resolved.exists():
                 raise ValueError("源文件不存在")
             if not resolved.is_file():
@@ -174,17 +189,46 @@ class BatchWatermarkProcessor:
             raise AppError(ErrorCode.INVALID_PARAMS, "; ".join(errors))
         return validated
 
+    def _validate_extra_path(self, raw_path: str, label: str) -> None:
+        """校验辅助文件路径（字体/图片水印），限制在 allowed_dirs 范围内。"""
+        if not raw_path:
+            return
+        p_path = Path(raw_path)
+        if p_path.is_symlink():
+            raise AppError(ErrorCode.INVALID_PARAMS, f"{label}：拒绝符号链接")
+        resolved = p_path.resolve()
+        if self._allowed_dirs:
+            allowed_resolved = [Path(d).resolve() for d in self._allowed_dirs]
+            if not any(
+                resolved == allowed or allowed in resolved.parents
+                for allowed in allowed_resolved
+            ):
+                raise AppError(ErrorCode.INVALID_PARAMS, f"{label}：不在允许的目录范围内")
+
     async def _compute_output_paths(
         self, validated_paths: list[str], output_dir: str | None
     ) -> list[str | None]:
         """计算输出路径：指定 output_dir 时统一输出到该目录，否则返回 None（同目录）。"""
         if not output_dir:
             return [None] * len(validated_paths)
-        await asyncio.to_thread(os.makedirs, output_dir, exist_ok=True)
+
+        out_path = Path(output_dir)
+        if out_path.is_symlink():
+            raise AppError(ErrorCode.INVALID_PARAMS, "output_dir：拒绝符号链接")
+        resolved_out = out_path.resolve()
+        if self._allowed_dirs:
+            allowed_resolved = [Path(d).resolve() for d in self._allowed_dirs]
+            if not any(
+                resolved_out == allowed or allowed in resolved_out.parents
+                for allowed in allowed_resolved
+            ):
+                raise AppError(ErrorCode.INVALID_PARAMS, "output_dir：不在允许的目录范围内")
+
+        await asyncio.to_thread(os.makedirs, str(resolved_out), exist_ok=True)
         paths: list[str] = []
         for source in validated_paths:
             base, ext = os.path.splitext(os.path.basename(source))
-            paths.append(os.path.join(output_dir, f"{base}_watermarked{ext}"))
+            paths.append(os.path.join(str(resolved_out), f"{base}_watermarked{ext}"))
         return paths
 
     async def _run_in_pool(
@@ -196,19 +240,19 @@ class BatchWatermarkProcessor:
     ) -> list[dict]:
         """通过 ProcessPoolExecutor 在子进程并行执行水印渲染。"""
         loop = asyncio.get_running_loop()
-        with ProcessPoolExecutor(max_workers=self._max_workers) as pool:
-            futures = [
-                loop.run_in_executor(
-                    pool,
-                    apply_to_file,
-                    source,
-                    text_dict,
-                    image_dict,
-                    tile_dict,
-                    output,
-                    overwrite,
-                    self._default_font_path,
-                )
-                for source, output, overwrite in tasks
-            ]
-            return list(await asyncio.gather(*futures))
+        pool = self._pool
+        futures = [
+            loop.run_in_executor(
+                pool,
+                apply_to_file,
+                source,
+                text_dict,
+                image_dict,
+                tile_dict,
+                output,
+                overwrite,
+                self._default_font_path,
+            )
+            for source, output, overwrite in tasks
+        ]
+        return list(await asyncio.gather(*futures))

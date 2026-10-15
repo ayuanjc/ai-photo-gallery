@@ -88,9 +88,9 @@ def test_merged_template_tile_override():
 
 
 def test_merged_template_none_license_clears_text():
-    """license_type=NONE 时清空版权文案。"""
-    merged = merged_template("copyright", license_type=LicenseType.NONE)
-    assert merged.text.text == ""
+    """license_type=NONE 时移除版权文案；纯文字模板则报错。"""
+    with pytest.raises(ValueError, match="不包含任何可见水印样式"):
+        merged_template("copyright", license_type=LicenseType.NONE)
 
 
 def test_template_requires_visible_style():
