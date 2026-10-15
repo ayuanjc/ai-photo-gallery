@@ -170,6 +170,39 @@ class ImmichClient:
             )
         return self._parse_json(resp)
 
+    async def get_assets_by_ids(
+        self,
+        asset_ids: list[str],
+        max_concurrent: int = 10,
+    ) -> list[dict]:
+        """按 asset ID 批量查询 Immich 资产详情。
+
+        使用 asyncio.Semaphore 控制并发度，避免一次性发送过多请求。
+        单条查询失败时跳过该资产（不阻塞整体），返回成功获取的资产列表。
+
+        参数:
+            asset_ids: 资产 ID 列表。
+            max_concurrent: 最大并发请求数。
+
+        返回:
+            成功获取的资产详情列表（保持原始顺序）。
+        """
+        if not asset_ids:
+            return []
+
+        semaphore = asyncio.Semaphore(max_concurrent)
+        results: dict[str, dict] = {}
+
+        async def _fetch_one(aid: str) -> None:
+            async with semaphore:
+                try:
+                    results[aid] = await self.get_asset(aid)
+                except Exception as exc:
+                    logger.warning("批量获取资产详情失败，跳过 asset_id=%s: %s", aid, exc)
+
+        await asyncio.gather(*[_fetch_one(aid) for aid in asset_ids])
+        return [results[aid] for aid in asset_ids if aid in results]
+
     async def similar_assets(self, asset_id: str, k: int = 50) -> list[dict]:
         """调用 POST /api/search/smart 以图搜图（queryAssetId 传 asset id），返回带 score 的相似资产。"""
         resp = await self._request_with_retry(
