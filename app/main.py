@@ -120,6 +120,7 @@ async def lifespan(app: FastAPI):
         scene_analyzer=scene_analyzer,
         cache=cache,
         cache_ttl_seconds=settings.search_cache_ttl_seconds,
+        capabilities=capabilities,
     )
     app.state.multi_condition_service = MultiConditionSearchService(settings, immich)
 

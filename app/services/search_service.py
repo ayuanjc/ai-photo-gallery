@@ -15,6 +15,7 @@ from ..models.response import SearchResponse, SearchResultItem
 from ..scene.analyzer import SceneAnalyzer
 from .explain import build_explanation
 from .immich import ImmichClient
+from .immich_capabilities import ImmichCapabilities
 from .ranking import (
     apply_sort_by,
     blend_scene_weights,
@@ -42,6 +43,7 @@ class SearchService:
         scene_analyzer: SceneAnalyzer | None = None,
         cache: CacheBackend | None = None,
         cache_ttl_seconds: float = 300.0,
+        capabilities: ImmichCapabilities | None = None,
     ) -> None:
         self._settings = settings
         self._immich = immich
@@ -49,6 +51,7 @@ class SearchService:
         self._scene_analyzer = scene_analyzer
         self._cache = cache
         self._cache_ttl = cache_ttl_seconds
+        self._capabilities = capabilities
         self._sem_vision = asyncio.Semaphore(settings.search_max_concurrent_vision)
         self._sem_scene = asyncio.Semaphore(settings.search_max_concurrent_scene)
 
@@ -150,6 +153,22 @@ class SearchService:
                 degraded=True,
                 warnings=["Immich 暂不可用，返回空结果"],
                 results=[],
+            )
+
+        # 2b. 能力降级：若 Immich 不支持 assetIds 参数（zod 剥离），
+        #     上游会忽略 assetIds 返回全库结果，需本地交集过滤。
+        if (
+            effective_asset_ids
+            and self._capabilities is not None
+            and not self._capabilities.supports_asset_ids_in_search
+        ):
+            allowed = set(effective_asset_ids)
+            before_count = len(assets)
+            assets = [a for a in assets if a.get("id") in allowed]
+            logger.info(
+                "assetIds 不被上游支持，本地交集过滤: %d → %d",
+                before_count,
+                len(assets),
             )
 
         # 3. 为每条 asset 生成场景标签（失败不阻塞），并把 primary_scene 附加到 asset。
