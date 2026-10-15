@@ -124,49 +124,80 @@ class StatsProvider:
         date_from: datetime | None,
         date_to: datetime | None,
     ) -> tuple[list[dict], list[str]]:
-        """实际分页拉取逻辑，返回 (资产列表, 警告列表)。
+        """分批并发拉取逻辑，返回 (资产列表, 警告列表)。
 
+        策略：逐批并发拉取（每批 _BATCH_SIZE 页），某页返回不满则停止。
         上游异常时记录日志 + warnings，返回已拉到的部分。
         """
         results: list[dict] = []
         warnings: list[str] = []
         page = 1
+        batch_size = 5
 
         while len(results) < max_items:
+            pages_in_batch = list(range(page, page + batch_size))
+            batch_items = await self._fetch_batch(pages_in_batch, page_size, warnings)
+            if not batch_items:
+                return results[:max_items], warnings
+
+            has_partial = False
+            for p_num, items in batch_items:
+                if not items:
+                    return results[:max_items], warnings
+                results.extend(self._filter_items(items, date_from, date_to, max_items - len(results)))
+                if len(results) >= max_items:
+                    return results[:max_items], warnings
+                if len(items) < page_size:
+                    has_partial = True
+            if has_partial:
+                return results[:max_items], warnings
+            page += batch_size
+
+        return results[:max_items], warnings
+
+    async def _fetch_batch(
+        self,
+        pages: list[int],
+        page_size: int,
+        warnings: list[str],
+    ) -> list[tuple[int, list[dict]]]:
+        """并发拉取一批页面。"""
+        async def _fetch_page(page_num: int) -> tuple[int, list[dict]]:
             try:
-                data = await self._immich.request_json(
+                page_data = await self._immich.request_json(
                     "POST",
                     "/api/search/metadata",
-                    json={"page": page, "size": page_size, "withExif": True},
+                    json={"page": page_num, "size": page_size, "withExif": True},
                 )
+                return page_num, self._immich.extract_items(page_data)
             except Exception as exc:
-                msg = f"Immich 资产拉取异常，停止迭代: {exc}"
+                msg = f"Immich 资产拉取异常（page={page_num}）: {exc}"
                 logger.warning(msg)
                 warnings.append(msg)
-                return results, warnings
+                return page_num, []
 
-            items = self._immich.extract_items(data)
+        batch_results = await asyncio.gather(*(_fetch_page(p) for p in pages))
+        return sorted(batch_results, key=lambda x: x[0])
 
-            if not items:
-                return results, warnings
-
-            for item in items:
-                if len(results) >= max_items:
-                    return results, warnings
-
-                if date_from or date_to:
-                    item_date = _get_asset_date(item)
-                    if item_date is None:
-                        continue
-                    if date_from and item_date < date_from:
-                        continue
-                    if date_to and item_date > date_to:
-                        continue
-
-                results.append(item)
-
-            page += 1
-            if len(items) < page_size:
-                return results, warnings
-
-        return results, warnings
+    def _filter_items(
+        self,
+        items: list[dict],
+        date_from: datetime | None,
+        date_to: datetime | None,
+        max_count: int,
+    ) -> list[dict]:
+        """过滤日期范围并截取到 max_count。"""
+        filtered: list[dict] = []
+        for item in items:
+            if len(filtered) >= max_count:
+                break
+            if date_from or date_to:
+                item_date = _get_asset_date(item)
+                if item_date is None:
+                    continue
+                if date_from and item_date < date_from:
+                    continue
+                if date_to and item_date > date_to:
+                    continue
+            filtered.append(item)
+        return filtered

@@ -125,45 +125,73 @@ class TestCorrect:
     def test_typo_corrected(self):
         """纠错：输入"natrue"返回"nature"（距离 2）。"""
         svc = _service()
-        corrected, _, _ = svc.correct("natrue")
+        corrected, _, applied, _ = svc.correct("natrue")
         assert corrected == "nature"
+        assert applied is True
 
     def test_exact_match_returns_none(self):
         """完全匹配：返回 None（无需纠正）。"""
         svc = _service()
-        corrected, _, _ = svc.correct("nature")
+        corrected, _, applied, _ = svc.correct("nature")
         assert corrected is None
+        assert applied is False
 
     def test_no_match_returns_none(self):
         """纠错无匹配：corrected 为 None。"""
         svc = _service()
-        corrected, _, _ = svc.correct("xyz123abc")
+        corrected, _, applied, _ = svc.correct("xyz123abc")
         assert corrected is None
+        assert applied is False
 
     def test_distance_one_corrected(self):
         """距离 1 也能纠正：输入"natur"返回"nature"。"""
         svc = _service()
-        corrected, _, _ = svc.correct("natur")
+        corrected, _, applied, _ = svc.correct("natur")
         assert corrected == "nature"
+        assert applied is True
 
     def test_correct_disabled_returns_none(self):
-        """SUGGEST_ENABLED=false：返回 None。"""
-        svc = _service(suggest_enabled=False)
-        corrected, degraded, _ = svc.correct("natrue")
+        """CORRECT_ENABLED=false：返回 None。"""
+        svc = _service(correct_enabled=False)
+        corrected, _, applied, _ = svc.correct("natrue")
         assert corrected is None
-        assert degraded is False
+        assert applied is False
 
     def test_empty_q_returns_none(self):
         """空 q：返回 None。"""
         svc = _service()
-        corrected, _, _ = svc.correct("")
+        corrected, _, applied, _ = svc.correct("")
         assert corrected is None
+        assert applied is False
 
     def test_chinese_typo_corrected(self):
         """中文纠错：输入"自然x"距离 1 → 返回"自然"。"""
         svc = _service()
-        corrected, _, _ = svc.correct("自然x")
+        corrected, _, applied, _ = svc.correct("自然x")
         assert corrected == "自然"
+        assert applied is True
+
+    def test_pinyin_corrected(self):
+        """拼音缩写纠错：输入"hai bian"返回"海边"。"""
+        svc = _service()
+        corrected, confidence, applied, _ = svc.correct("hai bian")
+        assert corrected == "海边"
+        assert applied is True
+        assert confidence >= 0.8
+
+    def test_english_corrected(self):
+        """英文纠错：输入"beach"返回"海边"。"""
+        svc = _service()
+        corrected, confidence, applied, _ = svc.correct("beach")
+        assert corrected == "海边"
+        assert applied is True
+        assert confidence >= 0.7
+
+    def test_low_confidence_not_applied(self):
+        """置信度低于阈值时不纠错：applied=False。"""
+        svc = _service(correct_confidence_threshold=0.99)
+        corrected, _, applied, _ = svc.correct("natrue")
+        assert applied is False
 
 
 # ============================================================================
@@ -258,10 +286,10 @@ class TestSuggestAPI:
             reset_suggest_service()
 
     def test_suggest_disabled_returns_empty_via_api(self):
-        """SUGGEST_ENABLED=false：接口返回空结构。"""
+        """SUGGEST_ENABLED=false + CORRECT_ENABLED=false：接口返回空结构。"""
         from app.api.deps import get_settings_dep
 
-        test_settings = _settings(suggest_enabled=False)
+        test_settings = _settings(suggest_enabled=False, correct_enabled=False)
         original_overrides = app.dependency_overrides.copy()
         app.dependency_overrides[get_settings_dep] = lambda: test_settings
         reset_suggest_service()

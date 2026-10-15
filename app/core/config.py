@@ -139,8 +139,12 @@ class Settings(BaseSettings):
     search_cache_ttl_seconds: int = 300
 
     # ---- 搜索建议与纠错 ----
-    # 开启后 /api/v1/search/suggest 和 /correct 可用；关闭后返回空结构，不报错。
+    # 开启后 /api/v1/search/suggest 可用；关闭后返回空结构，不报错。
     suggest_enabled: bool = True
+    # 开启后 /api/v1/search/correct 可用；关闭后返回原词不纠错。
+    correct_enabled: bool = True
+    # 纠错置信度阈值（低于此值不纠错，applied=false）。
+    correct_confidence_threshold: float = 0.5
     # 建议接口返回的默认条数上限。
     suggest_limit: int = 10
     # 热门搜索词内存 LRU 计数容量。
@@ -166,6 +170,10 @@ class Settings(BaseSettings):
     feedback_enabled: bool = True
     feedback_ttl_seconds: int = 604800
     feedback_boost_max: float = 0.05
+    # 防刷：同一 session 对同一 asset 单位时间内最大反馈次数。
+    feedback_rate_limit_per_minute: int = 2
+    # 反馈指数衰减半衰期（秒），越久的反馈权重越低。
+    feedback_decay_halflife_seconds: float = 86400.0
 
     # ---- 搜索结果去重（连拍/相似图只保留一张）----
     # 开启后排序结果中相似度极高的条目被去重，保留 final_score 最高的一张。

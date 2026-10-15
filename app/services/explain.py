@@ -2,15 +2,19 @@
 
 解释结构（纯 dict，不做 Pydantic 强校验，保证解释失败不阻塞搜索）：
     {
-        "reasons": ["语义相似度高", "拍摄时间较新", "命中场景：自然"],
+        "reasons": ["语义召回名次靠前", "拍摄时间较新", "命中场景：自然"],
         "semantic_score": 0.85,
         "time_score": 0.72,
         "matched_scenes": ["nature"],
         "weights_used": {"alpha": 0.3, "beta": 0.7},
     }
 
+注意：semantic_score 实际是"召回名次分"（按召回排名线性补分 1.0 - idx/total），
+非真实向量相似度。字段名保留 semantic_score 以兼容前端，内部口径为名次分。
+
 reasons 生成规则：
-    - semantic_score >= 0.8 → "语义相似度高"
+    - rank_score >= 0.8 → "语义召回名次靠前"
+    - rank_score >= 0.4 → "语义召回名次居中"
     - time_score >= 0.7 → "拍摄时间较新"
     - matched_scenes 非空 → "命中场景：{场景中文名}"
     - 都不满足 → "综合得分"
@@ -27,7 +31,8 @@ from ..scene.dictionary import get_scene_dict
 
 logger = logging.getLogger(__name__)
 
-_SEMANTIC_THRESHOLD = 0.8
+_SEMANTIC_THRESHOLD_HIGH = 0.8
+_SEMANTIC_THRESHOLD_MID = 0.4
 _TIME_THRESHOLD = 0.7
 
 
@@ -119,8 +124,10 @@ def build_explanation(
         matched_scenes = _matched_scenes(asset, scene_tags)
 
         reasons: list[str] = []
-        if semantic_score >= _SEMANTIC_THRESHOLD:
-            reasons.append("语义相似度高")
+        if semantic_score >= _SEMANTIC_THRESHOLD_HIGH:
+            reasons.append("语义召回名次靠前")
+        elif semantic_score >= _SEMANTIC_THRESHOLD_MID:
+            reasons.append("语义召回名次居中")
         if time_score >= _TIME_THRESHOLD:
             reasons.append("拍摄时间较新")
         for scene_key in matched_scenes:
