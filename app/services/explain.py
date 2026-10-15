@@ -138,6 +138,7 @@ def build_explanation(
         return {
             "reasons": reasons,
             "semantic_score": round(semantic_score, 4),
+            "rank_score": round(semantic_score, 4),
             "time_score": round(time_score, 4),
             "matched_scenes": matched_scenes,
             "weights_used": {"alpha": round(alpha, 4), "beta": round(beta, 4)},
@@ -147,6 +148,7 @@ def build_explanation(
         return {
             "reasons": ["综合得分"],
             "semantic_score": 0.0,
+            "rank_score": 0.0,
             "time_score": 0.0,
             "matched_scenes": [],
             "weights_used": {"alpha": 0.0, "beta": 0.0},

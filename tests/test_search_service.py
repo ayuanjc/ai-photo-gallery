@@ -4,6 +4,7 @@ from __future__ import annotations
 from app.core.errors import VisionError
 from app.models.request import SearchRequest
 from app.services.search_service import SearchService
+from app.services.immich_capabilities import ImmichCapabilities
 from app.services.vision.base import VisionProvider, VisionResult
 
 
@@ -113,3 +114,36 @@ async def test_metadata_filtering(settings):
     assert "width" in meta
     assert "city" in meta
     assert "format" not in meta
+
+async def test_asset_ids_local_filter_when_unsupported(settings):
+    """Immich 不支持 assetIds 时，本地交集过滤搜索结果。"""
+    immich = FakeImmich([_asset("a", 0.9), _asset("b", 0.8), _asset("c", 0.7)])
+    vision = FakeVision()
+    cap = ImmichCapabilities(supports_asset_ids_in_search=False)
+    svc = SearchService(settings, immich, vision, capabilities=cap)
+
+    resp = await svc.search(_request(asset_ids=["a", "c"]))
+    ids = {r.asset_id for r in resp.results}
+    assert ids == {"a", "c"}
+
+
+async def test_asset_ids_no_filter_when_supported(settings):
+    """Immich 支持 assetIds 时，不过滤（信任上游已过滤）。"""
+    immich = FakeImmich([_asset("a", 0.9), _asset("b", 0.8)])
+    vision = FakeVision()
+    cap = ImmichCapabilities(supports_asset_ids_in_search=True)
+    svc = SearchService(settings, immich, vision, capabilities=cap)
+
+    resp = await svc.search(_request(asset_ids=["a"]))
+    ids = {r.asset_id for r in resp.results}
+    assert ids == {"a", "b"}
+
+
+async def test_asset_ids_no_filter_when_no_capabilities(settings):
+    """无 capabilities（None）时，不过滤（向后兼容）。"""
+    immich = FakeImmich([_asset("a", 0.9), _asset("b", 0.8)])
+    vision = FakeVision()
+    svc = SearchService(settings, immich, vision)
+
+    resp = await svc.search(_request(asset_ids=["a"]))
+    assert resp.total == 2

@@ -121,6 +121,7 @@ class TestBuildExplanation:
         """分数被 round 到 4 位小数。"""
         exp = build_explanation({}, 0.856789, 0.721234, (0.333, 0.667), None)
         assert exp["semantic_score"] == round(0.856789, 4)
+        assert exp["rank_score"] == round(0.856789, 4)
         assert exp["time_score"] == round(0.721234, 4)
 
     def test_all_reasons_combined(self):
@@ -146,6 +147,7 @@ class TestBuildExplanation:
         exp = build_explanation({}, 0.5, 0.5, (0.3, 0.7), None)
         assert "reasons" in exp
         assert "semantic_score" in exp
+        assert "rank_score" in exp
         assert "time_score" in exp
         assert "matched_scenes" in exp
         assert "weights_used" in exp

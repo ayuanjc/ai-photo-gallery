@@ -89,6 +89,11 @@ FEATURES_META: dict[str, dict[str, str | bool]] = {
         "description": "人脸分类功能（重启生效）",
         "requires_restart": True,
     },
+    "writeback_enabled": {
+        "name": "Immich 写回",
+        "description": "将 AI 场景标签/相册/描述写回 Immich（可撤销）",
+        "requires_restart": False,
+    },
 }
 
 
@@ -113,6 +118,7 @@ class RuntimeConfig:
             "correct_enabled": getattr(settings, "correct_enabled", True),
             "huawei_enabled": settings.huawei_enabled,
             "huawei_face_enabled": settings.huawei_face_enabled,
+            "writeback_enabled": getattr(settings, "writeback_enabled", False),
         }
         self._load()
 

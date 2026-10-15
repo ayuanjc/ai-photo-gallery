@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .ai.factory import build_ai_analyzer
-from .api.routes import ai, admin, batch_import, faces, scene, search, stats, watermark
+from .api.routes import ai, admin, assets, batch_import, faces, scene, search, stats, watermark
 from .core.cache import get_cache
 from .core.config import get_settings
 from .core.errors import AppError, ErrorCode
@@ -31,6 +31,13 @@ from .scene.dictionary import get_scene_dict
 from .services.face_service import FaceService
 from .services.feedback_service import init_feedback_service
 from .services.immich import ImmichClient
+from .services.immich_capabilities import ImmichCapabilities
+from .services.immich_writeback import ImmichWriteBack
+from .services.scene_writeback import SceneWriteBack
+from .services.album_writeback import AlbumWriteBack
+from .services.image_proxy import ImageProxyService
+from .services.incremental_sync import IncrementalSync
+from .services.writeback_manager import WriteBackManager
 
 from .services.immich_uploader import ImmichAssetUploader
 from .services.importer import BatchImporter
@@ -66,6 +73,14 @@ async def lifespan(app: FastAPI):
     setup_logging(settings.log_level)
 
     immich = ImmichClient(settings)
+
+    try:
+        capabilities = await ImmichCapabilities.probe(immich)
+    except Exception:
+        logger.exception("Immich 能力探测失败，使用空能力集降级")
+        capabilities = ImmichCapabilities()
+    app.state.capabilities = capabilities
+
     vision: VisionProvider = (
         HuaweiVisionProvider(settings) if settings.huawei_enabled else NullVisionProvider()
     )
@@ -111,12 +126,28 @@ async def lifespan(app: FastAPI):
         scene_analyzer=scene_analyzer,
         cache=cache,
         cache_ttl_seconds=settings.search_cache_ttl_seconds,
+        capabilities=capabilities,
     )
     app.state.multi_condition_service = MultiConditionSearchService(settings, immich)
 
 
     # 搜索反馈闭环
     init_feedback_service(cache, settings)
+
+    # Immich 写回：场景标签 → Immich tags, AI 相册
+    writeback = ImmichWriteBack(immich, settings)
+    app.state.immich_writeback = writeback
+    app.state.scene_writeback = SceneWriteBack(writeback, settings)
+    app.state.album_writeback = AlbumWriteBack(writeback, settings)
+
+    # 图片代理：前端通过本服务访问 Immich 缩略图/原图
+    app.state.image_proxy_service = ImageProxyService(immich, settings)
+
+    # 增量水位同步：按 updatedAt 增量拉取 Immich 资产变更
+    app.state.incremental_sync = IncrementalSync(immich, settings)
+
+    # 写回管理：审计日志 + 一键回滚
+    app.state.writeback_manager = WriteBackManager(writeback, settings)
 
     # 批量导入：元数据提取 → 上传 Immich
     metadata_extractor = MetadataExtractor(settings.default_datetime_iso)
@@ -161,6 +192,7 @@ app = FastAPI(
         {"name": "stats", "description": "统计大屏：地图足迹、EXIF 分布、器材偏好"},
         {"name": "import", "description": "批量导入：本地图片 EXIF 提取并上传 Immich"},
         {"name": "watermark", "description": "水印管理：预置模板、授权类型、批量添加水印"},
+        {"name": "assets", "description": "资产代理：缩略图/原图代理获取"},
         {"name": "system", "description": "系统接口：健康检查"},
     ],
 )
@@ -170,6 +202,7 @@ app.include_router(scene.router, prefix="/api/v1")
 app.include_router(faces.router, prefix="/api/v1")
 app.include_router(ai.router, prefix="/api/v1")
 app.include_router(stats.router, prefix="/api/v1")
+app.include_router(assets.router, prefix="/api/v1")
 app.include_router(batch_import.router, prefix="/api/v1")
 app.include_router(watermark.router, prefix="/api/v1")
 app.include_router(admin.router)
