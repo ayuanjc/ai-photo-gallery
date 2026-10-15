@@ -133,5 +133,12 @@ def get_batch_importer(request: Request) -> BatchImporter:
     return request.app.state.batch_importer
 
 def get_watermark_processor(request: Request) -> BatchWatermarkProcessor:
-    """返回批量水印处理器。"""
+    """返回批量水印处理器（检查功能开关）。"""
+    from ..core.runtime_config import runtime_enabled
+    from ..core.config import get_settings
+    from ..core.exceptions import AppError, ErrorCode
+
+    settings = get_settings()
+    if not runtime_enabled("watermark_enabled", getattr(settings, "watermark_enabled", True)):
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "水印功能未启用（WATERMARK_ENABLED=false）")
     return request.app.state.watermark_processor

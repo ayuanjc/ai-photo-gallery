@@ -37,7 +37,7 @@ def _verify_admin_key(request: Request) -> None:
     if not settings.admin_api_key:
         if settings.app_env == "production":
             raise AppError(
-                ErrorCode.INTERNAL_ERROR,
+                ErrorCode.SERVICE_UNAVAILABLE,
                 "生产环境必须配置 ADMIN_API_KEY",
             )
         return
@@ -81,7 +81,7 @@ async def verify_key(body: VerifyRequest) -> dict:
     if not expected:
         if settings.app_env == "production":
             raise AppError(
-                ErrorCode.INTERNAL_ERROR,
+                ErrorCode.SERVICE_UNAVAILABLE,
                 "生产环境必须配置 ADMIN_API_KEY",
             )
         return {"valid": True, "mode": "no-auth"}

@@ -103,6 +103,10 @@ def _save_image(image: Image.Image, output_path: str) -> None:
     elif ext == ".webp":
         image.save(output_path, "WEBP")
     else:
+        if image.mode == "RGBA":
+            background = Image.new("RGB", image.size, (255, 255, 255))
+            background.paste(image, mask=image.split()[3])
+            image = background
         image.save(output_path)
 
 
