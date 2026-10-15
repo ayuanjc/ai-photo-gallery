@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
 
 logger = logging.getLogger(__name__)
 
 from ...core.config import get_settings
+from ...core.runtime_config import runtime_enabled
 from ...models.request import FeedbackRequest, MultiConditionSearchRequest, SearchRequest
 from ...models.response import (
     FeedbackResponse,
@@ -39,9 +40,26 @@ router = APIRouter(
 )
 async def smart_search(
     request: SearchRequest,
+    http_request: Request,
+    background_tasks: BackgroundTasks,
     service: SearchService = Depends(get_search_service),
 ) -> SearchResponse:
-    return await service.search(request)
+    response = await service.search(request)
+
+    if (
+        not response.cached
+        and response.results
+        and runtime_enabled("writeback_enabled", getattr(get_settings(), "writeback_enabled", False))
+    ):
+        scene_writeback = getattr(http_request.app.state, "scene_writeback", None)
+        if scene_writeback is not None:
+            results_data = [
+                {"asset_id": r.asset_id, "scene": r.scene.model_dump() if r.scene else None}
+                for r in response.results
+            ]
+            background_tasks.add_task(scene_writeback.writeback_scene_tags, results_data)
+
+    return response
 
 
 @router.post(

@@ -32,6 +32,8 @@ from .services.face_service import FaceService
 from .services.feedback_service import init_feedback_service
 from .services.immich import ImmichClient
 from .services.immich_capabilities import ImmichCapabilities
+from .services.immich_writeback import ImmichWriteBack
+from .services.scene_writeback import SceneWriteBack
 
 from .services.immich_uploader import ImmichAssetUploader
 from .services.importer import BatchImporter
@@ -127,6 +129,11 @@ async def lifespan(app: FastAPI):
 
     # 搜索反馈闭环
     init_feedback_service(cache, settings)
+
+    # Immich 写回：场景标签 → Immich tags
+    writeback = ImmichWriteBack(immich, settings)
+    app.state.immich_writeback = writeback
+    app.state.scene_writeback = SceneWriteBack(writeback, settings)
 
     # 批量导入：元数据提取 → 上传 Immich
     metadata_extractor = MetadataExtractor(settings.default_datetime_iso)
