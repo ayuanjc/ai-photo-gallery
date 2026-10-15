@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .ai.factory import build_ai_analyzer
-from .api.routes import ai, admin, batch_import, faces, scene, search, stats, watermark
+from .api.routes import ai, admin, assets, batch_import, faces, scene, search, stats, watermark
 from .core.cache import get_cache
 from .core.config import get_settings
 from .core.errors import AppError, ErrorCode
@@ -35,6 +35,7 @@ from .services.immich_capabilities import ImmichCapabilities
 from .services.immich_writeback import ImmichWriteBack
 from .services.scene_writeback import SceneWriteBack
 from .services.album_writeback import AlbumWriteBack
+from .services.image_proxy import ImageProxyService
 
 from .services.immich_uploader import ImmichAssetUploader
 from .services.importer import BatchImporter
@@ -137,6 +138,9 @@ async def lifespan(app: FastAPI):
     app.state.scene_writeback = SceneWriteBack(writeback, settings)
     app.state.album_writeback = AlbumWriteBack(writeback, settings)
 
+    # 图片代理：前端通过本服务访问 Immich 缩略图/原图
+    app.state.image_proxy_service = ImageProxyService(immich, settings)
+
     # 批量导入：元数据提取 → 上传 Immich
     metadata_extractor = MetadataExtractor(settings.default_datetime_iso)
     immich_uploader = ImmichAssetUploader(settings)
@@ -180,6 +184,7 @@ app = FastAPI(
         {"name": "stats", "description": "统计大屏：地图足迹、EXIF 分布、器材偏好"},
         {"name": "import", "description": "批量导入：本地图片 EXIF 提取并上传 Immich"},
         {"name": "watermark", "description": "水印管理：预置模板、授权类型、批量添加水印"},
+        {"name": "assets", "description": "资产代理：缩略图/原图代理获取"},
         {"name": "system", "description": "系统接口：健康检查"},
     ],
 )
@@ -189,6 +194,7 @@ app.include_router(scene.router, prefix="/api/v1")
 app.include_router(faces.router, prefix="/api/v1")
 app.include_router(ai.router, prefix="/api/v1")
 app.include_router(stats.router, prefix="/api/v1")
+app.include_router(assets.router, prefix="/api/v1")
 app.include_router(batch_import.router, prefix="/api/v1")
 app.include_router(watermark.router, prefix="/api/v1")
 app.include_router(admin.router)
