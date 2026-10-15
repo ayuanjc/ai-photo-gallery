@@ -60,6 +60,26 @@ async def list_features(request: Request) -> dict:
     return {"features": get_runtime_config().snapshot()}
 
 
+@router.post("/admin/api/sync")
+async def trigger_sync(request: Request) -> dict:
+    _verify_admin_key(request)
+    sync_service = getattr(request.app.state, "incremental_sync", None)
+    if sync_service is None:
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "增量同步服务未初始化")
+    result = await sync_service.sync()
+    return {"sync": result}
+
+
+@router.post("/admin/api/sync/reset")
+async def reset_sync(request: Request) -> dict:
+    _verify_admin_key(request)
+    sync_service = getattr(request.app.state, "incremental_sync", None)
+    if sync_service is None:
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "增量同步服务未初始化")
+    sync_service.reset_watermark()
+    return {"reset": True}
+
+
 @router.put("/admin/api/features")
 async def update_features(body: FeatureUpdates, request: Request) -> dict:
     _verify_admin_key(request)
