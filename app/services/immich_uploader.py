@@ -170,3 +170,49 @@ class ImmichAssetUploader:
         if not isinstance(data, dict):
             raise UpstreamError("Immich 上传响应结构异常", details=data)
         return {"id": data.get("id"), "status": data.get("status"), "raw": data}
+    async def bulk_upload_check(
+        self,
+        items: list[dict[str, str]],
+    ) -> dict[str, list[str]]:
+        """批量检查资产是否已存在，避免重复上传。
+
+        参数:
+            items: [{"deviceAssetId": "...", "deviceId": "..."}, ...]
+
+        返回:
+            {"existing": [deviceAssetId, ...], "new": [deviceAssetId, ...]}
+        """
+        if not items:
+            return {"existing": [], "new": []}
+
+        client = await self._get_client()
+        try:
+            resp = await client.post(
+                "/api/assets/bulk-upload-check",
+                json={"assets": items},
+            )
+        except httpx.TimeoutException as exc:
+            logger.warning("bulk-upload-check 超时，降级为全量上传: %s", exc)
+            return {"existing": [], "new": [i["deviceAssetId"] for i in items]}
+        except (httpx.ConnectError, httpx.NetworkError) as exc:
+            logger.warning("bulk-upload-check 连接失败，降级为全量上传: %s", exc)
+            return {"existing": [], "new": [i["deviceAssetId"] for i in items]}
+
+        if resp.status_code != 200:
+            logger.warning("bulk-upload-check 返回 %d，降级为全量上传", resp.status_code)
+            return {"existing": [], "new": [i["deviceAssetId"] for i in items]}
+
+        try:
+            data = resp.json()
+        except ValueError:
+            return {"existing": [], "new": [i["deviceAssetId"] for i in items]}
+
+        existing_ids: list[str] = []
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict) and item.get("deviceAssetId"):
+                    existing_ids.append(item["deviceAssetId"])
+
+        all_ids = [i["deviceAssetId"] for i in items]
+        new_ids = [aid for aid in all_ids if aid not in set(existing_ids)]
+        return {"existing": existing_ids, "new": new_ids}
