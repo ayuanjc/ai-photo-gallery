@@ -5,4 +5,4 @@ pydantic-settings>=2.3,<3.0
 httpx>=0.27,<1.0
 cachetools>=5.3
 redis>=5.0,<9.0
-piexif>=1.1.0b1
+piexif>=1.1.0b1Pillow>=10.0,<13.0

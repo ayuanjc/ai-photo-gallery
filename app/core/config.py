@@ -80,6 +80,20 @@ class Settings(BaseSettings):
     # 单次批量导入文件数量上限。
     import_max_files: int = 1000
 
+    # ---- 水印管理（本地图片 → 批量添加文字/图片水印）----
+    # 水印功能总开关，关闭后 /api/v1/watermark/apply 返回 503。
+    watermark_enabled: bool = True
+    # ProcessPoolExecutor 最大子进程数。
+    watermark_max_workers: int = 4
+    # 单次批量水印处理的文件数量上限。
+    watermark_max_files: int = 200
+    # 单个文件大小上限（MB）。
+    watermark_max_file_size_mb: int = 100
+    # 允许处理源文件的目录白名单（空列表 = 允许所有路径，仅限开发环境）。
+    watermark_allowed_dirs: list[str] = []
+    # 默认水印字体路径（空 = 使用 Pillow 默认字体）。
+    watermark_default_font: str = ""
+
     # ---- 华为云图像识别（预留扩展，默认关闭）----
     huawei_enabled: bool = False
     huawei_ak: str = ""
@@ -208,6 +222,7 @@ class Settings(BaseSettings):
                     "生产环境必须配置 IMPORT_ALLOWED_DIRS（非空），"
                     "防止批量导入接口被用于读取任意服务器文件"
                 )
+
         return self
 
     @property
