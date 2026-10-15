@@ -97,6 +97,10 @@ class Settings(BaseSettings):
 
     # ---- 华为云图像识别（Image Tagging，默认关闭）----
     huawei_enabled: bool = False
+
+    # ---- Immich 写回（标签/相册/描述，默认关闭）----
+    writeback_enabled: bool = False
+
     huawei_ak: str = ""
     huawei_sk: SecretStr = SecretStr("")
     huawei_project_id: str = ""
