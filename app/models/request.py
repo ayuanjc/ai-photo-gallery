@@ -76,6 +76,12 @@ class SearchRequest(BaseModel):
         max_length=100,
         description="显式时间提示词（如「去年夏天」），优先于 query 中解析出的时间表达",
     )
+    min_rating: int | None = Field(
+        default=None,
+        ge=1,
+        le=5,
+        description="最低评分过滤阈值 1-5，仅返回评分 >= 此值的资产",
+    )
 
 
     @field_validator("image_urls")
