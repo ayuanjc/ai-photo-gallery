@@ -198,14 +198,8 @@ async def _fetch_assets_fallback(
         if date_to:
             params["createdBefore"] = date_to
 
-        resp = await immich._request_with_retry("GET", "/api/assets", params=params)
-        if resp.status_code != 200:
-            raise UpstreamError(
-                "Immich 获取资产列表失败",
-                details={"status": resp.status_code},
-            )
-        data = immich._parse_json(resp)
-        items = immich._extract_items(data)
+        data = await immich.request_json("GET", "/api/assets", params=params)
+        items = immich.extract_items(data)
         if not items:
             break
         assets.extend(items)

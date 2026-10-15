@@ -95,6 +95,7 @@ class FaceService:
     def __init__(self, settings: Settings, face_client: HuaweiFaceClient) -> None:
         self._settings = settings
         self._face = face_client
+        self._sem = asyncio.Semaphore(settings.huawei_face_max_concurrent)
 
     async def classify(self, request: FaceClassifyRequest) -> FaceClassifyResponse:
         urls = [str(u) for u in request.image_urls]
@@ -159,7 +160,7 @@ class FaceService:
         max_face: int,
         warnings: list[str],
     ) -> dict[str, list[dict[str, Any]]]:
-        sem = asyncio.Semaphore(self._settings.huawei_face_max_concurrent)
+        sem = self._sem
         results: dict[str, list[dict[str, Any]]] = {}
 
         async def _detect(url: str) -> None:
@@ -223,7 +224,7 @@ class FaceService:
         all_faces: list[_DetectedFace],
         warnings: list[str],
     ) -> None:
-        sem = asyncio.Semaphore(self._settings.huawei_face_max_concurrent)
+        sem = self._sem
 
         async def _add(idx: int) -> None:
             async with sem:
@@ -246,7 +247,7 @@ class FaceService:
         threshold: float,
         warnings: list[str],
     ) -> dict[str, dict[str, float]]:
-        sem = asyncio.Semaphore(self._settings.huawei_face_max_concurrent)
+        sem = self._sem
         results: dict[str, dict[str, float]] = {}
         top_n = self._settings.huawei_face_search_top_n
 

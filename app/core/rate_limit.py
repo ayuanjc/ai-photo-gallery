@@ -59,7 +59,7 @@ if tokens >= cost then
     allowed = 1
 end
 
-redis.call('HMSET', key, 'tokens', tokens, 'last_refill', last_refill)
+redis.call('HSET', key, 'tokens', tokens, 'last_refill', last_refill)
 local ttl = math.ceil(capacity / rate * 2)
 if ttl < 1 then
     ttl = 1
@@ -82,7 +82,7 @@ class TokenBucketRateLimiter:
         settings: Settings,
         redis: Any = None,
         *,
-        time_fn: Any = time.time,
+        time_fn: Any = time.monotonic,
     ) -> None:
         self._settings = settings
         self._redis = redis

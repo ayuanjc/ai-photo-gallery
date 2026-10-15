@@ -61,6 +61,18 @@ class FakeImmichClient:
     def _parse_json(resp: FakeResponse) -> list | dict:
         return resp._data
 
+    async def request_json(self, method: str, path: str, **kwargs):
+        resp = await self._request_with_retry(method, path, **kwargs)
+        if resp.status_code != 200:
+            raise RuntimeError(f"Immich 资产拉取失败: status={resp.status_code}")
+        return self._parse_json(resp)
+
+    @staticmethod
+    def extract_items(data):
+        if isinstance(data, list):
+            return data
+        return []
+
 
 def _settings(**kwargs) -> Settings:
     defaults = dict(

@@ -26,7 +26,7 @@ from .core.errors import AppError, ErrorCode
 from .core.logging import setup_logging
 from .core.rate_limit import TokenBucketRateLimiter
 from .core.redis_client import RedisClient
-from .scene.analyzer import NullSceneInferrer, SceneAnalyzer
+from .scene.analyzer import HttpSceneInferrer, NullSceneInferrer, SceneAnalyzer
 from .scene.dictionary import get_scene_dict
 from .services.face_service import FaceService
 from .services.feedback_service import init_feedback_service
@@ -78,10 +78,15 @@ async def lifespan(app: FastAPI):
     cache = await get_cache(settings, redis_client)
     app.state.cache = cache
 
+    scene_inferrer = (
+        HttpSceneInferrer(settings.scene_inference_endpoint)
+        if settings.scene_inference_endpoint
+        else NullSceneInferrer()
+    )
     scene_analyzer = (
         SceneAnalyzer(
             scene_dictionary,
-            inferrer=NullSceneInferrer(),
+            inferrer=scene_inferrer,
             cache_size=settings.scene_cache_size,
             cache_halflife_seconds=settings.scene_cache_halflife_days * 86400,
             infer_timeout_seconds=settings.scene_infer_timeout_seconds,

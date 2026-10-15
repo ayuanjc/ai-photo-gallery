@@ -101,10 +101,10 @@ async def system_status(request: Request) -> dict:
     cache_backend = type(request.app.state.cache).__name__ if getattr(request.app.state, "cache", None) else "unknown"
     immich_ok = False
     try:
-        resp = await request.app.state.immich_client._request_with_retry(
+        resp = await request.app.state.immich_client.request_json(
             "GET", "/api/server/ping"
         )
-        immich_ok = resp.status_code == 200
+        immich_ok = resp is not None
     except Exception:
         immich_ok = False
 

@@ -70,6 +70,14 @@ class FakeImmichClient:
             return [item for item in data if isinstance(item, dict)]
         return []
 
+    async def request_json(self, method: str, path: str, **kwargs: Any) -> Any:
+        resp = await self._request_with_retry(method, path, **kwargs)
+        return self._parse_json(resp)
+
+    @staticmethod
+    def extract_items(data: Any) -> list[dict]:
+        return FakeImmichClient._extract_items(data)
+
 
 class FailingImmichClient:
     """模拟 ImmichClient 上游不可用。"""
@@ -83,6 +91,13 @@ class FailingImmichClient:
 
     @staticmethod
     def _extract_items(data: Any) -> list[dict]:
+        return []
+
+    async def request_json(self, method: str, path: str, **kwargs: Any) -> Any:
+        raise UpstreamUnavailableError("Immich 服务不可用")
+
+    @staticmethod
+    def extract_items(data: Any) -> list[dict]:
         return []
 
 

@@ -46,6 +46,7 @@ class BatchImporter:
         # 配置字段正式定义在 Settings 中，此处 getattr 提供字段尚未定义时的默认值。
         self._max_concurrent = max(1, int(getattr(settings, "import_max_concurrent", 3)))
         self._default_device_id = getattr(settings, "import_default_device_id", "batch-import")
+        self._sem = asyncio.Semaphore(self._max_concurrent)
 
     async def import_files(self, request: ImportRequest) -> ImportResponse:
         """批量导入文件并返回逐项结果。
@@ -57,7 +58,7 @@ class BatchImporter:
             ImportResponse 汇总（total/succeeded/failed/results）。
         """
         device_id = request.device_id or self._default_device_id
-        sem = asyncio.Semaphore(self._max_concurrent)
+        sem = self._sem
 
         if len(request.file_paths) > self._settings.import_max_files:
             raise ValueError(

@@ -57,6 +57,7 @@ class Settings(BaseSettings):
 
     # ---- 智能场景分析（多标签体系）----
     scene_enabled: bool = True
+    scene_inference_endpoint: str = ""
     scene_cache_size: int = 2000
     scene_cache_halflife_days: float = 7.0
     scene_infer_timeout_seconds: float = 3.0
@@ -94,11 +95,14 @@ class Settings(BaseSettings):
     # 默认水印字体路径（空 = 使用 Pillow 默认字体）。
     watermark_default_font: str = ""
 
-    # ---- 华为云图像识别（预留扩展，默认关闭）----
+    # ---- 华为云图像识别（Image Tagging，默认关闭）----
     huawei_enabled: bool = False
     huawei_ak: str = ""
     huawei_sk: SecretStr = SecretStr("")
     huawei_project_id: str = ""
+    huawei_image_endpoint: str = "https://image.cn-north-4.myhuaweicloud.com"
+    huawei_image_timeout_seconds: float = 10.0
+    huawei_image_connect_timeout_seconds: float = 5.0
 
     # ---- 华为云人脸识别 FRS（用于人脸分类，默认关闭）----
     huawei_face_enabled: bool = False

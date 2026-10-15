@@ -134,28 +134,18 @@ class StatsProvider:
 
         while len(results) < max_items:
             try:
-                resp = await self._immich._request_with_retry(
+                data = await self._immich.request_json(
                     "POST",
                     "/api/search/metadata",
                     json={"page": page, "size": page_size, "withExif": True},
                 )
-                if resp.status_code != 200:
-                    msg = (
-                        f"Immich 资产拉取失败: "
-                        f"status={resp.status_code}, page={page}"
-                    )
-                    logger.warning(msg)
-                    warnings.append(msg)
-                    return results, warnings
-
-                data = self._immich._parse_json(resp)
             except Exception as exc:
                 msg = f"Immich 资产拉取异常，停止迭代: {exc}"
                 logger.warning(msg)
                 warnings.append(msg)
                 return results, warnings
 
-            items = ImmichClient._extract_items(data)
+            items = self._immich.extract_items(data)
 
             if not items:
                 return results, warnings

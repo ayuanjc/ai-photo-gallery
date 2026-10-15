@@ -49,6 +49,8 @@ class SearchService:
         self._scene_analyzer = scene_analyzer
         self._cache = cache
         self._cache_ttl = cache_ttl_seconds
+        self._sem_vision = asyncio.Semaphore(settings.search_max_concurrent_vision)
+        self._sem_scene = asyncio.Semaphore(settings.search_max_concurrent_scene)
 
     async def search(self, request: SearchRequest) -> SearchResponse:
         # 0. 查缓存：命中直接返回（cached=true），不调 Immich。
@@ -309,7 +311,7 @@ class SearchService:
     ) -> tuple[str, list[str]]:
         """并发调用视觉识别，失败不阻塞主流程（降级记录 warning）。"""
         base = base_query if base_query is not None else request.query
-        semantic = asyncio.Semaphore(self._settings.search_max_concurrent_vision)
+        semantic = self._sem_vision
 
         async def _analyze(url: str) -> list[str]:
             async with semantic:
@@ -347,7 +349,7 @@ class SearchService:
             "scene_enabled", self._settings.scene_enabled
         ):
             return
-        semantic = asyncio.Semaphore(self._settings.search_max_concurrent_scene)
+        semantic = self._sem_scene
 
         async def _one(asset: dict) -> None:
             async with semantic:

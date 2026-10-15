@@ -54,10 +54,16 @@ class MemoryCache(CacheBackend):
         self._default_ttl = default_ttl
         self._data: OrderedDict[str, Any] = OrderedDict()
         self._expire: dict[str, float] = {}
+        self._last_purge: float = 0.0
 
     async def get(self, key: str) -> Any | None:
         self._purge_expired()
         if key not in self._data:
+            return None
+        exp = self._expire.get(key)
+        if exp is not None and exp <= time.monotonic():
+            self._data.pop(key, None)
+            self._expire.pop(key, None)
             return None
         self._data.move_to_end(key)
         return self._data[key]
@@ -84,8 +90,11 @@ class MemoryCache(CacheBackend):
         return False
 
     def _purge_expired(self) -> None:
-        """惰性清理过期 key。"""
+        """惰性清理过期 key（节流：最多每 30 秒全表扫描一次）。"""
         now = time.monotonic()
+        if now - self._last_purge < 30.0:
+            return
+        self._last_purge = now
         expired = [k for k, exp in self._expire.items() if exp <= now]
         for k in expired:
             self._data.pop(k, None)
