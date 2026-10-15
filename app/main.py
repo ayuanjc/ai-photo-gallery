@@ -31,6 +31,7 @@ from .scene.dictionary import get_scene_dict
 from .services.face_service import FaceService
 from .services.feedback_service import init_feedback_service
 from .services.immich import ImmichClient
+from .services.immich_capabilities import ImmichCapabilities
 
 from .services.immich_uploader import ImmichAssetUploader
 from .services.importer import BatchImporter
@@ -66,6 +67,14 @@ async def lifespan(app: FastAPI):
     setup_logging(settings.log_level)
 
     immich = ImmichClient(settings)
+
+    try:
+        capabilities = await ImmichCapabilities.probe(immich)
+    except Exception:
+        logger.exception("Immich 能力探测失败，使用空能力集降级")
+        capabilities = ImmichCapabilities()
+    app.state.capabilities = capabilities
+
     vision: VisionProvider = (
         HuaweiVisionProvider(settings) if settings.huawei_enabled else NullVisionProvider()
     )

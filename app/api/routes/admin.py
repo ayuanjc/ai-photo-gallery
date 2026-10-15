@@ -91,6 +91,15 @@ async def verify_key(body: VerifyRequest) -> dict:
     return {"valid": True, "mode": "key-auth"}
 
 
+@router.get("/admin/api/capabilities")
+async def get_capabilities(request: Request) -> dict:
+    _verify_admin_key(request)
+    cap = getattr(request.app.state, "capabilities", None)
+    if cap is None:
+        return {"capabilities": None, "message": "能力探测未执行"}
+    return {"capabilities": cap.as_dict()}
+
+
 @router.get("/admin/api/status")
 async def system_status(request: Request) -> dict:
     _verify_admin_key(request)
