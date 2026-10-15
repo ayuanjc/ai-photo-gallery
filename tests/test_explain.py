@@ -73,7 +73,7 @@ class TestBuildExplanation:
     def test_high_semantic_and_fresh_time_two_reasons(self):
         """高语义(>=0.8) + 新时间(>=0.7) → reasons 包含两条。"""
         exp = build_explanation({}, 0.85, 0.72, (0.3, 0.7), None)
-        assert "语义相似度高" in exp["reasons"]
+        assert "语义召回名次靠前" in exp["reasons"]
         assert "拍摄时间较新" in exp["reasons"]
         assert len(exp["reasons"]) == 2
 
@@ -127,7 +127,7 @@ class TestBuildExplanation:
         """高语义 + 新时间 + 命中场景 → 三条 reason 齐全。"""
         scene_tags = {"scenes": ["nature"]}
         exp = build_explanation({}, 0.9, 0.8, (0.2, 0.8), scene_tags)
-        assert exp["reasons"] == ["语义相似度高", "拍摄时间较新", "命中场景：自然"]
+        assert exp["reasons"] == ["语义召回名次靠前", "拍摄时间较新", "命中场景：自然"]
 
     def test_scene_tags_none_fallback_to_asset(self):
         """scene_tags 为 None 时回退到 asset 上的 scenes。"""

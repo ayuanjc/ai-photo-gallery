@@ -5,11 +5,12 @@
     - 热门搜索词（内存 LRU 计数，复用 TimeDecayedLFUCache）
 
 匹配规则：
-    - 建议接口：前缀匹配优先，其次包含匹配
-    - 纠错接口：Levenshtein 编辑距离 <= 阈值时返回最近词典词
+    - 建议接口：bisect 二分查找前缀匹配（O(log n + k)），其次包含匹配
+    - 纠错接口：拼音缩写映射 + 英文大小写归一化 + Levenshtein 编辑距离 + 置信度阈值
 """
 from __future__ import annotations
 
+import bisect
 import logging
 import time
 
@@ -19,8 +20,30 @@ from ..utils.cache import TimeDecayedLFUCache
 
 logger = logging.getLogger(__name__)
 
-# 热门词热度半衰期：1 小时（越久没搜的词热度衰减越多）
 _HOT_QUERY_HALFLIFE_SECONDS = 3600.0
+
+_PINYIN_MAP: dict[str, str] = {
+    "hai bian": "海边", "haibian": "海边",
+    "ri luo": "日落", "riluo": "日落",
+    "shan feng": "山峰", "shanfeng": "山峰",
+    "xue jing": "雪景", "xuejing": "雪景",
+    "ye jing": "夜景", "yejing": "夜景",
+    "hua hui": "花卉", "huahui": "花卉",
+    "jian zhu": "建筑", "jianzhu": "建筑",
+    "mei shi": "美食", "meishi": "美食",
+    "chong wu": "宠物", "chongwu": "宠物",
+    "er tong": "儿童", "ertong": "儿童",
+    "yun dong": "运动", "yundong": "运动",
+}
+
+_EN_CN_MAP: dict[str, str] = {
+    "beach": "海边", "sunset": "日落", "mountain": "山峰",
+    "snow": "雪景", "night": "夜景", "flower": "花卉",
+    "building": "建筑", "food": "美食", "pet": "宠物",
+    "child": "儿童", "kid": "儿童", "sport": "运动",
+    "ocean": "海边", "sea": "海边", "dawn": "日出",
+    "sunrise": "日出", "forest": "森林", "river": "河流",
+}
 
 
 class SuggestService:
@@ -34,11 +57,9 @@ class SuggestService:
             halflife_seconds=_HOT_QUERY_HALFLIFE_SECONDS,
         )
         self._vocabulary: list[str] = self._build_vocabulary()
-
-    # ---- 词汇表构建 ----
+        self._sorted_vocab: list[str] = sorted(self._vocabulary)
 
     def _build_vocabulary(self) -> list[str]:
-        """从场景词典构建词汇表：scene key + label + children + visual_attrs。"""
         words: list[str] = []
         for key, entry in self._scene_dict.scenes.items():
             words.append(key)
@@ -52,13 +73,9 @@ class SuggestService:
             for v in values:
                 if isinstance(v, str) and v:
                     words.append(v)
-        # 去重保序
         return list(dict.fromkeys(words))
 
-    # ---- 热门词统计 ----
-
     def record_query(self, query: str) -> None:
-        """记录一次搜索查询（用于热门词统计）。"""
         if not query or not self._settings.suggest_enabled:
             return
         try:
@@ -67,7 +84,6 @@ class SuggestService:
             logger.warning("热门词记录失败: %s", exc)
 
     def top_n(self, n: int) -> list[str]:
-        """返回热度最高的 n 个查询词。"""
         if n <= 0:
             return []
         try:
@@ -82,10 +98,22 @@ class SuggestService:
             logger.warning("热门词 top_n 计算失败: %s", exc)
             return []
 
-    # ---- 搜索建议 ----
+    def _bisect_prefix(self, q: str, candidates: list[str], limit: int) -> list[str]:
+        """用 bisect 在已排序列表上做前缀匹配，O(log n + k)。"""
+        left = bisect.bisect_left(candidates, q)
+        results: list[str] = []
+        i = left
+        while i < len(candidates) and len(results) < limit:
+            w = candidates[i]
+            if not w.startswith(q):
+                break
+            if w != q:
+                results.append(w)
+            i += 1
+        return results
 
     def suggest(self, q: str, limit: int) -> tuple[list[str], bool, list[str]]:
-        """搜索建议：前缀匹配优先，其次包含匹配。
+        """搜索建议：bisect 前缀匹配优先，其次包含匹配。
 
         返回 (suggestions, degraded, warnings)。
         """
@@ -97,64 +125,89 @@ class SuggestService:
         if not q:
             return self.top_n(limit), False, warnings
 
-        # 合并词汇表和热门词（热门词可能不在词汇表中）
-        candidates = list(self._vocabulary)
-        for hot in self._hot_queries._data:
-            if hot not in candidates:
-                candidates.append(hot)
+        sorted_candidates = self._sorted_vocab
+        hot_words = sorted(
+            w for w in self._hot_queries._data if w not in set(self._vocabulary)
+        )
+        if hot_words:
+            merged: list[str] = []
+            i = j = 0
+            while i < len(sorted_candidates) and j < len(hot_words):
+                if sorted_candidates[i] <= hot_words[j]:
+                    merged.append(sorted_candidates[i])
+                    i += 1
+                else:
+                    merged.append(hot_words[j])
+                    j += 1
+            merged.extend(sorted_candidates[i:])
+            merged.extend(hot_words[j:])
+            sorted_candidates = merged
 
-        # 前缀匹配优先
-        prefix_matches = [w for w in candidates if w.startswith(q) and w != q]
-        # 包含匹配其次（排除已在前缀匹配中的）
+        prefix_matches = self._bisect_prefix(q, sorted_candidates, limit)
+        if len(prefix_matches) >= limit:
+            return prefix_matches[:limit], False, warnings
+
         prefix_set = set(prefix_matches)
+        all_candidates = self._vocabulary + [
+            w for w in self._hot_queries._data if w not in set(self._vocabulary)
+        ]
         contains_matches = [
-            w for w in candidates
+            w for w in all_candidates
             if q in w and w != q and w not in prefix_set
         ]
 
         results = (prefix_matches + contains_matches)[:limit]
         return results, False, warnings
 
-    # ---- 搜索纠错 ----
+    def correct(self, q: str) -> tuple[str | None, float, bool, list[str]]:
+        """搜索纠错：拼音映射 → 英文映射 → Levenshtein 编辑距离。
 
-    def correct(self, q: str) -> tuple[str | None, bool, list[str]]:
-        """搜索纠错：用 Levenshtein 编辑距离匹配场景词典。
-
-        返回 (corrected, degraded, warnings)。
+        返回 (corrected, confidence, applied, warnings)。
+        置信度低于阈值时 applied=false，原样返回。
         """
         warnings: list[str] = []
-        if not self._settings.suggest_enabled:
-            return None, False, warnings
+        if not getattr(self._settings, "correct_enabled", True):
+            return None, 0.0, False, warnings
 
         q = (q or "").strip()
         if not q:
-            return None, False, warnings
+            return None, 0.0, False, warnings
+
+        q_lower = q.lower()
+
+        if q_lower in _PINYIN_MAP:
+            return _PINYIN_MAP[q_lower], 0.9, True, warnings
+
+        if q_lower in _EN_CN_MAP:
+            return _EN_CN_MAP[q_lower], 0.8, True, warnings
+
+        for en, cn in _EN_CN_MAP.items():
+            if q_lower == en or q_lower == en.capitalize():
+                return cn, 0.8, True, warnings
 
         max_dist = self._settings.suggest_edit_distance_max
         best_word: str | None = None
         best_dist = max_dist + 1
 
         for word in self._vocabulary:
-            dist = self._levenshtein(q, word)
+            dist = self._levenshtein(q_lower, word.lower())
             if dist == 0:
-                # 完全匹配，无需纠正
-                return None, False, warnings
+                return None, 1.0, False, warnings
             if dist < best_dist:
                 best_dist = dist
                 best_word = word
 
         if best_word is not None and best_dist <= max_dist:
-            return best_word, False, warnings
-        return None, False, warnings
+            confidence = 1.0 - best_dist / max(len(q), len(best_word), 1)
+            threshold = getattr(self._settings, "correct_confidence_threshold", 1.0)
+            if confidence >= threshold:
+                return best_word, round(confidence, 4), True, warnings
+            return best_word, round(confidence, 4), False, warnings
 
-    # ---- Levenshtein 编辑距离（自己实现，不引依赖）----
+        return None, 0.0, False, warnings
 
     @staticmethod
     def _levenshtein(s1: str, s2: str) -> int:
-        """计算两个字符串的 Levenshtein 编辑距离。
-
-        操作：插入、删除、替换，每步代价 1。
-        """
         if len(s1) < len(s2):
             return SuggestService._levenshtein(s2, s1)
         if len(s2) == 0:
@@ -172,13 +225,10 @@ class SuggestService:
         return prev[-1]
 
 
-# ---- 模块级单例（供路由层获取，避免每次请求重建）----
-
 _instance: SuggestService | None = None
 
 
 def get_suggest_service(settings: Settings) -> SuggestService:
-    """获取或创建 SuggestService 单例。"""
     global _instance
     if _instance is None:
         _instance = SuggestService(settings, get_scene_dict())
@@ -186,6 +236,5 @@ def get_suggest_service(settings: Settings) -> SuggestService:
 
 
 def reset_suggest_service() -> None:
-    """重置单例（测试用）。"""
     global _instance
     _instance = None

@@ -78,7 +78,12 @@ async def record_feedback(
     warnings: list[str] = []
     degraded = False
     try:
-        await service.record_feedback(body.asset_id, body.query, body.action)
+        recorded, reason = await service.record_feedback(
+            body.asset_id, body.query, body.action, body.session_id
+        )
+        if not recorded and reason == "rate_limited":
+            warnings.append("反馈频率超限，已忽略")
+            return FeedbackResponse(recorded=False, degraded=False, warnings=warnings)
     except Exception:
         degraded = True
         warnings.append("反馈记录异常，已降级")
@@ -126,8 +131,11 @@ async def correct(
     settings: Settings = Depends(get_settings_dep),
 ) -> CorrectResponse:
     service = get_suggest_service(settings)
-    corrected, degraded, warnings = service.correct(q)
-    return CorrectResponse(corrected=corrected, degraded=degraded, warnings=warnings)
+    corrected, confidence, applied, warnings = service.correct(q)
+    return CorrectResponse(
+        corrected=corrected, confidence=confidence, applied=applied,
+        degraded=False, warnings=warnings,
+    )
 
 # ---- 自动相册（末尾追加，挂在同一个 router 下）----
 from datetime import datetime as _datetime

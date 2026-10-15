@@ -170,11 +170,13 @@ class FeedbackRequest(BaseModel):
     - asset_id: 被反馈的资产 ID。
     - query: 触发该结果的搜索关键词。
     - action: 用户行为，click（点击）或 skip（跳过）。
+    - session_id: 可选会话标识，用于防刷（同一会话对同一资产限次）。
     """
 
     asset_id: str = Field(..., min_length=1, max_length=128, description="资产 ID")
     query: str = Field(..., description="搜索关键词")
     action: str = Field(..., description="用户行为: click | skip")
+    session_id: str = Field(default="", max_length=128, description="可选会话标识（防刷）")
 
     @field_validator("asset_id")
     @classmethod

@@ -215,9 +215,9 @@ def feature_gate(key: str):
         settings = _gs()
         settings_default = {
             "ai_enabled": True,
-            "feedback_enabled": True,
-            "suggest_enabled": True,
-            "correct_enabled": True,
+            "feedback_enabled": getattr(settings, "feedback_enabled", True),
+            "suggest_enabled": getattr(settings, "suggest_enabled", True),
+            "correct_enabled": getattr(settings, "correct_enabled", True),
             "stats_enabled": getattr(settings, "stats_enabled", True),
         }.get(key, True)
         if not runtime_enabled(key, settings_default):

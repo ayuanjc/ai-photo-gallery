@@ -93,6 +93,8 @@ class CorrectResponse(BaseModel):
     """搜索纠错响应。"""
 
     corrected: str | None = Field(default=None, description="纠正后的关键词，无匹配时为 null")
+    confidence: float = Field(default=0.0, description="纠错置信度 [0,1]")
+    applied: bool = Field(default=False, description="是否实际应用了纠错")
     degraded: bool = Field(default=False, description="是否发生降级")
     warnings: list[str] = Field(default_factory=list)
 
