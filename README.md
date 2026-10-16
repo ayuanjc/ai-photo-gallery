@@ -22,6 +22,27 @@
 - 交集为空时自动降级为加权评分合并：`Score = w1·S_person + w2·S_location + w3·S_query`
 - 权重：person(0.5) > location(0.3) > query(0.2)
 
+### Immich 原生集成
+
+- **能力探测**：自动探测 Immich 版本与 9 项能力（搜索/元数据/标签/相册/人脸/插件/工作流…），依据能力降级
+- **AI 场景标签写回**：搜索时异步将 AI 场景标签写回 Immich（幂等 + 可撤销 + 审计日志）
+- **AI 相册写回**：按场景 + 月份自动创建/更新 Immich 相册（`AI·场景·YYYY-MM` 命名）
+- **图片代理**：缩略图 / 原图 / 共享链接代理，避免前端直连 Immich
+- **增量水位同步**：基于 `updatedAt` 水线增量拉取，避免全量扫描
+- **bulk-upload-check**：上传前查重，避免重复入库
+- **写回管理**：统一写回客户端（`idempotent` / `rollback` / `audit` 三模式），一键回滚
+- **冲突策略**：标签/相册冲突时可配置策略（skip / overwrite / merge），失败不阻塞主流程
+
+### Immich 插件 / 工作流原生嵌入
+
+- **插件 hook 端点**：`POST /api/v1/plugin/hook`，接收 Immich 工作流 webhook 回调，触发场景分析 + 标签/相册写回
+- **工作流管理**：通过 Immich v3.3+ 工作流 API 自动创建/更新/删除工作流
+- **三个默认工作流**：
+  - `yunying-on-upload`：`AssetCreate` → webhook → 场景分析 + 标签写回
+  - `yunying-on-metadata`：`AssetMetadataExtraction` → webhook → 元数据补全
+  - `yunying-on-tagged`：`AssetTagged` → webhook → 归档检查 + 相册写回
+- **无需 WASM 插件**：直接使用 Immich 内置 `immich-plugin-core` 方法（`assetAddTags` / `assetAddToAlbums` / `webhook`）
+
 ### 工程化能力
 
 - 统一错误码体系（`AppError`，区分 400/401/429/502/503/504/500）
@@ -67,11 +88,20 @@
 | GET | `/api/v1/watermark/templates` | 水印模板列表 |
 | GET | `/api/v1/watermark/licenses` | 水印字体许可证 |
 | POST | `/api/v1/watermark/apply` | 批量添加水印（文字/图片） |
+| GET | `/api/v1/assets/{id}/thumbnail` | 图片代理 — 缩略图/预览图 |
+| GET | `/api/v1/assets/{id}/original` | 图片代理 — 原图 |
+| POST | `/api/v1/plugin/hook` | Immich 插件/工作流 webhook 回调 |
 | GET | `/admin/api/features` | 管理接口 — 功能开关查询 |
 | PUT | `/admin/api/features` | 管理接口 — 功能开关更新 |
 | GET | `/admin/api/status` | 管理接口 — 服务状态 |
 | GET | `/admin/api/settings` | 管理接口 — 配置查询 |
 | PUT | `/admin/api/settings` | 管理接口 — 配置更新 |
+| GET | `/admin/api/capabilities` | 管理接口 — Immich 能力探测 |
+| POST | `/admin/api/sync` | 管理接口 — 增量水位同步 |
+| GET | `/admin/api/writeback/audit` | 管理接口 — 写回审计日志 |
+| GET | `/admin/api/workflows` | 管理接口 — 工作流列表 |
+| POST | `/admin/api/workflows/setup` | 管理接口 — 创建默认工作流 |
+| DELETE | `/admin/api/workflows/{id}` | 管理接口 — 删除工作流 |
 | GET | `/health` | 健康检查 |
 
 ### 请求示例
@@ -137,7 +167,9 @@ a01/
 │   │       ├── ai.py                    # AI 分析路由
 │   │       ├── scene.py                 # 场景词典路由
 │   │       ├── stats.py                 # 统计大屏路由（map / exif / gear）
-│   │       ├── admin.py                 # 管理接口路由（功能开关 / 配置 / 状态）
+│   │       ├── admin.py                 # 管理接口路由（功能开关 / 配置 / 状态 / 工作流）
+│   │       ├── assets.py                # 资产代理路由（缩略图 / 原图 / 共享链接）
+│   │       ├── plugin.py                # Immich 插件/工作流 hook 回调路由
 │   │       ├── batch_import.py          # 批量导入路由
 │   │       └── watermark.py            # 水印管理路由
 │   ├── core/
@@ -159,6 +191,14 @@ a01/
 │   ├── services/
 │   │   ├── immich.py                    # Immich 客户端（重试/超时/错误分类）
 │   │   ├── immich_uploader.py           # Immich 文件上传
+│   │   ├── immich_capabilities.py       # Immich 能力探测（版本/搜索/插件/工作流…）
+│   │   ├── immich_writeback.py          # 统一写回客户端（幂等/回滚/审计）
+│   │   ├── writeback_manager.py         # 写回管理 + 冲突策略 + 一键回滚
+│   │   ├── scene_writeback.py           # AI 场景标签写回
+│   │   ├── album_writeback.py           # AI 相册写回（场景 + 月份）
+│   │   ├── image_proxy.py               # 图片代理（缩略图/原图/共享链接）
+│   │   ├── incremental_sync.py          # 增量水位同步（updatedAt 水线）
+│   │   ├── workflow_manager.py          # Immich 工作流管理（创建/更新/删除/默认模板）
 │   │   ├── ranking.py                   # 二次排序算法（衰减/动态权重/多模态融合/场景权重）
 │   │   ├── search_service.py            # 搜索编排（视觉增强 + 场景标注 + 排序 + 去重）
 │   │   ├── face_service.py              # 人脸分类编排（检测/入库/搜索/高斯聚类）
@@ -198,11 +238,14 @@ a01/
 │       ├── path_safety.py               # 路径安全校验
 │       ├── time_parsing.py              # EXIF 时间解析与新鲜度计算
 │       └── url_safety.py                # URL 安全校验（SSRF 防护）
-├── tests/                               # 单元测试与集成测试（732 用例）
+├── tests/                               # 单元测试与集成测试（732+ 用例）
 ├── brute_test.py                        # 破坏性测试（160 用例，六大类场景）
+├── verify_integration.py                # 端到端验收脚本（P1-P21，9 项检查）
 ├── .env.example                         # 环境配置示例
 ├── Dockerfile
 ├── docker-compose.yml
+├── docker-compose.override.yml          # Immich 联合部署覆盖配置
+├── nginx.conf                           # Nginx 反向代理配置
 └── pyproject.toml
 ```
 
@@ -260,6 +303,9 @@ uvicorn app.main:app --reload
 | `STATS_ENABLED` | `true` | 是否启用统计大屏 |
 | `WATERMARK_ENABLED` | `true` | 是否启用水印功能 |
 | `FEEDBACK_ENABLED` | `true` | 是否启用搜索反馈 |
+| `WRITEBACK_ENABLED` | `false` | 是否启用 AI 标签/相册写回 Immich |
+| `WRITEBACK_MODE` | `idempotent` | 写回模式（`idempotent` / `rollback` / `audit`） |
+| `PLUGIN_HOOK_TOKEN` | `""` | 插件 hook 端点鉴权 token（空=不鉴权） |
 
 ## 错误码体系
 
@@ -283,10 +329,13 @@ uvicorn app.main:app --reload
 
 ```bash
 # 单元测试 + 集成测试
-pytest                    # 732 passed
+pytest                    # 732+ passed
 
 # 破坏性测试（六大类：输入畸形/网络故障/并发耗尽/数学边界/数据污染/安全攻击）
 pytest brute_test.py      # 160 passed
+
+# 端到端验收（需启动服务 + Immich）
+python verify_integration.py --base-url http://127.0.0.1:8000
 ```
 
 ### 测试覆盖
@@ -333,4 +382,24 @@ docker compose up --build
 
 - GitCode 保护分支 + Pull Request 审查流程
 - 全程使用华为云 CodeArts 辅助开发
-- 已合并 16+ PR，732 单元测试 + 160 破坏性测试全部通过
+- 已合并 16+ PR，732+ 单元测试 + 160 破坏性测试全部通过
+
+## Immich 原生工作流部署
+
+```bash
+# 1. 启动服务
+uvicorn app.main:app --host 127.0.0.1 --port 8000
+
+# 2. 创建默认工作流（在 Immich 中自动注册三个工作流）
+curl -X POST http://127.0.0.1:8000/admin/api/workflows/setup \
+  -H "Content-Type: application/json" \
+  -d '{"hook_url": "http://127.0.0.1:8000/api/v1/plugin/hook"}'
+
+# 3. 验收
+python verify_integration.py
+```
+
+三个工作流将在 Immich 中自动生效：
+- 照片上传 → 自动场景分析 + AI 标签写回
+- 元数据提取完成 → 自动补全描述
+- 标签写入完成 → 自动归档检查 + AI 相册创建
