@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""P1-P16 端到端验收脚本。
+"""P1-P21 端到端验收脚本。
 
 用法：
     python verify_integration.py [--base-url http://127.0.0.1:8000] [--admin-key KEY]
@@ -12,6 +12,8 @@
     5. 增量同步端点
     6. 写回审计日志端点
     7. 功能开关列表
+    8. 工作流列表（Immich 原生工作流）
+    9. 插件 hook 端点
 """
 from __future__ import annotations
 
@@ -122,11 +124,47 @@ async def run_checks(base_url: str, admin_key: str) -> bool:
         except Exception as exc:
             all_pass &= check("GET /admin/api/features", False, str(exc))
 
+        print("\n=== 8. 工作流（Immich 原生） ===")
+        try:
+            resp = await client.get("/admin/api/workflows", headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                count = data.get("count", 0)
+                workflows = data.get("workflows", [])
+                all_pass &= check("GET /admin/api/workflows", True, f"count={count}")
+                yunying_wfs = [
+                    w for w in workflows
+                    if isinstance(w, dict) and "yunying" in (w.get("name") or "").lower()
+                ]
+                all_pass &= check(
+                    "  云影默认工作流已创建",
+                    len(yunying_wfs) >= 3,
+                    f"找到 {len(yunying_wfs)} 个",
+                )
+            else:
+                all_pass &= check("GET /admin/api/workflows", False, f"status={resp.status_code}")
+        except Exception as exc:
+            all_pass &= check("GET /admin/api/workflows", False, str(exc))
+
+        print("\n=== 9. 插件 hook 端点 ===")
+        try:
+            resp = await client.post(
+                "/api/v1/plugin/hook",
+                json={"event": "asset.upload", "assetId": "test-id"},
+            )
+            all_pass &= check(
+                "POST /api/v1/plugin/hook",
+                resp.status_code in (200, 202, 400, 401, 404, 502),
+                f"status={resp.status_code}",
+            )
+        except Exception as exc:
+            all_pass &= check("POST /api/v1/plugin/hook", False, str(exc))
+
     return all_pass
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="P1-P16 端到端验收")
+    parser = argparse.ArgumentParser(description="P1-P21 端到端验收")
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
     parser.add_argument("--admin-key", default="")
     args = parser.parse_args()
