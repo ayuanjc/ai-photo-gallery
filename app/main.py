@@ -157,6 +157,14 @@ async def lifespan(app: FastAPI):
     # 工作流管理：Immich 原生工作流创建/管理
     app.state.workflow_manager = WorkflowManager(immich, settings)
 
+    # ML 服务层：场景推理 + 向量索引 + 模型管理
+    from .services.ml_scene_inferrer import create_ml_inferrer
+    from .services.vector_index import VectorIndex
+    from .services.model_manager import ModelManager
+    app.state.ml_inferrer = create_ml_inferrer(settings)
+    app.state.vector_index = VectorIndex()
+    app.state.model_manager = ModelManager()
+
     # 批量导入：元数据提取 → 上传 Immich
     metadata_extractor = MetadataExtractor(settings.default_datetime_iso)
     immich_uploader = ImmichAssetUploader(settings)
