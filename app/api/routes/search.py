@@ -63,6 +63,18 @@ async def smart_search(
         album_writeback = getattr(http_request.app.state, "album_writeback", None)
         if album_writeback is not None:
             background_tasks.add_task(album_writeback.writeback_albums, results_data)
+        desc_writeback = getattr(http_request.app.state, "description_writeback", None)
+        if desc_writeback is not None:
+            desc_data = [
+                {
+                    "asset_id": r.asset_id,
+                    "scene": r.scene.model_dump() if r.scene else None,
+                    "final_score": r.final_score,
+                    "similarity_score": r.similarity_score,
+                }
+                for r in response.results
+            ]
+            background_tasks.add_task(desc_writeback.writeback_descriptions, desc_data)
 
     # 评分附加与 min_rating 过滤
     rating_service = getattr(http_request.app.state, "rating_service", None)

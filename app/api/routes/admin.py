@@ -117,6 +117,29 @@ async def rollback_asset(asset_id: str, request: Request) -> dict:
     return {"rollback": result}
 
 
+@router.post("/admin/api/writeback/descriptions")
+async def trigger_description_writeback(request: Request) -> dict:
+    """手动触发描述/评分写回。
+
+    Body: {"results": [{"asset_id": "...", "scene": {...}, "final_score": 0.85}]}
+    """
+    _verify_admin_key(request)
+    desc_wb = getattr(request.app.state, "description_writeback", None)
+    if desc_wb is None:
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "描述写回服务未初始化")
+    body = await request.json()
+    results = body.get("results", []) if body else []
+    dry_run = body.get("dry_run", False) if body else False
+    entries = await desc_wb.writeback_descriptions(results, dry_run=dry_run)
+    succeeded = sum(1 for e in entries if e.success)
+    return {
+        "total": len(entries),
+        "succeeded": succeeded,
+        "failed": len(entries) - succeeded,
+        "entries": [e.model_dump() for e in entries],
+    }
+
+
 @router.get("/admin/api/workflows")
 async def list_workflows(request: Request) -> dict:
     _verify_admin_key(request)

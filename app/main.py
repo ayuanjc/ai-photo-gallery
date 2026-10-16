@@ -36,6 +36,7 @@ from .services.immich_capabilities import ImmichCapabilities
 from .services.immich_writeback import ImmichWriteBack
 from .services.scene_writeback import SceneWriteBack
 from .services.album_writeback import AlbumWriteBack
+from .services.description_writeback import DescriptionWriteBack
 from .services.image_proxy import ImageProxyService
 from .services.incremental_sync import IncrementalSync
 from .services.workflow_manager import WorkflowManager
@@ -142,6 +143,7 @@ async def lifespan(app: FastAPI):
     app.state.immich_writeback = writeback
     app.state.scene_writeback = SceneWriteBack(writeback, settings)
     app.state.album_writeback = AlbumWriteBack(writeback, settings)
+    app.state.description_writeback = DescriptionWriteBack(writeback, settings)
 
     # 图片代理：前端通过本服务访问 Immich 缩略图/原图
     app.state.image_proxy_service = ImageProxyService(immich, settings)
