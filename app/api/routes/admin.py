@@ -15,6 +15,7 @@ from __future__ import annotations
 import hmac
 import time
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
@@ -117,6 +118,29 @@ async def rollback_asset(asset_id: str, request: Request) -> dict:
     return {"rollback": result}
 
 
+@router.post("/admin/api/writeback/descriptions")
+async def trigger_description_writeback(request: Request) -> dict:
+    """手动触发描述/评分写回。
+
+    Body: {"results": [{"asset_id": "...", "scene": {...}, "final_score": 0.85}]}
+    """
+    _verify_admin_key(request)
+    desc_wb = getattr(request.app.state, "description_writeback", None)
+    if desc_wb is None:
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "描述写回服务未初始化")
+    body = await request.json()
+    results = body.get("results", []) if body else []
+    dry_run = body.get("dry_run", False) if body else False
+    entries = await desc_wb.writeback_descriptions(results, dry_run=dry_run)
+    succeeded = sum(1 for e in entries if e.success)
+    return {
+        "total": len(entries),
+        "succeeded": succeeded,
+        "failed": len(entries) - succeeded,
+        "entries": [e.model_dump() for e in entries],
+    }
+
+
 @router.get("/admin/api/workflows")
 async def list_workflows(request: Request) -> dict:
     _verify_admin_key(request)
@@ -148,6 +172,66 @@ async def delete_workflow(wf_id: str, request: Request) -> dict:
         raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "工作流管理服务未初始化")
     success = await mgr.delete_workflow(wf_id)
     return {"deleted": success, "id": wf_id}
+
+
+@router.get("/admin/api/ml/health")
+async def ml_health(request: Request) -> dict:
+    """ML 服务健康检查。"""
+    _verify_admin_key(request)
+    inferrer = getattr(request.app.state, "ml_inferrer", None)
+    model_mgr = getattr(request.app.state, "model_manager", None)
+    result: dict[str, Any] = {}
+    if inferrer is not None:
+        result["inferrer"] = {"name": inferrer.name, "healthy": await inferrer.probe()}
+    if model_mgr is not None:
+        result["models"] = await model_mgr.health_check()
+    return result
+
+
+@router.get("/admin/api/ml/models")
+async def list_models(request: Request) -> dict:
+    """列出所有已注册 ML 模型。"""
+    _verify_admin_key(request)
+    model_mgr = getattr(request.app.state, "model_manager", None)
+    if model_mgr is None:
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "模型管理服务未初始化")
+    models = model_mgr.list_models()
+    return {"models": [m.__dict__ for m in models], "count": len(models)}
+
+
+@router.post("/admin/api/ml/models/{name}/load")
+async def load_model(name: str, request: Request) -> dict:
+    """加载指定模型。"""
+    _verify_admin_key(request)
+    model_mgr = getattr(request.app.state, "model_manager", None)
+    if model_mgr is None:
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "模型管理服务未初始化")
+    try:
+        await model_mgr.load(name)
+        return {"loaded": True, "name": name}
+    except Exception as exc:
+        return {"loaded": False, "name": name, "error": str(exc)}
+
+
+@router.post("/admin/api/ml/models/{name}/unload")
+async def unload_model(name: str, request: Request) -> dict:
+    """卸载指定模型。"""
+    _verify_admin_key(request)
+    model_mgr = getattr(request.app.state, "model_manager", None)
+    if model_mgr is None:
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "模型管理服务未初始化")
+    success = await model_mgr.unload(name)
+    return {"unloaded": success, "name": name}
+
+
+@router.get("/admin/api/vector/stats")
+async def vector_stats(request: Request) -> dict:
+    """向量索引统计。"""
+    _verify_admin_key(request)
+    vi = getattr(request.app.state, "vector_index", None)
+    if vi is None:
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "向量索引服务未初始化")
+    return await vi.stats()
 
 
 @router.put("/admin/api/features")

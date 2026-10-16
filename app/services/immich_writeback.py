@@ -30,7 +30,7 @@ _AI_PREFIX = "AI/"
 
 
 class WriteBackEntry(BaseModel):
-    action: str = Field(description="add_tag|remove_tag|add_to_album|remove_from_album|create_album")
+    action: str = Field(description="add_tag|remove_tag|add_to_album|remove_from_album|create_album|update_description|update_rating")
     asset_id: str | None = None
     target: str = Field(description="标签名或相册 ID/名称")
     target_id: str | None = None
@@ -38,11 +38,17 @@ class WriteBackEntry(BaseModel):
     success: bool = False
     error: str | None = None
     dry_run: bool = False
+    old_value: str | None = None
 
     def is_reverse_of(self, other: WriteBackEntry) -> bool:
         if self.asset_id != other.asset_id or self.target != other.target:
             return False
-        pairs = {("add_tag", "remove_tag"), ("add_to_album", "remove_from_album")}
+        pairs = {
+            ("add_tag", "remove_tag"),
+            ("add_to_album", "remove_from_album"),
+            ("update_description", "update_description"),
+            ("update_rating", "update_rating"),
+        }
         return (other.action, self.action) in pairs
 
 
@@ -214,6 +220,78 @@ class ImmichWriteBack:
         self._audit(entry)
         return entry
 
+    async def update_description(
+        self, asset_id: str, description: str, dry_run: bool = False
+    ) -> WriteBackEntry:
+        if not self._enabled() and not dry_run:
+            return WriteBackEntry(
+                action="update_description", asset_id=asset_id, target=description,
+                timestamp=self._now(), success=False, error="写回未启用",
+            )
+
+        entry = WriteBackEntry(
+            action="update_description", asset_id=asset_id, target=description,
+            timestamp=self._now(), dry_run=dry_run,
+        )
+
+        if dry_run:
+            entry.success = True
+            self._audit(entry)
+            return entry
+
+        try:
+            old = await self._immich.request_json("GET", f"/api/assets/{asset_id}")
+            if isinstance(old, dict):
+                entry.old_value = str(old.get("description") or "")
+            await self._immich.request_json(
+                "PUT", f"/api/assets/{asset_id}",
+                json={"description": description},
+            )
+            entry.success = True
+        except Exception as exc:
+            entry.error = str(exc)
+            logger.warning("描述写回失败 asset=%s: %s", asset_id, exc)
+
+        self._audit(entry)
+        return entry
+
+    async def update_rating(
+        self, asset_id: str, rating: int, dry_run: bool = False
+    ) -> WriteBackEntry:
+        rating = max(0, min(5, int(rating)))
+
+        if not self._enabled() and not dry_run:
+            return WriteBackEntry(
+                action="update_rating", asset_id=asset_id, target=str(rating),
+                timestamp=self._now(), success=False, error="写回未启用",
+            )
+
+        entry = WriteBackEntry(
+            action="update_rating", asset_id=asset_id, target=str(rating),
+            timestamp=self._now(), dry_run=dry_run,
+        )
+
+        if dry_run:
+            entry.success = True
+            self._audit(entry)
+            return entry
+
+        try:
+            old = await self._immich.request_json("GET", f"/api/assets/{asset_id}")
+            if isinstance(old, dict):
+                entry.old_value = str(old.get("rating") or "")
+            await self._immich.request_json(
+                "PUT", f"/api/assets/{asset_id}",
+                json={"rating": rating},
+            )
+            entry.success = True
+        except Exception as exc:
+            entry.error = str(exc)
+            logger.warning("评分写回失败 asset=%s rating=%d: %s", asset_id, rating, exc)
+
+        self._audit(entry)
+        return entry
+
     async def rollback(self, entries: list[WriteBackEntry]) -> list[WriteBackEntry]:
         results: list[WriteBackEntry] = []
         for entry in reversed(entries):
@@ -223,6 +301,12 @@ class ImmichWriteBack:
                 results.append(await self.remove_tag(entry.asset_id, entry.target))
             elif entry.action == "add_to_album" and entry.asset_id:
                 results.append(await self.remove_from_album(entry.asset_id, entry.target))
+            elif entry.action == "update_description" and entry.asset_id:
+                old_desc = entry.old_value or ""
+                results.append(await self.update_description(entry.asset_id, old_desc))
+            elif entry.action == "update_rating" and entry.asset_id:
+                old_rating = int(entry.old_value) if entry.old_value and entry.old_value.isdigit() else 0
+                results.append(await self.update_rating(entry.asset_id, old_rating))
         return results
 
     async def _find_tag(self, name: str) -> str | None:
