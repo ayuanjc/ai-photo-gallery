@@ -26,6 +26,7 @@
 
 - **能力探测**：自动探测 Immich 版本与 9 项能力（搜索/元数据/标签/相册/人脸/插件/工作流…），依据能力降级
 - **AI 场景标签写回**：搜索时异步将 AI 场景标签写回 Immich（幂等 + 可撤销 + 审计日志）
+- **AI 描述/评分写回**：自动生成 AI 描述（场景+视觉属性）和评分（final_score→1-5星）写回 Immich
 - **AI 相册写回**：按场景 + 月份自动创建/更新 Immich 相册（`AI·场景·YYYY-MM` 命名）
 - **图片代理**：缩略图 / 原图 / 共享链接代理，避免前端直连 Immich
 - **增量水位同步**：基于 `updatedAt` 水线增量拉取，避免全量扫描
@@ -68,6 +69,12 @@
 - Redis 缓存后端（可选，不可用时自动降级到内存）
 - 运行时配置热更新（管理接口动态切换功能开关）
 
+### ML 服务层
+
+- **ML 场景推理**：可插拔多后端（本地词典 / HTTP 远程 CLIP），批量推理 + 健康检查
+- **向量索引**：内存余弦相似度向量索引，LRU 淘汰，支持以图搜图和语义检索
+- **模型管理**：ML 模型生命周期管理（注册/加载/卸载/引用计数/超时保护/健康检查）
+
 ## API 接口
 
 | 方法 | 路径 | 说明 |
@@ -102,6 +109,12 @@
 | GET | `/admin/api/workflows` | 管理接口 — 工作流列表 |
 | POST | `/admin/api/workflows/setup` | 管理接口 — 创建默认工作流 |
 | DELETE | `/admin/api/workflows/{id}` | 管理接口 — 删除工作流 |
+| POST | `/admin/api/writeback/descriptions` | 管理接口 — 手动触发描述/评分写回 |
+| GET | `/admin/api/ml/health` | 管理接口 — ML 服务健康检查 |
+| GET | `/admin/api/ml/models` | 管理接口 — 模型列表 |
+| POST | `/admin/api/ml/models/{name}/load` | 管理接口 — 加载模型 |
+| POST | `/admin/api/ml/models/{name}/unload` | 管理接口 — 卸载模型 |
+| GET | `/admin/api/vector/stats` | 管理接口 — 向量索引统计 |
 | GET | `/health` | 健康检查 |
 
 ### 请求示例
@@ -199,6 +212,10 @@ a01/
 │   │   ├── image_proxy.py               # 图片代理（缩略图/原图/共享链接）
 │   │   ├── incremental_sync.py          # 增量水位同步（updatedAt 水线）
 │   │   ├── workflow_manager.py          # Immich 工作流管理（创建/更新/删除/默认模板）
+│   │   ├── description_writeback.py     # AI 描述/评分写回（场景→描述 + score→星级）
+│   │   ├── ml_scene_inferrer.py         # ML 场景推理（本地词典/HTTP远程，批量推理）
+│   │   ├── vector_index.py              # 向量索引（余弦相似度，LRU淘汰）
+│   │   ├── model_manager.py             # 模型管理（注册/加载/卸载/引用计数/健康检查）
 │   │   ├── ranking.py                   # 二次排序算法（衰减/动态权重/多模态融合/场景权重）
 │   │   ├── search_service.py            # 搜索编排（视觉增强 + 场景标注 + 排序 + 去重）
 │   │   ├── face_service.py              # 人脸分类编排（检测/入库/搜索/高斯聚类）
@@ -238,7 +255,7 @@ a01/
 │       ├── path_safety.py               # 路径安全校验
 │       ├── time_parsing.py              # EXIF 时间解析与新鲜度计算
 │       └── url_safety.py                # URL 安全校验（SSRF 防护）
-├── tests/                               # 单元测试与集成测试（732+ 用例）
+├── tests/                               # 单元测试与集成测试（910+ 用例）
 ├── brute_test.py                        # 破坏性测试（160 用例，六大类场景）
 ├── verify_integration.py                # 端到端验收脚本（P1-P21，9 项检查）
 ├── .env.example                         # 环境配置示例
@@ -329,7 +346,7 @@ uvicorn app.main:app --reload
 
 ```bash
 # 单元测试 + 集成测试
-pytest                    # 732+ passed
+pytest                    # 910+ passed
 
 # 破坏性测试（六大类：输入畸形/网络故障/并发耗尽/数学边界/数据污染/安全攻击）
 pytest brute_test.py      # 160 passed
@@ -382,7 +399,7 @@ docker compose up --build
 
 - GitCode 保护分支 + Pull Request 审查流程
 - 全程使用华为云 CodeArts 辅助开发
-- 已合并 16+ PR，732+ 单元测试 + 160 破坏性测试全部通过
+- 已合并 20+ PR，910+ 单元测试 + 160 破坏性测试全部通过
 
 ## Immich 原生工作流部署
 
