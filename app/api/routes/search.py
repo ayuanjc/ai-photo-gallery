@@ -44,8 +44,10 @@ async def smart_search(
     background_tasks: BackgroundTasks,
     service: SearchService = Depends(get_search_service),
 ) -> SearchResponse:
+    """语义搜索端点，支持评分附加与 min_rating 过滤 + 场景标签写回。"""
     response = await service.search(request)
 
+    # 场景标签写回（BackgroundTask，非阻塞）
     if (
         not response.cached
         and response.results
@@ -58,6 +60,25 @@ async def smart_search(
                 for r in response.results
             ]
             background_tasks.add_task(scene_writeback.writeback_scene_tags, results_data)
+
+    # 评分附加与 min_rating 过滤
+    rating_service = getattr(http_request.app.state, "rating_service", None)
+    if rating_service is not None:
+        asset_ids = [item.asset_id for item in response.results]
+        if asset_ids:
+            try:
+                rating_map = await rating_service.get_rating_map(asset_ids, "default")
+            except Exception as exc:
+                logger.warning("批量查询评分失败，降级不附加评分: %s", exc)
+                rating_map = {}
+
+            for item in response.results:
+                item.rating = rating_map.get(item.asset_id)
+
+            if request.min_rating is not None:
+                filtered = [item for item in response.results if item.rating is not None and item.rating >= request.min_rating]
+                response.results = filtered
+                response.total = len(filtered)
 
     return response
 

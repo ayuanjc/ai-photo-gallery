@@ -25,6 +25,9 @@ class SearchResultItem(BaseModel):
     explanation: dict[str, Any] | None = Field(
         default=None, description="排序可解释性信息（为什么排这里）"
     )
+    rating: int | None = Field(
+        default=None, ge=1, le=5, description="用户评分 1-5，未评分时为 null"
+    )
 
 
 class SearchResponse(BaseModel):

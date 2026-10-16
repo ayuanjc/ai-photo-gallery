@@ -36,6 +36,8 @@ class ErrorCode(str, Enum):
     SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE"
     # 请求过于频繁（触发限流）
     RATE_LIMITED = "RATE_LIMITED"
+    # 资源不存在（如评分记录未找到）
+    NOT_FOUND = "NOT_FOUND"
     # 服务内部错误
     INTERNAL_ERROR = "INTERNAL_ERROR"
 
@@ -54,6 +56,7 @@ STATUS_CODE_MAP: dict[ErrorCode, int] = {
     ErrorCode.AI_ANALYZER_TIMEOUT: 504,
     ErrorCode.SERVICE_UNAVAILABLE: 503,
     ErrorCode.RATE_LIMITED: 429,
+    ErrorCode.NOT_FOUND: 404,
     ErrorCode.INTERNAL_ERROR: 500,
 }
 

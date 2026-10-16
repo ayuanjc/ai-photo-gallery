@@ -19,13 +19,14 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .ai.factory import build_ai_analyzer
-from .api.routes import ai, admin, assets, batch_import, faces, scene, search, stats, watermark
+from .api.routes import ai, admin, assets, batch_import, faces, ratings, scene, search, stats, watermark
 from .core.cache import get_cache
 from .core.config import get_settings
 from .core.errors import AppError, ErrorCode
 from .core.logging import setup_logging
 from .core.rate_limit import TokenBucketRateLimiter
 from .core.redis_client import RedisClient
+from .db import close_db, init_db
 from .scene.analyzer import HttpSceneInferrer, NullSceneInferrer, SceneAnalyzer
 from .scene.dictionary import get_scene_dict
 from .services.face_service import FaceService
@@ -43,6 +44,7 @@ from .services.immich_uploader import ImmichAssetUploader
 from .services.importer import BatchImporter
 from .services.metadata import MetadataExtractor
 from .services.multi_condition_service import MultiConditionSearchService
+from .services.rating_service import RatingService
 from .services.search_service import SearchService
 from .services.stats_provider import StatsProvider
 from .services.vision.base import NullVisionProvider, VisionProvider
@@ -163,6 +165,19 @@ async def lifespan(app: FastAPI):
         settings, redis=redis_client.redis
     )
 
+    # 评分系统：初始化数据库 + 创建仓库 + 创建服务
+    app.state.rating_service = None
+    if settings.rating_enabled:
+        try:
+            from .repositories.sql_rating import SqlRatingRepository
+            session_factory = await init_db(settings.database_url)
+            repository = SqlRatingRepository(session_factory)
+            app.state.rating_service = RatingService(repository)
+            logger.info("评分系统初始化完成: %s", settings.database_url)
+        except Exception as exc:
+            logger.warning("评分系统初始化失败，降级禁用评分功能: %s", exc)
+            app.state.rating_service = None
+
 
     logger.info("应用启动：env=%s immich=%s", settings.app_env, settings.immich_base_url)
     try:
@@ -176,6 +191,8 @@ async def lifespan(app: FastAPI):
         await immich.aclose()
         app.state.watermark_processor.close()
         await redis_client.aclose()
+        if getattr(app.state, "rating_service", None) is not None:
+            await close_db()
         logger.info("应用关闭")
 
 
@@ -192,6 +209,7 @@ app = FastAPI(
         {"name": "stats", "description": "统计大屏：地图足迹、EXIF 分布、器材偏好"},
         {"name": "import", "description": "批量导入：本地图片 EXIF 提取并上传 Immich"},
         {"name": "watermark", "description": "水印管理：预置模板、授权类型、批量添加水印"},
+        {"name": "rating", "description": "照片评分：创建、更新、查询、删除、批量获取、统计"},
         {"name": "assets", "description": "资产代理：缩略图/原图代理获取"},
         {"name": "system", "description": "系统接口：健康检查"},
     ],
@@ -205,6 +223,7 @@ app.include_router(stats.router, prefix="/api/v1")
 app.include_router(assets.router, prefix="/api/v1")
 app.include_router(batch_import.router, prefix="/api/v1")
 app.include_router(watermark.router, prefix="/api/v1")
+app.include_router(ratings.router, prefix="/api/v1")
 app.include_router(admin.router)
 
 _STATIC_DIR = str(Path(__file__).parent / "static")
