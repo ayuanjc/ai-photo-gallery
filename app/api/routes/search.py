@@ -47,19 +47,22 @@ async def smart_search(
     """语义搜索端点，支持评分附加与 min_rating 过滤 + 场景标签写回。"""
     response = await service.search(request)
 
-    # 场景标签写回（BackgroundTask，非阻塞）
+    # 场景标签写回 + AI相册写回（BackgroundTask，非阻塞）
     if (
         not response.cached
         and response.results
         and runtime_enabled("writeback_enabled", getattr(get_settings(), "writeback_enabled", False))
     ):
+        results_data = [
+            {"asset_id": r.asset_id, "scene": r.scene.model_dump() if r.scene else None}
+            for r in response.results
+        ]
         scene_writeback = getattr(http_request.app.state, "scene_writeback", None)
         if scene_writeback is not None:
-            results_data = [
-                {"asset_id": r.asset_id, "scene": r.scene.model_dump() if r.scene else None}
-                for r in response.results
-            ]
             background_tasks.add_task(scene_writeback.writeback_scene_tags, results_data)
+        album_writeback = getattr(http_request.app.state, "album_writeback", None)
+        if album_writeback is not None:
+            background_tasks.add_task(album_writeback.writeback_albums, results_data)
 
     # 评分附加与 min_rating 过滤
     rating_service = getattr(http_request.app.state, "rating_service", None)
