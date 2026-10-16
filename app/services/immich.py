@@ -58,6 +58,7 @@ class ImmichClient:
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
             timeout=timeout,
+            trust_env=False,
             headers={"x-api-key": self._settings.immich_api_key, "Accept": "application/json"},
         )
         return self._client

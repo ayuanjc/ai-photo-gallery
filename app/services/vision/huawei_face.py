@@ -51,7 +51,7 @@ class HuaweiFaceClient:
                 write=settings.huawei_face_timeout_seconds,
                 pool=settings.huawei_face_timeout_seconds,
             )
-            self._client = httpx.AsyncClient(timeout=timeout)
+            self._client = httpx.AsyncClient(timeout=timeout, trust_env=False)
             self._owns_client = True
 
     @property

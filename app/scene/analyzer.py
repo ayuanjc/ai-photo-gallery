@@ -69,7 +69,7 @@ class HttpSceneInferrer(SceneInferrer):
             self._client = client
             self._owns_client = False
         else:
-            self._client = httpx.AsyncClient(timeout=httpx.Timeout(5.0))
+            self._client = httpx.AsyncClient(timeout=httpx.Timeout(5.0), trust_env=False)
             self._owns_client = True
 
     async def infer_scenes(self, asset: dict) -> list[str]:
