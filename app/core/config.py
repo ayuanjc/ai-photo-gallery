@@ -100,6 +100,8 @@ class Settings(BaseSettings):
 
     # ---- Immich 写回（标签/相册/描述，默认关闭）----
     writeback_enabled: bool = False
+    # 插件 hook 鉴权 token（空 = 不鉴权）
+    plugin_hook_token: str = ""
 
     huawei_ak: str = ""
     huawei_sk: SecretStr = SecretStr("")

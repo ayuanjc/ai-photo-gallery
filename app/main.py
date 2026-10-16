@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .ai.factory import build_ai_analyzer
-from .api.routes import ai, admin, assets, batch_import, faces, ratings, scene, search, stats, watermark
+from .api.routes import ai, admin, assets, batch_import, faces, plugin, ratings, scene, search, stats, watermark
 from .core.cache import get_cache
 from .core.config import get_settings
 from .core.errors import AppError, ErrorCode
@@ -38,6 +38,7 @@ from .services.scene_writeback import SceneWriteBack
 from .services.album_writeback import AlbumWriteBack
 from .services.image_proxy import ImageProxyService
 from .services.incremental_sync import IncrementalSync
+from .services.workflow_manager import WorkflowManager
 from .services.writeback_manager import WriteBackManager
 
 from .services.immich_uploader import ImmichAssetUploader
@@ -151,6 +152,9 @@ async def lifespan(app: FastAPI):
     # 写回管理：审计日志 + 一键回滚
     app.state.writeback_manager = WriteBackManager(writeback, settings)
 
+    # 工作流管理：Immich 原生工作流创建/管理
+    app.state.workflow_manager = WorkflowManager(immich, settings)
+
     # 批量导入：元数据提取 → 上传 Immich
     metadata_extractor = MetadataExtractor(settings.default_datetime_iso)
     immich_uploader = ImmichAssetUploader(settings)
@@ -211,6 +215,7 @@ app = FastAPI(
         {"name": "watermark", "description": "水印管理：预置模板、授权类型、批量添加水印"},
         {"name": "rating", "description": "照片评分：创建、更新、查询、删除、批量获取、统计"},
         {"name": "assets", "description": "资产代理：缩略图/原图代理获取"},
+        {"name": "plugin", "description": "Immich 插件/工作流 hook 回调"},
         {"name": "system", "description": "系统接口：健康检查"},
     ],
 )
@@ -221,6 +226,7 @@ app.include_router(faces.router, prefix="/api/v1")
 app.include_router(ai.router, prefix="/api/v1")
 app.include_router(stats.router, prefix="/api/v1")
 app.include_router(assets.router, prefix="/api/v1")
+app.include_router(plugin.router, prefix="/api/v1")
 app.include_router(batch_import.router, prefix="/api/v1")
 app.include_router(watermark.router, prefix="/api/v1")
 app.include_router(ratings.router, prefix="/api/v1")

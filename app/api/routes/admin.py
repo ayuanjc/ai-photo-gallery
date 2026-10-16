@@ -117,6 +117,39 @@ async def rollback_asset(asset_id: str, request: Request) -> dict:
     return {"rollback": result}
 
 
+@router.get("/admin/api/workflows")
+async def list_workflows(request: Request) -> dict:
+    _verify_admin_key(request)
+    mgr = getattr(request.app.state, "workflow_manager", None)
+    if mgr is None:
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "工作流管理服务未初始化")
+    workflows = await mgr.list_workflows()
+    return {"workflows": workflows, "count": len(workflows)}
+
+
+@router.post("/admin/api/workflows/setup")
+async def setup_workflows(request: Request) -> dict:
+    _verify_admin_key(request)
+    mgr = getattr(request.app.state, "workflow_manager", None)
+    if mgr is None:
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "工作流管理服务未初始化")
+    body = await request.json()
+    hook_url = body.get("hook_url", "http://127.0.0.1:8000/api/v1/plugin/hook")
+    hook_token = body.get("hook_token", "")
+    results = await mgr.setup_default_workflows(hook_url, hook_token)
+    return {"workflows": results, "count": len(results)}
+
+
+@router.delete("/admin/api/workflows/{wf_id}")
+async def delete_workflow(wf_id: str, request: Request) -> dict:
+    _verify_admin_key(request)
+    mgr = getattr(request.app.state, "workflow_manager", None)
+    if mgr is None:
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "工作流管理服务未初始化")
+    success = await mgr.delete_workflow(wf_id)
+    return {"deleted": success, "id": wf_id}
+
+
 @router.put("/admin/api/features")
 async def update_features(body: FeatureUpdates, request: Request) -> dict:
     _verify_admin_key(request)
