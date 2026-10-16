@@ -1,0 +1,84 @@
+services:
+  api:
+    environment:
+      - APP_ENV=development
+      - LOG_LEVEL=DEBUG
+      - IMMICH_BASE_URL=http://immich-server:2283
+      - IMMICH_API_KEY=${IMMICH_API_KEY}
+      - SEARCH_API_KEY=${SEARCH_API_KEY:-}
+      - ADMIN_API_KEY=${ADMIN_API_KEY:-}
+      - WRITEBACK_ENABLED=${WRITEBACK_ENABLED:-false}
+      - SCENE_ENABLED=true
+      - EXPLAIN_ENABLED=true
+      - DATA_DIR=/data
+    ports:
+      - "8000:8000"
+    volumes:
+      - api-data:/data
+      - ./app:/app/app:ro
+    depends_on:
+      immich-server:
+        condition: service_healthy
+
+  immich-server:
+    image: ghcr.io/immich-app/immich-server:${IMMICH_VERSION:-v3.3.1}
+    ports:
+      - "2283:2283"
+    environment:
+      - DB_HOSTNAME=immich-postgres
+      - DB_USERNAME=postgres
+      - DB_PASSWORD=${IMMICH_DB_PASSWORD:-postgres}
+      - DB_DATABASE_NAME=immich
+      - REDIS_HOSTNAME=immich-redis
+      - IMMICH_MACHINE_LEARNING_URL=http://immich-machine-learning:3003
+    volumes:
+      - immich-upload:/usr/src/app/upload
+      - immich-library:/usr/src/app/library
+      - immich-external:/usr/src/app/external
+    depends_on:
+      immich-postgres:
+        condition: service_healthy
+      immich-redis:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:2283/api/server/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  immich-machine-learning:
+    image: ghcr.io/immich-app/immich-machine-learning:${IMMICH_VERSION:-v3.3.1}
+    ports:
+      - "3003:3003"
+    volumes:
+      - immich-ml-cache:/cache
+    restart: unless-stopped
+
+  immich-postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${IMMICH_DB_PASSWORD:-postgres}
+      - POSTGRES_DB=immich
+    volumes:
+      - immich-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  immich-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+volumes:
+  api-data:
+  immich-upload:
+  immich-library:
+  immich-external:
+  immich-pg:
+  immich-ml-cache:

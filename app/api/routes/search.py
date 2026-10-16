@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
 
 logger = logging.getLogger(__name__)
 
 from ...core.config import get_settings
+from ...core.runtime_config import runtime_enabled
 from ...models.request import FeedbackRequest, MultiConditionSearchRequest, SearchRequest
 from ...models.response import (
     FeedbackResponse,
@@ -39,37 +40,45 @@ router = APIRouter(
 )
 async def smart_search(
     request: SearchRequest,
-    req: Request,
+    http_request: Request,
+    background_tasks: BackgroundTasks,
     service: SearchService = Depends(get_search_service),
 ) -> SearchResponse:
-    """语义搜索端点，支持评分附加与 min_rating 过滤。
-
-    搜索完成后批量查询评分（避免 N+1），附加到每条结果。
-    若请求携带 min_rating，则过滤掉评分低于阈值的资产。
-    """
+    """语义搜索端点，支持评分附加与 min_rating 过滤 + 场景标签写回。"""
     response = await service.search(request)
 
-    rating_service = getattr(req.app.state, "rating_service", None)
-    if rating_service is None:
-        return response
+    # 场景标签写回（BackgroundTask，非阻塞）
+    if (
+        not response.cached
+        and response.results
+        and runtime_enabled("writeback_enabled", getattr(get_settings(), "writeback_enabled", False))
+    ):
+        scene_writeback = getattr(http_request.app.state, "scene_writeback", None)
+        if scene_writeback is not None:
+            results_data = [
+                {"asset_id": r.asset_id, "scene": r.scene.model_dump() if r.scene else None}
+                for r in response.results
+            ]
+            background_tasks.add_task(scene_writeback.writeback_scene_tags, results_data)
 
-    asset_ids = [item.asset_id for item in response.results]
-    if not asset_ids:
-        return response
+    # 评分附加与 min_rating 过滤
+    rating_service = getattr(http_request.app.state, "rating_service", None)
+    if rating_service is not None:
+        asset_ids = [item.asset_id for item in response.results]
+        if asset_ids:
+            try:
+                rating_map = await rating_service.get_rating_map(asset_ids, "default")
+            except Exception as exc:
+                logger.warning("批量查询评分失败，降级不附加评分: %s", exc)
+                rating_map = {}
 
-    try:
-        rating_map = await rating_service.get_rating_map(asset_ids, "default")
-    except Exception as exc:
-        logger.warning("批量查询评分失败，降级不附加评分: %s", exc)
-        return response
+            for item in response.results:
+                item.rating = rating_map.get(item.asset_id)
 
-    for item in response.results:
-        item.rating = rating_map.get(item.asset_id)
-
-    if request.min_rating is not None:
-        filtered = [item for item in response.results if item.rating is not None and item.rating >= request.min_rating]
-        response.results = filtered
-        response.total = len(filtered)
+            if request.min_rating is not None:
+                filtered = [item for item in response.results if item.rating is not None and item.rating >= request.min_rating]
+                response.results = filtered
+                response.total = len(filtered)
 
     return response
 
