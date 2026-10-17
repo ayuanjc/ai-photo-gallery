@@ -8,9 +8,8 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
-
-import httpx
 
 from ..core.config import Settings
 from .immich import ImmichClient
@@ -19,6 +18,14 @@ logger = logging.getLogger(__name__)
 
 _VALID_SIZES = {"thumbnail", "preview", "full"}
 _DEFAULT_TIMEOUT = 15.0
+
+# asset_id 仅允许字母/数字/连字符/下划线（防御纵深：路由层已校验，此处兜底）
+_SAFE_ASSET_ID = re.compile(r"^[A-Za-z0-9\-_]+$")
+
+
+def _validate_asset_id(asset_id: str) -> None:
+    if not _SAFE_ASSET_ID.match(asset_id or ""):
+        raise ThumbnailFetchError("非法 asset_id", asset_id=asset_id or "")
 
 
 class ImageProxyService:
@@ -30,6 +37,7 @@ class ImageProxyService:
         self, asset_id: str, size: str = "preview"
     ) -> tuple[bytes, str, str]:
         """代理获取缩略图，返回 (image_bytes, content_type, etag)。"""
+        _validate_asset_id(asset_id)
         if size not in _VALID_SIZES:
             size = "preview"
 
@@ -60,6 +68,7 @@ class ImageProxyService:
         self, asset_id: str
     ) -> tuple[bytes, str, str]:
         """代理获取原图，返回 (image_bytes, content_type, etag)。"""
+        _validate_asset_id(asset_id)
         path = f"/api/assets/{asset_id}/original"
 
         client = await self._immich._get_client()
@@ -88,7 +97,7 @@ class ImageProxyService:
                 "expiresAt": None,
             }
             if expires_in_seconds > 0:
-                from datetime import datetime, timezone, timedelta
+                from datetime import datetime, timedelta, timezone
                 expiry = datetime.now(timezone.utc) + timedelta(seconds=expires_in_seconds)
                 payload["expiresAt"] = expiry.isoformat()
 

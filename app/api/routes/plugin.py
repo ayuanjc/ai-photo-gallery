@@ -16,6 +16,8 @@ Immich 工作流通过 webhook 方法回调此端点，
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 from typing import Any
 
@@ -24,11 +26,16 @@ from pydantic import BaseModel, Field
 
 from ...core.config import get_settings
 from ...core.runtime_config import runtime_enabled
-from ..deps import verify_api_key
+from ..deps import rate_limit_guard
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["plugin"])
+router = APIRouter(
+    tags=["plugin"],
+    dependencies=[Depends(rate_limit_guard)],
+)
+
+_DEDUP_TTL_SECONDS = 3600
 
 
 class PluginHookPayload(BaseModel):
@@ -42,6 +49,26 @@ class PluginHookResponse(BaseModel):
     continue_: bool = Field(default=True, alias="continue")
 
     model_config = {"populate_by_name": True}
+
+
+def _dedup_key(event: str, asset: dict[str, Any]) -> str:
+    """幂等去重 key：event + asset_id + updatedAt（资产更新后允许重新触发）。"""
+    raw = f"{event}:{asset.get('id', '')}:{asset.get('updatedAt', '')}"
+    return "plugin:hook:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+async def _is_duplicate(request: Request, event: str, asset: dict[str, Any]) -> bool:
+    """Redis SETNX 幂等去重；Redis 不可用时放行（降级不阻塞）。"""
+    redis_client = getattr(request.app.state, "redis_client", None)
+    redis = redis_client.redis if redis_client is not None and redis_client.connected else None
+    if redis is None:
+        return False
+    try:
+        first = await redis.set(_dedup_key(event, asset), "1", nx=True, ex=_DEDUP_TTL_SECONDS)
+        return first is None or first is False
+    except Exception as exc:
+        logger.warning("幂等去重检查失败，放行: %s", exc)
+        return False
 
 
 @router.post(
@@ -58,7 +85,7 @@ async def plugin_hook(
     settings = get_settings()
     expected_token = getattr(settings, "plugin_hook_token", "")
 
-    if expected_token and x_plugin_token != expected_token:
+    if expected_token and not hmac.compare_digest(x_plugin_token or "", expected_token):
         logger.warning("插件 hook 鉴权失败: token 不匹配")
         return PluginHookResponse(warnings=["鉴权失败"], continue_=False)
 
@@ -66,6 +93,13 @@ async def plugin_hook(
     if not asset_id:
         logger.warning("插件 hook 收到无 asset.id 的事件: %s", payload.event)
         return PluginHookResponse(warnings=["缺少 asset.id"])
+
+    if await _is_duplicate(request, payload.event, payload.asset):
+        logger.info("插件 hook 重复事件，已跳过: event=%s asset_id=%s", payload.event, asset_id)
+        return PluginHookResponse(
+            changes={"deduplicated": True},
+            warnings=["重复事件，已跳过"],
+        )
 
     logger.info(
         "插件 hook 收到事件: event=%s asset_id=%s",

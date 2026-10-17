@@ -1,6 +1,7 @@
 """FastAPI 依赖注入。"""
 from __future__ import annotations
 
+import hashlib
 import hmac
 
 from fastapi import Depends, Request
@@ -48,10 +49,11 @@ async def verify_api_key(
 
 
 def _get_client_id(request: Request, settings: Settings) -> str:
-    """提取限流客户端标识：优先 x-api-key，其次真实 IP，兜底 testclient。"""
+    """提取限流客户端标识：优先 x-api-key（存哈希，避免明文 Key 落 Redis），其次真实 IP。"""
     api_key = request.headers.get("x-api-key")
     if api_key:
-        return f"key:{api_key}"
+        digest = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:16]
+        return f"key:{digest}"
     client_host = request.client.host if request.client else "unknown"
     if settings.trusted_proxies and client_host in settings.trusted_proxies:
         forwarded = request.headers.get("x-forwarded-for")
@@ -139,9 +141,9 @@ def get_rating_service(request: Request) -> RatingService:
 
 def get_watermark_processor(request: Request) -> BatchWatermarkProcessor:
     """返回批量水印处理器（检查功能开关）。"""
-    from ..core.runtime_config import runtime_enabled
     from ..core.config import get_settings
-    from ..core.exceptions import AppError, ErrorCode
+    from ..core.runtime_config import runtime_enabled
+
 
     settings = get_settings()
     if not runtime_enabled("watermark_enabled", getattr(settings, "watermark_enabled", True)):

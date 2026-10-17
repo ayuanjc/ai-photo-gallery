@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ...core.config import get_settings
 from ...core.errors import AppError, ErrorCode, UnauthorizedError
@@ -96,14 +96,27 @@ async def get_audit_log(
     return {"entries": entries, "count": len(entries)}
 
 
+async def _parse_json_body(request: Request) -> dict:
+    """解析 JSON 请求体；非法 JSON 或非对象时抛 400，而非 500。"""
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise AppError(ErrorCode.INVALID_PARAMS, "请求体必须是合法 JSON") from exc
+    if not isinstance(body, dict):
+        raise AppError(ErrorCode.INVALID_PARAMS, "请求体必须是 JSON 对象")
+    return body
+
+
 @router.post("/admin/api/writeback/rollback")
 async def rollback_writeback(request: Request) -> dict:
     _verify_admin_key(request)
     mgr = getattr(request.app.state, "writeback_manager", None)
     if mgr is None:
         raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "写回管理服务未初始化")
-    body = await request.json()
-    count = body.get("count", 10) if body else 10
+    body = await _parse_json_body(request)
+    count = body.get("count", 10)
+    if not isinstance(count, int) or count < 1:
+        raise AppError(ErrorCode.INVALID_PARAMS, "count 必须是正整数")
     result = await mgr.rollback_recent(count=count)
     return {"rollback": result}
 
@@ -128,9 +141,13 @@ async def trigger_description_writeback(request: Request) -> dict:
     desc_wb = getattr(request.app.state, "description_writeback", None)
     if desc_wb is None:
         raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "描述写回服务未初始化")
-    body = await request.json()
-    results = body.get("results", []) if body else []
-    dry_run = body.get("dry_run", False) if body else False
+    body = await _parse_json_body(request)
+    results = body.get("results", [])
+    if not isinstance(results, list):
+        raise AppError(ErrorCode.INVALID_PARAMS, "results 必须是列表")
+    dry_run = body.get("dry_run", False)
+    if not isinstance(dry_run, bool):
+        raise AppError(ErrorCode.INVALID_PARAMS, "dry_run 必须是布尔值")
     entries = await desc_wb.writeback_descriptions(results, dry_run=dry_run)
     succeeded = sum(1 for e in entries if e.success)
     return {
@@ -157,9 +174,17 @@ async def setup_workflows(request: Request) -> dict:
     mgr = getattr(request.app.state, "workflow_manager", None)
     if mgr is None:
         raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "工作流管理服务未初始化")
-    body = await request.json()
-    hook_url = body.get("hook_url", "http://127.0.0.1:8000/api/v1/plugin/hook")
+    body = await _parse_json_body(request)
+    hook_url = body.get("hook_url", "")
     hook_token = body.get("hook_token", "")
+    if not hook_url or not isinstance(hook_url, str) or any(c.isspace() for c in hook_url):
+        raise AppError(
+            ErrorCode.INVALID_PARAMS,
+            "必须显式提供 hook_url（从 Immich 容器可达的本服务地址，"
+            "如 http://host.docker.internal:8000/api/v1/plugin/hook）",
+        )
+    if not hook_url.startswith(("http://", "https://")):
+        raise AppError(ErrorCode.INVALID_PARAMS, "hook_url 必须是 http(s) URL")
     results = await mgr.setup_default_workflows(hook_url, hook_token)
     return {"workflows": results, "count": len(results)}
 
@@ -324,6 +349,15 @@ _SENSITIVE_KEYS = {"immich_api_key", "search_api_key", "admin_api_key"}
 
 class SettingsUpdates(BaseModel):
     updates: dict[str, str] = Field(..., min_length=1)
+
+    @field_validator("updates")
+    @classmethod
+    def _no_newline_injection(cls, value: dict[str, str]) -> dict[str, str]:
+        """拒绝包含换行符的配置值，防止 .env 注入任意配置行。"""
+        for key, val in value.items():
+            if "\n" in val or "\r" in val:
+                raise ValueError(f"配置值不能包含换行符: {key}")
+        return value
 
 
 @router.get("/admin/api/settings")

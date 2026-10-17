@@ -12,11 +12,11 @@
 """
 from __future__ import annotations
 
-import json
+import asyncio
+import functools
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -27,6 +27,18 @@ from .immich import ImmichClient
 logger = logging.getLogger(__name__)
 
 _AI_PREFIX = "AI/"
+
+# 对 Immich 的写操作全局并发上限：突发大量搜索触发写回时避免打爆上游
+_MAX_CONCURRENT_WRITES = 8
+
+
+def _limited(fn):
+    """顶层写操作统一限流：同一 ImmichWriteBack 实例内最多 8 个并发写。"""
+    @functools.wraps(fn)
+    async def wrapper(self, *args, **kwargs):
+        async with self.write_semaphore:
+            return await fn(self, *args, **kwargs)
+    return wrapper
 
 
 class WriteBackEntry(BaseModel):
@@ -62,6 +74,8 @@ class ImmichWriteBack:
         self._immich = immich
         self._settings = settings
         self._audit_path = audit_path or Path("data/writeback_audit.jsonl")
+        # 实例级信号量：随 app.state 生命周期创建，避免跨事件循环复用
+        self.write_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_WRITES)
 
     def _now(self) -> str:
         return datetime.now(timezone.utc).isoformat()
@@ -77,6 +91,7 @@ class ImmichWriteBack:
     def _enabled(self) -> bool:
         return runtime_enabled("writeback_enabled", getattr(self._settings, "writeback_enabled", False))
 
+    @_limited
     async def add_tag(
         self, asset_id: str, tag: str, dry_run: bool = False
     ) -> WriteBackEntry:
@@ -111,6 +126,7 @@ class ImmichWriteBack:
         self._audit(entry)
         return entry
 
+    @_limited
     async def remove_tag(self, asset_id: str, tag: str) -> WriteBackEntry:
         entry = WriteBackEntry(
             action="remove_tag", asset_id=asset_id, target=tag,
@@ -174,6 +190,7 @@ class ImmichWriteBack:
         self._audit(entry)
         return entry.target_id, entry
 
+    @_limited
     async def add_to_album(
         self, asset_id: str, album_id: str, dry_run: bool = False
     ) -> WriteBackEntry:
@@ -200,6 +217,7 @@ class ImmichWriteBack:
         self._audit(entry)
         return entry
 
+    @_limited
     async def remove_from_album(
         self, asset_id: str, album_id: str
     ) -> WriteBackEntry:
@@ -220,6 +238,7 @@ class ImmichWriteBack:
         self._audit(entry)
         return entry
 
+    @_limited
     async def update_description(
         self, asset_id: str, description: str, dry_run: bool = False
     ) -> WriteBackEntry:
@@ -255,6 +274,7 @@ class ImmichWriteBack:
         self._audit(entry)
         return entry
 
+    @_limited
     async def update_rating(
         self, asset_id: str, rating: int, dry_run: bool = False
     ) -> WriteBackEntry:

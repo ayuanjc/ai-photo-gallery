@@ -12,6 +12,9 @@ from ..deps import verify_api_key
 
 logger = logging.getLogger(__name__)
 
+# asset_id 仅允许字母/数字/连字符/下划线，防止路径注入（../ 等）
+_ASSET_ID_PATTERN = r"^[A-Za-z0-9\-_]+$"
+
 router = APIRouter(
     tags=["assets"],
     dependencies=[Depends(verify_api_key)],
@@ -32,7 +35,7 @@ def _get_proxy_service(request: Request) -> ImageProxyService:
 )
 async def proxy_thumbnail(
     request: Request,
-    asset_id: str = Path(..., description="Immich 资产 ID"),
+    asset_id: str = Path(..., pattern=_ASSET_ID_PATTERN, description="Immich 资产 ID"),
     size: str = Query(default="preview", description="缩略图尺寸: thumbnail|preview|full"),
 ) -> Response:
     svc = _get_proxy_service(request)
@@ -56,7 +59,7 @@ async def proxy_thumbnail(
 )
 async def proxy_original(
     request: Request,
-    asset_id: str = Path(..., description="Immich 资产 ID"),
+    asset_id: str = Path(..., pattern=_ASSET_ID_PATTERN, description="Immich 资产 ID"),
 ) -> Response:
     svc = _get_proxy_service(request)
     try:

@@ -15,10 +15,7 @@ from pathlib import Path
 from ..core.config import Settings
 from ..core.errors import AppError, ErrorCode
 from ..models.watermark import (
-    ImageWatermarkStyle,
     LicenseType,
-    TextWatermarkStyle,
-    TileOptions,
     WatermarkRequest,
     WatermarkResponse,
     WatermarkResultItem,
@@ -46,8 +43,8 @@ class BatchWatermarkProcessor:
         self._pool = ProcessPoolExecutor(max_workers=self._max_workers)
 
     def close(self) -> None:
-        """关闭持久化进程池，在应用 lifespan 中调用。"""
-        self._pool.shutdown(wait=False)
+        """关闭持久化进程池：取消排队任务并等待运行中的任务结束，避免残留子进程。"""
+        self._pool.shutdown(wait=True, cancel_futures=True)
 
     async def process(self, request: WatermarkRequest) -> WatermarkResponse:
         """批量应用水印并返回逐项结果。
