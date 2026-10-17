@@ -148,7 +148,11 @@ async def list_workflows(request: Request) -> dict:
     if mgr is None:
         raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "工作流管理服务未初始化")
     workflows = await mgr.list_workflows()
-    return {"workflows": workflows, "count": len(workflows)}
+    settings = get_settings()
+    callback_base = settings.plugin_callback_base_url or "http://host.docker.internal:8000"
+    expected_prefix = callback_base.rstrip("/")
+    workflows = mgr.annotate_workflow_reachability(workflows, expected_prefix)
+    return {"workflows": workflows, "count": len(workflows), "expected_callback_base": expected_prefix}
 
 
 @router.post("/admin/api/workflows/setup")
@@ -164,6 +168,31 @@ async def setup_workflows(request: Request) -> dict:
     return {"workflows": results, "count": len(results)}
 
 
+@router.post("/admin/api/immich/workflows/sync")
+async def sync_workflows(request: Request) -> dict:
+    """幂等同步默认工作流到 Immich，返回 diff。"""
+    _verify_admin_key(request)
+    mgr = getattr(request.app.state, "workflow_manager", None)
+    if mgr is None:
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "工作流管理服务未初始化")
+    settings = get_settings()
+    from ...services.callback_resolver import (
+        resolve_callback_base_url,
+        resolve_hook_url,
+    )
+    callback_base = await resolve_callback_base_url(settings)
+    hook_url = resolve_hook_url(callback_base)
+    hook_token = settings.plugin_hook_token.get_secret_value() if settings.plugin_hook_token else ""
+    diff = await mgr.sync_default_workflows(hook_url, hook_token)
+    stale_deleted = await mgr.delete_stale_workflows()
+    return {
+        "diff": diff,
+        "stale_deleted": stale_deleted,
+        "hook_url": hook_url,
+        "callback_base_url": callback_base,
+    }
+
+
 @router.delete("/admin/api/workflows/{wf_id}")
 async def delete_workflow(wf_id: str, request: Request) -> dict:
     _verify_admin_key(request)
@@ -172,6 +201,37 @@ async def delete_workflow(wf_id: str, request: Request) -> dict:
         raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "工作流管理服务未初始化")
     success = await mgr.delete_workflow(wf_id)
     return {"deleted": success, "id": wf_id}
+
+
+@router.post("/admin/api/backfill/scene")
+async def trigger_backfill(request: Request) -> dict:
+    """触发历史资产回填（场景分析 + 标签写回）。
+
+    Body: {"limit": 0, "since": "", "dry_run": false, "skip_tagged": true}
+    """
+    _verify_admin_key(request)
+    svc = getattr(request.app.state, "backfill_service", None)
+    if svc is None:
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "回填服务未初始化")
+    body = await request.json()
+    limit = body.get("limit", 0) if body else 0
+    since = body.get("since", "") if body else ""
+    dry_run = body.get("dry_run", False) if body else False
+    skip_tagged = body.get("skip_tagged", True) if body else True
+    result = await svc.run_backfill(
+        limit=limit, since=since, dry_run=dry_run, skip_tagged=skip_tagged
+    )
+    return {"backfill": result}
+
+
+@router.get("/admin/api/backfill/status")
+async def backfill_status(request: Request) -> dict:
+    """查询回填任务进度。"""
+    _verify_admin_key(request)
+    svc = getattr(request.app.state, "backfill_service", None)
+    if svc is None:
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "回填服务未初始化")
+    return {"status": svc.get_status()}
 
 
 @router.get("/admin/api/ml/health")

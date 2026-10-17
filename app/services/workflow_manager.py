@@ -34,6 +34,25 @@ from .immich import ImmichClient
 logger = logging.getLogger(__name__)
 
 _PLUGIN_PREFIX = "immich-plugin-core#"
+_OWNED_PREFIX = "yunying"
+
+_DEFAULT_WORKFLOWS: list[dict[str, str]] = [
+    {
+        "name": "yunying-on-upload",
+        "trigger": "AssetCreate",
+        "description": "上传即分析：新资产上传后回调云影图鉴进行场景分析+标签写回",
+    },
+    {
+        "name": "yunying-on-metadata",
+        "trigger": "AssetMetadataExtraction",
+        "description": "元数据补全：EXIF 提取完成后回调云影图鉴补全场景描述",
+    },
+    {
+        "name": "yunying-on-tagged",
+        "trigger": "AssetTagged",
+        "description": "打标后归档：标签添加完成后回调云影图鉴检查是否需要自动归档",
+    },
+]
 
 
 class WorkflowManager:
@@ -161,32 +180,170 @@ class WorkflowManager:
         header_name = "x-plugin-token" if hook_token else ""
         results: list[dict[str, Any]] = []
 
-        wf1 = await self.create_workflow(
-            name="yunying-on2-on-upload",
-            trigger="AssetCreate",
-            description="上传即分析：新资产上传后回调云影图鉴进行场景分析+标签写回",
-            steps=[self.make_webhook_step(hook_url, "POST", header_name, hook_token)],
-        )
-        if wf1:
-            results.append(wf1)
-
-        wf2 = await self.create_workflow(
-            name="yunying2-on-metadata",
-            trigger="AssetMetadataExtraction",
-            description="元数据补全：EXIF 提取完成后回调云影图鉴补全场景描述",
-            steps=[self.make_webhook_step(hook_url, "POST", header_name, hook_token)],
-        )
-        if wf2:
-            results.append(wf2)
-
-        wf3 = await self.create_workflow(
-            name="yunying2-on-tagged",
-            trigger="AssetTagged",
-            description="打标后归档：标签添加完成后回调云影图鉴检查是否需要自动归档",
-            steps=[self.make_webhook_step(hook_url, "POST", header_name, hook_token)],
-        )
-        if wf3:
-            results.append(wf3)
+        for wf_def in _DEFAULT_WORKFLOWS:
+            wf = await self.create_workflow(
+                name=wf_def["name"],
+                trigger=wf_def["trigger"],
+                description=wf_def["description"],
+                steps=[self.make_webhook_step(hook_url, "POST", header_name, hook_token)],
+            )
+            if wf:
+                results.append(wf)
 
         logger.info("默认工作流创建完成: %d 个", len(results))
         return results
+
+    async def sync_default_workflows(
+        self,
+        hook_url: str,
+        hook_token: str = "",
+    ) -> dict[str, Any]:
+        """幂等 upsert 三条默认工作流，返回 diff。
+
+        返回: {"created": [...], "updated": [...], "unchanged": [...], "errors": [...]}
+        """
+        header_name = "x-plugin-token" if hook_token else ""
+        logging_enabled = getattr(self._settings, "immich_workflow_logging", True)
+
+        existing = await self.list_workflows()
+        existing_by_name: dict[str, dict[str, Any]] = {}
+        for wf in existing:
+            name = wf.get("name", "")
+            if name:
+                existing_by_name[name] = wf
+
+        result: dict[str, Any] = {
+            "created": [],
+            "updated": [],
+            "unchanged": [],
+            "errors": [],
+        }
+
+        for wf_def in _DEFAULT_WORKFLOWS:
+            name = wf_def["name"]
+            trigger = wf_def["trigger"]
+            description = wf_def["description"]
+            desired_steps = [
+                self.make_webhook_step(hook_url, "POST", header_name, hook_token)
+            ]
+
+            if name in existing_by_name:
+                wf = existing_by_name[name]
+                wf_id = wf.get("id", "")
+                needs_update = self._workflow_needs_update(
+                    wf, trigger, description, desired_steps, logging_enabled
+                )
+                if needs_update:
+                    updated = await self.update_workflow(
+                        wf_id, name, trigger, description,
+                        steps=desired_steps, enabled=True,
+                    )
+                    if updated:
+                        result["updated"].append({"name": name, "id": wf_id})
+                    else:
+                        result["errors"].append({"name": name, "reason": "更新失败"})
+                else:
+                    result["unchanged"].append({"name": name, "id": wf_id})
+            else:
+                created = await self.create_workflow(
+                    name=name, trigger=trigger, description=description,
+                    steps=desired_steps,
+                )
+                if created:
+                    result["created"].append({"name": name, "id": created.get("id")})
+                else:
+                    result["errors"].append({"name": name, "reason": "创建失败"})
+
+        logger.info(
+            "工作流同步完成: created=%d updated=%d unchanged=%d errors=%d",
+            len(result["created"]), len(result["updated"]),
+            len(result["unchanged"]), len(result["errors"]),
+        )
+        return result
+
+    async def delete_stale_workflows(self) -> list[str]:
+        """删除以 yunying 前缀开头但不属于默认工作流的陈旧工作流。
+
+        仅删除我们自己创建的（name 以 _OWNED_PREFIX 开头），
+        且不在当前默认工作流名称集合中的。
+        """
+        default_names = {wf["name"] for wf in _DEFAULT_WORKFLOWS}
+        existing = await self.list_workflows()
+        deleted: list[str] = []
+
+        for wf in existing:
+            name = wf.get("name", "")
+            wf_id = wf.get("id", "")
+            if not (
+                name.startswith(_OWNED_PREFIX)
+                and name not in default_names
+                and wf_id
+            ):
+                continue
+            if await self.delete_workflow(wf_id):
+                deleted.append(name)
+                logger.info("删除陈旧工作流: %s (%s)", name, wf_id)
+
+        return deleted
+
+    @staticmethod
+    def _workflow_needs_update(
+        wf: dict[str, Any],
+        desired_trigger: str,
+        desired_description: str,
+        desired_steps: list[dict[str, Any]],
+        desired_logging: bool,
+    ) -> bool:
+        """比较现有工作流与期望状态，判断是否需要更新。"""
+        if wf.get("trigger") != desired_trigger:
+            return True
+        if wf.get("description") != desired_description:
+            return True
+        if not wf.get("enabled", False):
+            return True
+        if wf.get("logging", False) != desired_logging:
+            return True
+
+        existing_steps = wf.get("steps", [])
+        if len(existing_steps) != len(desired_steps):
+            return True
+
+        for existing_step, desired_step in zip(existing_steps, desired_steps, strict=False):
+            if existing_step.get("method") != desired_step.get("method"):
+                return True
+            existing_config = existing_step.get("config", {})
+            desired_config = desired_step.get("config", {})
+            if existing_config.get("url") != desired_config.get("url"):
+                return True
+            if existing_config.get("method") != desired_config.get("method"):
+                return True
+            if not existing_step.get("enabled", False):
+                return True
+
+        return False
+
+    @staticmethod
+    def annotate_workflow_reachability(
+        workflows: list[dict[str, Any]],
+        expected_url_prefix: str = "",
+    ) -> list[dict[str, Any]]:
+        """为每条工作流标注 step url 是否可达。
+
+        参数:
+            workflows: 工作流列表。
+            expected_url_prefix: 期望的回调基地址前缀（用于判断是否配置正确）。
+        """
+        for wf in workflows:
+            steps = wf.get("steps", [])
+            urls: list[str] = []
+            reachable = True
+            for step in steps:
+                config = step.get("config", {})
+                url = config.get("url", "")
+                if url:
+                    urls.append(url)
+                    if expected_url_prefix and not url.startswith(expected_url_prefix):
+                        reachable = False
+            wf["hook_urls"] = urls
+            wf["url_reachable"] = reachable
+        return workflows

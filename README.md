@@ -420,3 +420,98 @@ python verify_integration.py
 - 照片上传 → 自动场景分析 + AI 标签写回
 - 元数据提取完成 → 自动补全描述
 - 标签写入完成 → 自动归档检查 + AI 相册创建
+## 原生嵌入 Immich（工作流 + 写回）
+
+### 架构图
+
+```mermaid
+graph LR
+    A[用户上传照片] --> B[Immich AssetCreate]
+    B --> C[工作流: yunying-on-upload]
+    C --> D[webhook → host.docker.internal:8000]
+    D --> E[云影图鉴 hook 端点]
+    E --> F[场景分析 + 标签写回]
+    E --> G[描述补全 + 评分写回]
+    E --> H[AI 相册归档]
+    F --> I[Immich tags: AI/自然]
+    G --> J[Immich asset.description]
+    H --> K[Immich albums: AI·自然·2026-10]
+
+    L[历史资产] --> M[POST /admin/api/backfill/scene]
+    M --> N[分页拉取 + 批量处理]
+    N --> F
+```
+
+### 四条工作流说明
+
+| 工作流 | 触发器 | 作用 |
+|--------|--------|------|
+| yunying-on-upload | AssetCreate | 新资产上传后回调场景分析 + 标签写回 |
+| yunying-on-metadata | AssetMetadataExtraction | EXIF 提取完成后补全场景描述 |
+| yunying-on-tagged | AssetTagged | 标签添加完成后检查 AI 相册归档 |
+
+### 回调地址为何必须是 host.docker.internal
+
+Immich 运行在 Docker 容器中，容器内 `127.0.0.1` 指向容器自身而非宿主。
+工作流 webhook 从容器内发起，如果回调地址写 `http://127.0.0.1:8000`，
+请求会发到容器内的 8000 端口（不存在），导致回调失败。
+
+`host.docker.internal` 是 Docker Desktop 提供的宿主别名，
+容器内通过此地址可以访问宿主上的服务。
+
+配置方式：
+```bash
+# .env
+PLUGIN_CALLBACK_BASE_URL=http://host.docker.internal:8000
+```
+
+留空时自动探测：检测到 Immich 在容器中运行则使用 `host.docker.internal`。
+
+### 开关清单
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| WRITEBACK_ENABLED | false | 写回总开关（标签/相册/描述） |
+| PLUGIN_HOOK_TOKEN | (空) | hook 鉴权 token，非空时强制校验 |
+| PLUGIN_CALLBACK_BASE_URL | (空) | 回调基地址，空=自动探测 |
+| IMMICH_WORKFLOW_SYNC_ENABLED | true | 启动时自动同步工作流 |
+| IMMICH_WORKFLOW_LOGGING | true | 工作流日志开关 |
+| BACKFILL_CONCURRENCY | 5 | 回填任务并发度 |
+| BACKFILL_PAGE_SIZE | 1000 | 回填每页资产数 |
+
+### 验收命令
+
+```bash
+# 一键验收
+python scripts/verify_native.py \
+  --base-url http://127.0.0.1:8000 \
+  --immich-url http://127.0.0.1:3200 \
+  --immich-key <your-key> \
+  --output report.json
+
+# 同步工作流（幂等 upsert）
+curl -X POST http://127.0.0.1:8000/admin/api/immich/workflows/sync
+
+# 历史资产回填
+curl -X POST http://127.0.0.1:8000/admin/api/backfill/scene \
+  -H "Content-Type: application/json" \
+  -d '{"limit": 100, "skip_tagged": true}'
+
+# 查询回填进度
+curl http://127.0.0.1:8000/admin/api/backfill/status
+```
+
+### 常见故障
+
+| 故障 | 原因 | 解决 |
+|------|------|------|
+| 回调不可达 | url 用了 127.0.0.1 而非 host.docker.internal | 设置 PLUGIN_CALLBACK_BASE_URL |
+| 无 AI 标签 | WRITEBACK_ENABLED=false | 管理页面开启写回开关 |
+| 无工作流日志 | logging=false | 执行工作流同步：POST /admin/api/immich/workflows/sync |
+| 写回未生效 | runtime_config.json 覆盖了 .env | 检查 data/runtime_config.json |
+| 历史图无标签 | 3 万张历史图未触发工作流 | 执行回填：POST /admin/api/backfill/scene |
+
+### 安全提示
+
+> 曾用于调试的 Immich API Key 需在 Immich 后台吊销轮换。
+> 所有密钥/Token 通过环境变量 + pydantic SecretStr 管理，不写入代码文件。
