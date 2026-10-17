@@ -19,7 +19,19 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .ai.factory import build_ai_analyzer
-from .api.routes import ai, admin, assets, batch_import, faces, plugin, ratings, scene, search, stats, watermark
+from .api.routes import (
+    admin,
+    ai,
+    assets,
+    batch_import,
+    faces,
+    plugin,
+    ratings,
+    scene,
+    search,
+    stats,
+    watermark,
+)
 from .core.cache import get_cache
 from .core.config import get_settings
 from .core.errors import AppError, ErrorCode
@@ -29,31 +41,29 @@ from .core.redis_client import RedisClient
 from .db import close_db, init_db
 from .scene.analyzer import HttpSceneInferrer, NullSceneInferrer, SceneAnalyzer
 from .scene.dictionary import get_scene_dict
+from .services.album_writeback import AlbumWriteBack
+from .services.backfill_service import BackfillService
+from .services.description_writeback import DescriptionWriteBack
 from .services.face_service import FaceService
 from .services.feedback_service import init_feedback_service
+from .services.image_proxy import ImageProxyService
 from .services.immich import ImmichClient
 from .services.immich_capabilities import ImmichCapabilities
-from .services.immich_writeback import ImmichWriteBack
-from .services.scene_writeback import SceneWriteBack
-from .services.album_writeback import AlbumWriteBack
-from .services.description_writeback import DescriptionWriteBack
-from .services.image_proxy import ImageProxyService
-from .services.incremental_sync import IncrementalSync
-from .services.workflow_manager import WorkflowManager
-from .services.writeback_manager import WriteBackManager
-from .services.backfill_service import BackfillService
-
 from .services.immich_uploader import ImmichAssetUploader
+from .services.immich_writeback import ImmichWriteBack
 from .services.importer import BatchImporter
+from .services.incremental_sync import IncrementalSync
 from .services.metadata import MetadataExtractor
 from .services.multi_condition_service import MultiConditionSearchService
 from .services.rating_service import RatingService
+from .services.scene_writeback import SceneWriteBack
 from .services.search_service import SearchService
-from .services.stats_provider import StatsProvider
 from .services.vision.base import NullVisionProvider, VisionProvider
 from .services.vision.huawei import HuaweiVisionProvider
 from .services.vision.huawei_face import HuaweiFaceClient
 from .services.watermark_processor import BatchWatermarkProcessor
+from .services.workflow_manager import WorkflowManager
+from .services.writeback_manager import WriteBackManager
 
 logger = logging.getLogger(__name__)
 
@@ -169,8 +179,8 @@ async def lifespan(app: FastAPI):
 
     # ML 服务层：场景推理 + 向量索引 + 模型管理
     from .services.ml_scene_inferrer import create_ml_inferrer
-    from .services.vector_index import VectorIndex
     from .services.model_manager import ModelManager
+    from .services.vector_index import VectorIndex
     app.state.ml_inferrer = create_ml_inferrer(settings)
     app.state.vector_index = VectorIndex()
     app.state.model_manager = ModelManager()
@@ -303,6 +313,11 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
 @app.exception_handler(RequestValidationError)
 async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     # 仅保留可序列化的核心字段，避免原始 ValueError/输入对象导致的 JSON 序列化失败
+    if request.url.path.startswith("/api/v1/plugin"):
+        logger.warning(
+            "plugin hook 校验失败 path=%s errors=%s",
+            request.url.path, exc.errors()[:3],
+        )
     details = [
         {
             "loc": [str(p) for p in err.get("loc", [])],

@@ -20,7 +20,7 @@ from .immich_writeback import ImmichWriteBack, WriteBackEntry
 
 logger = logging.getLogger(__name__)
 
-_AI_PREFIX = "AI/"
+_AI_PREFIX = "AI·"
 
 
 class SceneWriteBack:

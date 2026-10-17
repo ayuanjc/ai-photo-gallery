@@ -2,11 +2,9 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from unittest.mock import AsyncMock
 
 import httpx
-import pytest
 
 from app.services.immich import ImmichClient
 from app.services.immich_writeback import ImmichWriteBack
@@ -56,7 +54,7 @@ async def test_writeback_scene_tags(settings, tmp_path):
         assert len(entries) == 3  # 2 scenes for asset-001 + 1 for asset-002
         assert all(e.success for e in entries)
         tag_names = {e.target for e in entries}
-        assert all(name.startswith("AI/") for name in tag_names)
+        assert all(name.startswith("AI·") for name in tag_names)
     finally:
         await client.aclose()
 
@@ -157,6 +155,6 @@ async def test_writeback_uses_mock(settings, tmp_path):
         assert mock_wb.add_tag.called
         call_args = mock_wb.add_tag.call_args
         assert call_args[0][0] == "asset-001"
-        assert call_args[0][1].startswith("AI/")
+        assert call_args[0][1].startswith("AI·")
     finally:
         await client.aclose()

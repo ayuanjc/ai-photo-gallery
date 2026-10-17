@@ -119,12 +119,12 @@ def run_checks(base_url: str, immich_url: str, immich_key: str) -> list[dict]:
                     )
                     tags = r2.json().get("tags", []) if r2.status_code == 200 else []
                     if any(
-                        (t.get("value", "") if isinstance(t, dict) else t).startswith("AI/")
+                        (t.get("value", "") if isinstance(t, dict) else t).startswith("AI·")
                         for t in tags
                     ):
                         found_ai_tag = True
                         break
-                results.append(_check("30s 内出现 AI/ 标签", found_ai_tag, f"asset={asset_id}"))
+                results.append(_check("30s 内出现 AI· 标签", found_ai_tag, f"asset={asset_id}"))
             else:
                 results.append(_check("上传测试图", False, f"status={r.status_code}"))
         except Exception as e:

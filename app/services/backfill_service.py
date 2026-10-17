@@ -22,7 +22,7 @@ from .immich import ImmichClient
 logger = logging.getLogger(__name__)
 
 _PROGRESS_KEY = "backfill:progress"
-_AI_TAG_PREFIX = "AI/"
+_AI_TAG_PREFIX = "AI·"
 
 
 class BackfillService:

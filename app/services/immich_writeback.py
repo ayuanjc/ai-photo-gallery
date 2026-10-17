@@ -26,7 +26,7 @@ from .immich import ImmichClient
 
 logger = logging.getLogger(__name__)
 
-_AI_PREFIX = "AI/"
+_AI_PREFIX = "AI·"
 
 # 对 Immich 的写操作全局并发上限：突发大量搜索触发写回时避免打爆上游
 _MAX_CONCURRENT_WRITES = 8

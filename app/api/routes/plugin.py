@@ -3,13 +3,17 @@
 Immich 工作流通过 webhook 方法回调此端点，
 触发场景分析 + 标签写回 + 相册写回。
 
-请求格式（Immich webhook 发送）：
+请求格式（Immich v3.x 工作流 webhook 实测格式）：
     POST /api/v1/plugin/hook
-    Headers: x-plugin-token: <token>（鉴权，非空时强制校验）
+    Headers: x-plugin-token: <token>（可选鉴权）
     Body: {
-        "event": "AssetCreate" | "AssetMetadataExtraction" | "AssetTagged",
-        "asset": { "id": "...", "originalFileName": "...", ... }
+        "type": "AssetV1",
+        "trigger": "AssetCreate" | "AssetMetadataExtraction" | "AssetTagged",
+        "data": { "asset": { "id": "...", "tags": [...], ... } }
     }
+
+兼容旧自定义格式：
+    { "event": "AssetCreate", "asset": {...} }
 
 响应格式（Immich 期望）：
     { "changes": {}, "warnings": [], "continue": true }
@@ -28,10 +32,11 @@ import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, Request, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
-from ...core.config import get_settings
+from ...core.config import Settings, get_settings
 from ...core.runtime_config import runtime_enabled
+from ...scene.dictionary import get_scene_dict
 from ..deps import rate_limit_guard
 
 logger = logging.getLogger(__name__)
@@ -42,8 +47,31 @@ _DEDUP_TTL_SECONDS = 3600
 
 
 class PluginHookPayload(BaseModel):
-    event: str = Field(description="AssetCreate | AssetMetadataExtraction | AssetTagged")
+    """兼容两种 payload 格式。
+
+    Immich v3.x 工作流 webhook 官方格式（实测捕获）：
+        {"type": "AssetV1", "trigger": "AssetCreate", "data": {"asset": {...}}}
+
+    历史自定义格式（保留兼容）：
+        {"event": "AssetCreate", "asset": {...}}
+    """
+
+    type: str | None = Field(default=None, description="事件类型标识（AssetV1）")
+    trigger: str | None = Field(default=None, description="触发器名（Immich 官方字段）")
+    data: dict[str, Any] | None = Field(default=None, description="事件数据（asset 嵌套于此）")
+    event: str | None = Field(default=None, description="事件名（自定义格式）")
     asset: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _normalize(self) -> PluginHookPayload:
+        """归一化：trigger → event，data.asset → asset。"""
+        if not self.event and self.trigger:
+            self.event = self.trigger
+        if not self.asset and self.data:
+            inner = self.data.get("asset")
+            if isinstance(inner, dict):
+                self.asset = inner
+        return self
 
 
 class PluginHookResponse(BaseModel):
@@ -74,6 +102,48 @@ async def _check_dedup(request: Request, dedup_key: str) -> bool:
     except Exception as exc:
         logger.warning("幂等去重检查失败，放行: %s", exc)
         return True
+
+
+def _has_scene_content(scene_dict: dict[str, Any] | None) -> bool:
+    """判断场景分析结果是否有可写回内容（大场景/小场景/视觉属性任一非空）。"""
+    if not scene_dict:
+        return False
+    return bool(
+        scene_dict.get("scenes")
+        or scene_dict.get("sub_scenes")
+        or scene_dict.get("visual_attrs")
+    )
+
+
+def _apply_fallback_scene(
+    scene_dict: dict[str, Any] | None, settings: Settings
+) -> dict[str, Any] | None:
+    """兜底：现场分析无结果时赋予默认大场景，保证新资产至少有一个可写回标签。
+
+    - 兜底场景由 plugin_fallback_scene 配置，须在词典白名单内，空 = 禁用。
+    - 已有任何场景内容时原样返回，不覆盖真实分析结果。
+    """
+    if _has_scene_content(scene_dict):
+        return scene_dict
+    fallback = (getattr(settings, "plugin_fallback_scene", "") or "").strip()
+    if not fallback:
+        return scene_dict
+    try:
+        scene_dict_loaded = get_scene_dict()
+    except Exception as exc:
+        logger.warning("兜底场景：词典加载失败，跳过兜底: %s", exc)
+        return scene_dict
+    if not scene_dict_loaded.is_valid_scene(fallback):
+        logger.warning("兜底场景 %r 不在词典白名单，跳过兜底", fallback)
+        return scene_dict
+    logger.info("场景分析无结果，应用兜底场景: %s", fallback)
+    return {
+        "primary_scene": fallback,
+        "scenes": [fallback],
+        "sub_scenes": [],
+        "visual_attrs": {},
+        "confidence": {fallback: 0.1},
+    }
 
 
 @router.post(
@@ -156,7 +226,27 @@ async def plugin_hook(
             changes=changes,
         )
 
-    results_data = [{"asset_id": asset_id, "scene": payload.asset.get("scene")}]
+    # 场景来源：优先 payload 自带（自定义格式），否则现场分析（Immich webhook 不带 scene）
+    scene_dict = payload.asset.get("scene")
+    if scene_dict is None and payload.event in ("AssetCreate", "AssetMetadataExtraction"):
+        scene_analyzer = getattr(request.app.state, "scene_analyzer", None)
+        if scene_analyzer is not None:
+            try:
+                tags = await scene_analyzer.analyze(payload.asset)
+                scene_dict = tags.model_dump()
+            except Exception as exc:
+                logger.warning(
+                    "现场场景分析失败 asset_id=%s: %s", asset_id, exc
+                )
+                scene_dict = None
+        else:
+            logger.info("场景分析器未启用，跳过现场分析")
+
+    # 兜底：分析无结果时赋予默认场景，保证新资产至少有可写回的标签/描述
+    if payload.event in ("AssetCreate", "AssetMetadataExtraction"):
+        scene_dict = _apply_fallback_scene(scene_dict, settings)
+
+    results_data = [{"asset_id": asset_id, "scene": scene_dict}]
 
     if payload.event in ("AssetCreate", "AssetMetadataExtraction"):
         if scene_writeback is not None:
@@ -175,13 +265,16 @@ async def plugin_hook(
                 desc_data = [
                     {
                         "asset_id": asset_id,
-                        "scene": payload.asset.get("scene"),
-                        "final_score": payload.asset.get("final_score", 0.0),
-                        "similarity_score": payload.asset.get("similarity_score", 0.0),
+                        "scene": scene_dict,
+                        "final_score": payload.asset.get("final_score"),
+                        "similarity_score": payload.asset.get("similarity_score"),
                     }
                 ]
-                await desc_writeback.writeback_descriptions(desc_data)
-                changes["description_written"] = True
+                desc_entries = await desc_writeback.writeback_descriptions(desc_data)
+                written = sum(1 for e in desc_entries if e.success)
+                changes["description_written"] = written > 0
+                if written == 0:
+                    warnings.append("描述写回未产生任何成功写入")
             except Exception as exc:
                 logger.warning("描述写回失败: %s", exc)
                 warnings.append(f"描述写回异常: {exc}")
