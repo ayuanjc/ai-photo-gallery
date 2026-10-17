@@ -77,6 +77,12 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     setup_logging(settings.log_level)
 
+    # 预置清理对象，防止 finally 阶段引用未定义变量
+    scene_analyzer = None
+    face_client = None
+    immich_uploader = None
+    watermark_processor = None
+
     immich = ImmichClient(settings)
 
     try:
@@ -176,7 +182,8 @@ async def lifespan(app: FastAPI):
     app.state.batch_importer = BatchImporter(settings, metadata_extractor, immich_uploader)
 
     # 水印管理：模板解析 + 子进程批量渲染
-    app.state.watermark_processor = BatchWatermarkProcessor(settings)
+    watermark_processor = BatchWatermarkProcessor(settings)
+    app.state.watermark_processor = watermark_processor
 
     # 令牌桶限流器：基于 Redis 原子操作，不可用时降级放行
     app.state.rate_limiter = TokenBucketRateLimiter(
@@ -205,9 +212,11 @@ async def lifespan(app: FastAPI):
             await scene_analyzer.aclose()
         if face_client is not None:
             await face_client.aclose()
-        await immich_uploader.aclose()
+        if immich_uploader is not None:
+            await immich_uploader.aclose()
         await immich.aclose()
-        app.state.watermark_processor.close()
+        if watermark_processor is not None:
+            watermark_processor.close()
         await redis_client.aclose()
         if getattr(app.state, "rating_service", None) is not None:
             await close_db()
@@ -344,10 +353,10 @@ async def livez() -> dict:
 async def readyz(request: Request) -> dict:
     checks: dict[str, bool] = {}
     try:
-        resp = await request.app.state.immich_client._request_with_retry(
+        resp = await request.app.state.immich_client.request_json(
             "GET", "/api/server/ping"
         )
-        checks["immich"] = resp.status_code == 200
+        checks["immich"] = resp is not None
     except Exception:
         checks["immich"] = False
     try:
