@@ -17,7 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.deps import _get_client_id, get_watermark_processor
-from app.api.routes.plugin import _is_duplicate
+from app.api.routes.plugin import _check_dedup, _dedup_key
 from app.core.config import get_settings
 from app.main import app
 from app.services.immich_writeback import ImmichWriteBack
@@ -127,16 +127,19 @@ async def test_plugin_hook_dedup_same_event_and_updated_at():
     """同一事件 + 同一 updatedAt 重复投递时，第二次判定为重复。"""
     req = _RRequest(_FakeRedisClient(_FakeRedis()))
     asset = {"id": "asset-1", "updatedAt": "2026-01-01T00:00:00Z"}
-    assert await _is_duplicate(req, "AssetCreate", asset) is False
-    assert await _is_duplicate(req, "AssetCreate", asset) is True
+    key = _dedup_key("AssetCreate", asset)
+    assert await _check_dedup(req, key) is True
+    assert await _check_dedup(req, key) is False
 
 
 async def test_plugin_hook_dedup_different_event_not_blocked():
     """不同事件（AssetCreate vs AssetMetadataExtraction）互不干扰。"""
     req = _RRequest(_FakeRedisClient(_FakeRedis()))
     asset = {"id": "asset-1", "updatedAt": "2026-01-01T00:00:00Z"}
-    assert await _is_duplicate(req, "AssetCreate", asset) is False
-    assert await _is_duplicate(req, "AssetMetadataExtraction", asset) is False
+    k1 = _dedup_key("AssetCreate", asset)
+    k2 = _dedup_key("AssetMetadataExtraction", asset)
+    assert await _check_dedup(req, k1) is True
+    assert await _check_dedup(req, k2) is True
 
 
 async def test_plugin_hook_dedup_updated_at_change_reprocesses():
@@ -144,17 +147,19 @@ async def test_plugin_hook_dedup_updated_at_change_reprocesses():
     req = _RRequest(_FakeRedisClient(_FakeRedis()))
     v1 = {"id": "asset-1", "updatedAt": "2026-01-01T00:00:00Z"}
     v2 = {"id": "asset-1", "updatedAt": "2026-01-02T00:00:00Z"}
-    assert await _is_duplicate(req, "AssetCreate", v1) is False
-    assert await _is_duplicate(req, "AssetCreate", v1) is True
-    assert await _is_duplicate(req, "AssetCreate", v2) is False
+    k1 = _dedup_key("AssetCreate", v1)
+    k2 = _dedup_key("AssetCreate", v2)
+    assert await _check_dedup(req, k1) is True
+    assert await _check_dedup(req, k1) is False
+    assert await _check_dedup(req, k2) is True
 
 
 async def test_plugin_hook_dedup_degrades_without_redis():
     """Redis 不可用时放行（不阻塞主流程）。"""
     req = _RRequest(_FakeRedisClient(None))
-    asset = {"id": "asset-1"}
-    assert await _is_duplicate(req, "AssetCreate", asset) is False
-    assert await _is_duplicate(req, "AssetCreate", asset) is False
+    key = _dedup_key("AssetCreate", {"id": "asset-1"})
+    assert await _check_dedup(req, key) is True
+    assert await _check_dedup(req, key) is True
 
 
 # ---- #7 asset_id 路径校验 ----
