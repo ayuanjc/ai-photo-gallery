@@ -26,9 +26,14 @@ def test_query_blank_rejected():
         SearchRequest(**(dict(_valid_payload(), query="   ")))
 
 
-def test_asset_ids_empty_rejected():
-    with pytest.raises(ValidationError):
-        SearchRequest(**(dict(_valid_payload(), asset_ids=[])))
+def test_asset_ids_empty_allowed():
+    req = SearchRequest(**(dict(_valid_payload(), asset_ids=[])))
+    assert req.asset_ids == []
+
+
+def test_asset_ids_omitted_allowed():
+    req = SearchRequest(query="海边日落")
+    assert req.asset_ids == []
 
 
 def test_limit_out_of_range_rejected():

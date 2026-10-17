@@ -51,7 +51,7 @@ class SearchRequest(BaseModel):
     """
 
     query: str = Field(..., description="自然语言搜索关键词")
-    asset_ids: list[str] = Field(..., min_length=1, max_length=200, description="Immich 资产 ID 列表")
+    asset_ids: list[str] = Field(default_factory=list, max_length=200, description="Immich 资产 ID 列表（可选，用于以图搜图）")
     limit: int = Field(default=50, ge=1, le=200, description="返回结果数量上限")
     time_weight: float | None = Field(default=None, ge=0.0, le=1.0, description="时间权重 α")
     similarity_weight: float | None = Field(default=None, ge=0.0, le=1.0, description="相似度权重 β")

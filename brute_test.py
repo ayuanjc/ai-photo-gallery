@@ -162,9 +162,13 @@ class TestInputMalformation:
 
     # ---- asset_ids 参数攻击 ----
 
-    def test_asset_ids_empty_list_rejected(self):
-        with pytest.raises(Exception):
-            SearchRequest(query="test", asset_ids=[])
+    def test_asset_ids_empty_list_allowed(self):
+        req = SearchRequest(query="test", asset_ids=[])
+        assert req.asset_ids == []
+
+    def test_asset_ids_omitted_allowed(self):
+        req = SearchRequest(query="test")
+        assert req.asset_ids == []
 
     def test_asset_ids_empty_string_element_rejected(self):
         with pytest.raises(Exception):
