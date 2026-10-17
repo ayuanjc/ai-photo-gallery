@@ -52,6 +52,10 @@ class ImmichCapabilities(BaseModel):
     async def probe(cls, immich: ImmichClient) -> ImmichCapabilities:
         cap = cls(probed_at=datetime.now(timezone.utc).isoformat())
 
+        if not await _quick_connectivity_check(immich):
+            logger.warning("Immich 连通性检查失败，跳过能力探测，使用空能力集降级")
+            return cap
+
         await _probe_version(immich, cap)
         await _probe_tags(immich, cap)
         await _probe_albums(immich, cap)
@@ -75,6 +79,15 @@ class ImmichCapabilities(BaseModel):
             cap.supports_workflows,
         )
         return cap
+
+
+async def _quick_connectivity_check(immich: ImmichClient) -> bool:
+    """快速连通性检查：单次 ping，2 秒超时。失败时跳过全量探测。"""
+    try:
+        await immich.request_json("GET", "/api/server/ping", timeout=2.0)
+        return True
+    except Exception:
+        return False
 
 
 async def _probe_version(immich: ImmichClient, cap: ImmichCapabilities) -> None:

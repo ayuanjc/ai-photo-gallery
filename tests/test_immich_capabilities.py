@@ -17,6 +17,8 @@ def make_client(handler, settings):
 async def test_full_capability_detection(settings):
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
+        if path == "/api/server/ping":
+            return httpx.Response(200, json={"res": "pong"})
         if path == "/api/server/about":
             return httpx.Response(200, json={"info": {"version": "v3.3.1"}})
         if path == "/api/tags":
@@ -87,6 +89,8 @@ async def test_asset_ids_not_supported(settings):
     """Immich zod 剥离 assetIds 时返回无关资产 → 应标记 False。"""
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
+        if path == "/api/server/ping":
+            return httpx.Response(200, json={"res": "pong"})
         if path == "/api/server/about":
             return httpx.Response(200, json={"info": {"version": "v3.3.0"}})
         if path == "/api/tags":
