@@ -18,13 +18,13 @@ from ...models.response import (
 from ...services.feedback_service import FeedbackService, get_feedback_service
 from ...services.multi_condition_service import MultiConditionSearchService
 from ...services.search_service import SearchService
-from .admin import feature_gate
 from ..deps import (
     get_multi_condition_service,
     get_search_service,
     rate_limit_guard,
     verify_api_key,
 )
+from .admin import feature_gate
 
 router = APIRouter(
     tags=["search"],
@@ -197,7 +197,6 @@ from datetime import datetime as _datetime
 from ...core.errors import ServiceUnavailableError
 from ...models.response import AlbumListResponse
 from ...services.album_service import AlbumService
-from ...services.immich import ImmichClient
 
 
 @router.get(
@@ -247,8 +246,7 @@ async def list_albums(
             degraded=True,
             warnings=[f"相册生成异常，已降级: {exc}"],
         )
-    finally:
-        await immich_client.aclose()
+
 
     response = AlbumListResponse(
         total_albums=len(albums),

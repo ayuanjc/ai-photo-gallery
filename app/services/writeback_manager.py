@@ -18,7 +18,7 @@ from .immich_writeback import ImmichWriteBack, WriteBackEntry
 
 logger = logging.getLogger(__name__)
 
-_AI_PREFIX = "AI/"
+_AI_PREFIX = "AI·"
 _DEFAULT_AUDIT_PATH = Path("data/writeback_audit.jsonl")
 
 
@@ -66,7 +66,7 @@ class WriteBackManager:
 
     async def rollback_recent(self, count: int = 10) -> dict[str, Any]:
         entries_raw = self.read_audit_log(limit=count)
-        entries = [WriteBackEntry(**e) for e in entries_raw]
+        entries = self._parse_entries(entries_raw)
         results = await self._writeback.rollback(entries)
         return {
             "requested": len(entries),
@@ -77,7 +77,7 @@ class WriteBackManager:
 
     async def rollback_by_asset(self, asset_id: str) -> dict[str, Any]:
         entries_raw = self.read_audit_log(asset_id=asset_id, limit=1000)
-        entries = [WriteBackEntry(**e) for e in entries_raw]
+        entries = self._parse_entries(entries_raw)
         results = await self._writeback.rollback(entries)
         return {
             "asset_id": asset_id,
@@ -86,6 +86,17 @@ class WriteBackManager:
             "succeeded": sum(1 for r in results if r.success),
             "failed": sum(1 for r in results if not r.success),
         }
+
+    @staticmethod
+    def _parse_entries(entries_raw: list[dict[str, Any]]) -> list[WriteBackEntry]:
+        """将审计日志行解析为 WriteBackEntry，坏行跳过并记日志。"""
+        entries: list[WriteBackEntry] = []
+        for e in entries_raw:
+            try:
+                entries.append(WriteBackEntry(**e))
+            except Exception as exc:
+                logger.warning("审计日志行解析失败，已跳过: %s", exc)
+        return entries
 
     async def detect_conflicts(self, asset_id: str) -> list[dict[str, Any]]:
         """检测冲突：资产已有非 AI 前缀的同名标签。"""

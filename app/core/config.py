@@ -104,6 +104,8 @@ class Settings(BaseSettings):
     plugin_hook_token: SecretStr = SecretStr("")
     # 工作流回调基地址（空 = 自动探测 host.docker.internal:{port}）
     plugin_callback_base_url: str = ""
+    # hook 现场分析无结果时的兜底大场景（须在词典白名单内，空 = 禁用兜底）
+    plugin_fallback_scene: str = "life"
     # 启动时自动同步默认工作流到 Immich（幂等 upsert）
     immich_workflow_sync_enabled: bool = True
     # 工作流日志开关（同步时设置 logging=true）

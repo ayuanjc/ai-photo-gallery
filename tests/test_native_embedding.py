@@ -364,13 +364,13 @@ class TestBackfillService:
 
     @pytest.mark.asyncio
     async def test_backfill_skips_tagged_assets(self):
-        """skip_tagged=True 时跳过已有 AI/ 标签的资产。"""
+        """skip_tagged=True 时跳过已有 AI· 标签的资产。"""
         immich = MagicMock()
         immich.request_json = AsyncMock()
         immich.request_json.return_value = {
             "assets": {
                 "items": [
-                    {"id": "a1", "tags": [{"value": "AI/自然"}]},
+                    {"id": "a1", "tags": [{"value": "AI·自然"}]},
                     {"id": "a2", "tags": []},
                 ]
             }
@@ -429,12 +429,12 @@ class TestBackfillService:
         assert "error" in result
 
     def test_has_ai_tags_detection(self):
-        """检测资产是否已有 AI/ 前缀标签。"""
-        assert BackfillService._has_ai_tags({"tags": [{"value": "AI/自然"}]}) is True
+        """检测资产是否已有 AI· 前缀标签。"""
+        assert BackfillService._has_ai_tags({"tags": [{"value": "AI·自然"}]}) is True
         assert BackfillService._has_ai_tags({"tags": [{"value": "nature"}]}) is False
         assert BackfillService._has_ai_tags({"tags": []}) is False
         assert BackfillService._has_ai_tags({}) is False
-        assert BackfillService._has_ai_tags({"tags": ["AI/自然"]}) is True
+        assert BackfillService._has_ai_tags({"tags": ["AI·自然"]}) is True
 
 
 # ============ T3: 相册写回被调用 ============
@@ -519,7 +519,7 @@ class TestAlbumWritebackIntegration:
 
             payload = PluginHookPayload(
                 event="AssetTagged",
-                asset={"id": "a1", "tags": ["AI/自然"]},
+                asset={"id": "a1", "tags": ["AI·自然"]},
             )
 
             await plugin_hook(

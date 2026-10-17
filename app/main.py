@@ -19,7 +19,19 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .ai.factory import build_ai_analyzer
-from .api.routes import ai, admin, assets, batch_import, faces, plugin, ratings, scene, search, stats, watermark
+from .api.routes import (
+    admin,
+    ai,
+    assets,
+    batch_import,
+    faces,
+    plugin,
+    ratings,
+    scene,
+    search,
+    stats,
+    watermark,
+)
 from .core.cache import get_cache
 from .core.config import get_settings
 from .core.errors import AppError, ErrorCode
@@ -29,31 +41,29 @@ from .core.redis_client import RedisClient
 from .db import close_db, init_db
 from .scene.analyzer import HttpSceneInferrer, NullSceneInferrer, SceneAnalyzer
 from .scene.dictionary import get_scene_dict
+from .services.album_writeback import AlbumWriteBack
+from .services.backfill_service import BackfillService
+from .services.description_writeback import DescriptionWriteBack
 from .services.face_service import FaceService
 from .services.feedback_service import init_feedback_service
+from .services.image_proxy import ImageProxyService
 from .services.immich import ImmichClient
 from .services.immich_capabilities import ImmichCapabilities
-from .services.immich_writeback import ImmichWriteBack
-from .services.scene_writeback import SceneWriteBack
-from .services.album_writeback import AlbumWriteBack
-from .services.description_writeback import DescriptionWriteBack
-from .services.image_proxy import ImageProxyService
-from .services.incremental_sync import IncrementalSync
-from .services.workflow_manager import WorkflowManager
-from .services.writeback_manager import WriteBackManager
-from .services.backfill_service import BackfillService
-
 from .services.immich_uploader import ImmichAssetUploader
+from .services.immich_writeback import ImmichWriteBack
 from .services.importer import BatchImporter
+from .services.incremental_sync import IncrementalSync
 from .services.metadata import MetadataExtractor
 from .services.multi_condition_service import MultiConditionSearchService
 from .services.rating_service import RatingService
+from .services.scene_writeback import SceneWriteBack
 from .services.search_service import SearchService
-from .services.stats_provider import StatsProvider
 from .services.vision.base import NullVisionProvider, VisionProvider
 from .services.vision.huawei import HuaweiVisionProvider
 from .services.vision.huawei_face import HuaweiFaceClient
 from .services.watermark_processor import BatchWatermarkProcessor
+from .services.workflow_manager import WorkflowManager
+from .services.writeback_manager import WriteBackManager
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +86,12 @@ def _sanitize_message(message: str) -> str:
 async def lifespan(app: FastAPI):
     settings = get_settings()
     setup_logging(settings.log_level)
+
+    # 预置清理对象，防止 finally 阶段引用未定义变量
+    scene_analyzer = None
+    face_client = None
+    immich_uploader = None
+    watermark_processor = None
 
     immich = ImmichClient(settings)
 
@@ -163,8 +179,8 @@ async def lifespan(app: FastAPI):
 
     # ML 服务层：场景推理 + 向量索引 + 模型管理
     from .services.ml_scene_inferrer import create_ml_inferrer
-    from .services.vector_index import VectorIndex
     from .services.model_manager import ModelManager
+    from .services.vector_index import VectorIndex
     app.state.ml_inferrer = create_ml_inferrer(settings)
     app.state.vector_index = VectorIndex()
     app.state.model_manager = ModelManager()
@@ -176,7 +192,8 @@ async def lifespan(app: FastAPI):
     app.state.batch_importer = BatchImporter(settings, metadata_extractor, immich_uploader)
 
     # 水印管理：模板解析 + 子进程批量渲染
-    app.state.watermark_processor = BatchWatermarkProcessor(settings)
+    watermark_processor = BatchWatermarkProcessor(settings)
+    app.state.watermark_processor = watermark_processor
 
     # 令牌桶限流器：基于 Redis 原子操作，不可用时降级放行
     app.state.rate_limiter = TokenBucketRateLimiter(
@@ -205,9 +222,11 @@ async def lifespan(app: FastAPI):
             await scene_analyzer.aclose()
         if face_client is not None:
             await face_client.aclose()
-        await immich_uploader.aclose()
+        if immich_uploader is not None:
+            await immich_uploader.aclose()
         await immich.aclose()
-        app.state.watermark_processor.close()
+        if watermark_processor is not None:
+            watermark_processor.close()
         await redis_client.aclose()
         if getattr(app.state, "rating_service", None) is not None:
             await close_db()
@@ -294,6 +313,11 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
 @app.exception_handler(RequestValidationError)
 async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     # 仅保留可序列化的核心字段，避免原始 ValueError/输入对象导致的 JSON 序列化失败
+    if request.url.path.startswith("/api/v1/plugin"):
+        logger.warning(
+            "plugin hook 校验失败 path=%s errors=%s",
+            request.url.path, exc.errors()[:3],
+        )
     details = [
         {
             "loc": [str(p) for p in err.get("loc", [])],
@@ -344,10 +368,10 @@ async def livez() -> dict:
 async def readyz(request: Request) -> dict:
     checks: dict[str, bool] = {}
     try:
-        resp = await request.app.state.immich_client._request_with_retry(
+        resp = await request.app.state.immich_client.request_json(
             "GET", "/api/server/ping"
         )
-        checks["immich"] = resp.status_code == 200
+        checks["immich"] = resp is not None
     except Exception:
         checks["immich"] = False
     try:

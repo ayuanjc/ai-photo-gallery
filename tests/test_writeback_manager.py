@@ -6,10 +6,9 @@ from pathlib import Path
 from unittest.mock import AsyncMock
 
 import httpx
-import pytest
 
 from app.services.immich import ImmichClient
-from app.services.immich_writeback import ImmichWriteBack, WriteBackEntry
+from app.services.immich_writeback import ImmichWriteBack
 from app.services.writeback_manager import WriteBackManager
 
 
@@ -33,9 +32,9 @@ def _settings_with_writeback(settings):
 def test_read_audit_log(settings, tmp_path):
     audit = tmp_path / "audit.jsonl"
     _write_audit(audit, [
-        {"action": "add_tag", "asset_id": "a", "target": "AI/自然", "success": True, "timestamp": "2026-10-15T10:00:00Z"},
+        {"action": "add_tag", "asset_id": "a", "target": "AI·自然", "success": True, "timestamp": "2026-10-15T10:00:00Z"},
         {"action": "add_to_album", "asset_id": "a", "target": "album-1", "success": True, "timestamp": "2026-10-15T11:00:00Z"},
-        {"action": "add_tag", "asset_id": "b", "target": "AI/城市", "success": False, "timestamp": "2026-10-15T12:00:00Z"},
+        {"action": "add_tag", "asset_id": "b", "target": "AI·城市", "success": False, "timestamp": "2026-10-15T12:00:00Z"},
     ])
     ic, client = make_client(lambda r: httpx.Response(404), settings)
     try:
@@ -49,7 +48,7 @@ def test_read_audit_log(settings, tmp_path):
 def test_read_audit_log_filter_by_action(settings, tmp_path):
     audit = tmp_path / "audit.jsonl"
     _write_audit(audit, [
-        {"action": "add_tag", "asset_id": "a", "target": "AI/自然", "success": True, "timestamp": "t1"},
+        {"action": "add_tag", "asset_id": "a", "target": "AI·自然", "success": True, "timestamp": "t1"},
         {"action": "add_to_album", "asset_id": "a", "target": "album-1", "success": True, "timestamp": "t2"},
     ])
     ic, client = make_client(lambda r: httpx.Response(404), settings)
@@ -65,8 +64,8 @@ def test_read_audit_log_filter_by_action(settings, tmp_path):
 def test_read_audit_log_filter_by_asset(settings, tmp_path):
     audit = tmp_path / "audit.jsonl"
     _write_audit(audit, [
-        {"action": "add_tag", "asset_id": "a", "target": "AI/自然", "success": True, "timestamp": "t1"},
-        {"action": "add_tag", "asset_id": "b", "target": "AI/城市", "success": True, "timestamp": "t2"},
+        {"action": "add_tag", "asset_id": "a", "target": "AI·自然", "success": True, "timestamp": "t1"},
+        {"action": "add_tag", "asset_id": "b", "target": "AI·城市", "success": True, "timestamp": "t2"},
     ])
     ic, client = make_client(lambda r: httpx.Response(404), settings)
     try:
@@ -92,13 +91,13 @@ def test_read_audit_log_empty(settings, tmp_path):
 async def test_rollback_recent(settings, tmp_path):
     audit = tmp_path / "audit.jsonl"
     _write_audit(audit, [
-        {"action": "add_tag", "asset_id": "a", "target": "AI/自然", "success": True, "timestamp": "t1"},
+        {"action": "add_tag", "asset_id": "a", "target": "AI·自然", "success": True, "timestamp": "t1"},
     ])
     s = _settings_with_writeback(settings)
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/api/tags" and request.method == "GET":
-            return httpx.Response(200, json=[{"id": "tag-1", "value": "AI/自然"}])
+            return httpx.Response(200, json=[{"id": "tag-1", "value": "AI·自然"}])
         if "/assets" in request.url.path and request.method == "DELETE":
             return httpx.Response(200, json=[])
         return httpx.Response(404)
@@ -118,14 +117,14 @@ async def test_rollback_recent(settings, tmp_path):
 async def test_rollback_by_asset(settings, tmp_path):
     audit = tmp_path / "audit.jsonl"
     _write_audit(audit, [
-        {"action": "add_tag", "asset_id": "a", "target": "AI/自然", "success": True, "timestamp": "t1"},
-        {"action": "add_tag", "asset_id": "b", "target": "AI/城市", "success": True, "timestamp": "t2"},
+        {"action": "add_tag", "asset_id": "a", "target": "AI·自然", "success": True, "timestamp": "t1"},
+        {"action": "add_tag", "asset_id": "b", "target": "AI·城市", "success": True, "timestamp": "t2"},
     ])
     s = _settings_with_writeback(settings)
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/api/tags" and request.method == "GET":
-            return httpx.Response(200, json=[{"id": "tag-1", "value": "AI/自然"}])
+            return httpx.Response(200, json=[{"id": "tag-1", "value": "AI·自然"}])
         if "/assets" in request.url.path and request.method == "DELETE":
             return httpx.Response(200, json=[])
         return httpx.Response(404)
@@ -148,9 +147,9 @@ async def test_detect_conflicts(settings, tmp_path):
             return httpx.Response(200, json={
                 "id": "asset-001",
                 "tags": [
-                    {"id": "t1", "value": "AI/自然"},
+                    {"id": "t1", "value": "AI·自然"},
                     {"id": "t2", "value": "旅行"},
-                    {"id": "t3", "value": "AI/日落"},
+                    {"id": "t3", "value": "AI·日落"},
                 ],
             })
         return httpx.Response(404)

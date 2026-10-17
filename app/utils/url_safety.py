@@ -1,7 +1,15 @@
 """URL 安全校验：防止 SSRF（服务端请求伪造）。
 
 拒绝向内网/回环/链路本地地址发起请求，仅允许公网 http(s) URL。
-DNS 解析失败时 fail-closed（拒绝），防止 DNS rebinding 攻击。
+DNS 解析失败时 fail-closed（拒绝）。
+
+已知限制（诚实声明）：本模块在"校验时"解析 DNS 并检查全部 A/AAAA 记录，
+但无法保证后续实际发起请求的一方（本服务或上游）解析到相同 IP。
+若攻击者控制 DNS 且在两次解析之间切换记录（DNS rebinding TOCTOU），
+本校验无法完全拦截。当前 image_urls 仅用于提取 asset_id 后调用 Immich
+API，本服务不直接向用户提供的 URL 发起请求，实际暴露面有限。
+彻底防护需要在请求层 pin IP（自定义 transport），如后续引入本服务侧
+下载用户 URL 的功能，必须补齐该层。
 """
 from __future__ import annotations
 
