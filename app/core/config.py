@@ -100,8 +100,18 @@ class Settings(BaseSettings):
 
     # ---- Immich 写回（标签/相册/描述，默认关闭）----
     writeback_enabled: bool = False
-    # 插件 hook 鉴权 token（空 = 不鉴权）
-    plugin_hook_token: str = ""
+    # 插件 hook 鉴权 token（空 = 不鉴权，非空 = 强制校验 x-plugin-token 头）
+    plugin_hook_token: SecretStr = SecretStr("")
+    # 工作流回调基地址（空 = 自动探测 host.docker.internal:{port}）
+    plugin_callback_base_url: str = ""
+    # 启动时自动同步默认工作流到 Immich（幂等 upsert）
+    immich_workflow_sync_enabled: bool = True
+    # 工作流日志开关（同步时设置 logging=true）
+    immich_workflow_logging: bool = True
+    # 回填任务并发度
+    backfill_concurrency: int = 5
+    # 回填任务每页拉取资产数
+    backfill_page_size: int = 1000
 
     huawei_ak: str = ""
     huawei_sk: SecretStr = SecretStr("")
@@ -237,7 +247,7 @@ class Settings(BaseSettings):
         return value.rstrip("/")
 
     @model_validator(mode="after")
-    def _production_safety(self) -> "Settings":
+    def _production_safety(self) -> Settings:
         if self.app_env == "production":
             if not self.search_api_key:
                 raise ValueError("生产环境必须配置 SEARCH_API_KEY（非空）")

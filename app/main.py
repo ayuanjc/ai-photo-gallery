@@ -41,6 +41,7 @@ from .services.image_proxy import ImageProxyService
 from .services.incremental_sync import IncrementalSync
 from .services.workflow_manager import WorkflowManager
 from .services.writeback_manager import WriteBackManager
+from .services.backfill_service import BackfillService
 
 from .services.immich_uploader import ImmichAssetUploader
 from .services.importer import BatchImporter
@@ -156,6 +157,9 @@ async def lifespan(app: FastAPI):
 
     # 工作流管理：Immich 原生工作流创建/管理
     app.state.workflow_manager = WorkflowManager(immich, settings)
+
+    # 历史资产回填服务
+    app.state.backfill_service = BackfillService(immich, settings)
 
     # ML 服务层：场景推理 + 向量索引 + 模型管理
     from .services.ml_scene_inferrer import create_ml_inferrer
