@@ -438,6 +438,32 @@
 
     /* ---- 统计大屏 ---- */
     .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--sp-4); }
+
+    /* ---- AI 搜索 ---- */
+    .search-bar { display: flex; gap: var(--sp-2); padding: var(--sp-3); margin-bottom: var(--sp-3); flex-wrap: wrap; }
+    .search-bar .input[type="search"] { flex: 1 1 260px; }
+    .search-bar .input[type="search"], .search-bar select { min-width: 0; }
+    .search-bar select { flex: 0 0 auto; width: auto; }
+    .search-meta { font-size: var(--fs-xs); color: var(--text-dim); margin-bottom: var(--sp-3); min-height: 18px; display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: center; }
+    .search-meta .warn-text { color: var(--warn, #e6a700); }
+    .search-grid { display: none; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--sp-3); }
+    .search-grid.has-results { display: grid; }
+    .result-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; display: flex; flex-direction: column; transition: transform 0.15s var(--ease), border-color 0.15s var(--ease); }
+    .result-card:hover { transform: translateY(-2px); border-color: var(--accent-glow, var(--accent)); }
+    .result-card .thumb { position: relative; aspect-ratio: 4 / 3; background: var(--surface-2); }
+    .result-card .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .result-card .score-badge { position: absolute; top: 6px; right: 6px; background: rgba(5,5,6,0.75); color: var(--text); font-size: var(--fs-xs); padding: 2px 7px; border-radius: var(--r-pill); backdrop-filter: blur(4px); }
+    .result-card .info { padding: var(--sp-2) var(--sp-3) var(--sp-3); display: flex; flex-direction: column; gap: 6px; }
+    .result-card .scene-chips { display: flex; gap: 4px; flex-wrap: wrap; }
+    .result-card .scene-chip { font-size: var(--fs-xs); padding: 1px 8px; border-radius: var(--r-pill); background: var(--accent-soft, rgba(56,132,255,0.12)); color: var(--accent-2, #7cb1ff); border: 1px solid var(--accent-glow, rgba(56,132,255,0.25)); }
+    .result-card .meta-line { font-size: var(--fs-xs); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .search-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-3); padding: var(--sp-8, 48px) var(--sp-4); color: var(--text-faint); text-align: center; }
+    .search-empty .empty-icon svg { width: 44px; height: 44px; opacity: 0.4; }
+    .search-empty.hidden { display: none; }
+    .search-loading { display: flex; align-items: center; gap: 10px; color: var(--text-dim); font-size: var(--fs-sm); padding: var(--sp-4); }
+    .search-loading .spinner { width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
     .stats-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--sp-4); }
     .stats-card h3 { margin: 0 0 var(--sp-3); font-size: var(--fs-sm); font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; display: flex; align-items: center; gap: 6px; }
     .stats-card h3 svg { width: 16px; height: 16px; opacity: 0.7; }
@@ -578,6 +604,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
           <span>总览</span>
         </button>
+        <button class="nav-item" type="button" data-route="search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/><path d="M11 8v3l2 1.5"/></svg>
+          <span>AI 搜索</span>
+        </button>
         <button class="nav-item" type="button" data-route="features">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"/><circle cx="9" cy="6" r="2.4"/><path d="M4 12h16"/><circle cx="15" cy="12" r="2.4"/><path d="M4 18h16"/><circle cx="8" cy="18" r="2.4"/></svg>
           <span>功能开关</span>
@@ -638,6 +668,40 @@
               <p>AI 图库助手运行概况。数据来自后端 <span class="mono">/admin/api/status</span> 与 <span class="mono">/admin/api/features</span> 实时接口。</p>
             </div>
             <div id="overviewBody" aria-live="polite"></div>
+          </section>
+
+          <!-- AI 搜索 -->
+          <section class="page" id="page-search" aria-labelledby="searchTitle">
+            <div class="page-head">
+              <h2 id="searchTitle">AI 搜索</h2>
+              <p>自然语言语义搜索 Immich 图库，结果由本服务二次排序并展示场景分析。接口：<span class="mono">POST /api/v1/search/smart</span></p>
+            </div>
+            <div class="search-bar card">
+              <input class="input" type="search" id="searchQuery" placeholder="例如：海边的日落、夜景城市街道、家人的合影…" aria-label="搜索关键词" autocomplete="off" />
+              <select class="input" id="searchSort" aria-label="排序方式">
+                <option value="relevance">相关度</option>
+                <option value="newest">最新优先</option>
+                <option value="oldest">最早优先</option>
+                <option value="random">随机</option>
+              </select>
+              <select class="input" id="searchLimit" aria-label="结果数量">
+                <option value="24">24 张</option>
+                <option value="48">48 张</option>
+                <option value="96">96 张</option>
+              </select>
+              <button class="btn green" type="button" id="searchBtn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+                搜索
+              </button>
+            </div>
+            <div class="search-meta" id="searchMeta" aria-live="polite"></div>
+            <div class="search-grid" id="searchGrid"></div>
+            <div class="search-empty" id="searchEmpty">
+              <div class="empty-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+              </div>
+              <p>输入关键词开始搜索，例如「夕阳下的海滩」。</p>
+            </div>
           </section>
 
           <!-- 功能开关 -->
@@ -844,7 +908,7 @@
     };
 
     // 页面路由标题
-    var ROUTE_TITLES = { overview: "总览", features: "功能开关", status: "系统状态", settings: "配置管理", stats: "统计大屏" };
+    var ROUTE_TITLES = { overview: "总览", search: "AI 搜索", features: "功能开关", status: "系统状态", settings: "配置管理", stats: "统计大屏" };
 
     // SVG 图标（常量字符串，仅用于 trusted innerHTML 注入，不含任何用户输入）
     var ICON = {
@@ -1022,6 +1086,7 @@
       closeDrawer();
       // 懒加载对应数据
       if (route === "overview") renderOverview();
+      if (route === "search") initSearchPage();
       if (route === "features") renderFeatures();
       if (route === "status") renderStatus();
       if (route === "settings") loadSettings();
@@ -1037,6 +1102,99 @@
       $("sidebar").classList.remove("open");
       $("scrim").hidden = true;
       $("menuBtn").setAttribute("aria-expanded", "false");
+    }
+
+    /* =======================================================================
+       AI 搜索页
+       ======================================================================= */
+    // 场景 key -> 中文标签（与后端 scene_dict.json 一致）
+    var SCENE_LABELS = {
+      nature: "自然", city: "城市", people: "人物", life: "生活", event: "事件",
+      animal: "动物", architecture: "建筑", night: "夜景", vehicle: "车辆", art: "艺术"
+    };
+    var searchInitialized = false;
+
+    function initSearchPage() {
+      if (searchInitialized) return;
+      searchInitialized = true;
+      var btn = $("searchBtn");
+      var input = $("searchQuery");
+      if (btn) btn.addEventListener("click", function () { runSearch(); });
+      if (input) {
+        input.addEventListener("keydown", function (e) { if (e.key === "Enter") runSearch(); });
+        setTimeout(function () { input.focus(); }, 50);
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+        return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+      });
+    }
+
+    async function runSearch() {
+      var q = ($("searchQuery").value || "").trim();
+      if (!q) { toast("请输入搜索关键词", "warn"); return; }
+      var sort = $("searchSort").value;
+      var limit = parseInt($("searchLimit").value, 10) || 24;
+      var grid = $("searchGrid"), meta = $("searchMeta"), empty = $("searchEmpty");
+
+      empty.classList.add("hidden");
+      grid.classList.remove("has-results");
+      grid.innerHTML = "";
+      meta.innerHTML = '<span class="search-loading"><span class="spinner"></span>正在语义检索…</span>';
+
+      var result = await request("/api/v1/search/smart", {
+        method: "POST",
+        body: { query: q, asset_ids: [], limit: limit, sort_by: sort, include_original_url: false }
+      });
+
+      if (!result.ok) {
+        var em = errorMessage(result);
+        meta.innerHTML = '<span class="warn-text">' + escapeHtml(em.text) + " — " + escapeHtml(em.next) + "</span>";
+        empty.classList.remove("hidden");
+        empty.querySelector("p").textContent = "搜索失败，请稍后重试。";
+        return;
+      }
+
+      var data = result.data || {};
+      var items = data.results || [];
+      var bits = [];
+      bits.push("共 <b>" + (data.total != null ? data.total : items.length) + "</b> 条结果");
+      if (data.cached) bits.push("命中缓存");
+      if (data.degraded) bits.push('<span class="warn-text">已降级</span>');
+      if (data.dedup_removed) bits.push("去重移除 " + data.dedup_removed + " 条");
+      if (data.image_query_used) bits.push("以图搜图增强");
+      meta.innerHTML = bits.join(" · ");
+
+      if (!items.length) {
+        empty.classList.remove("hidden");
+        empty.querySelector("p").textContent = "没有找到与「" + q + "」相关的照片，换个说法试试。";
+        return;
+      }
+
+      var html = items.map(function (it) {
+        var scene = it.scene || {};
+        var scenes = (scene.scenes || []).slice(0, 3).map(function (s) {
+          return '<span class="scene-chip">' + escapeHtml(SCENE_LABELS[s] || s) + "</span>";
+        }).join("");
+        var dateStr = it.captured_at ? new Date(it.captured_at).toLocaleDateString("zh-CN") : "";
+        var loc = "";
+        var md = it.metadata || {};
+        if (md.city || md.country) loc = [md.city, md.country].filter(Boolean).join(", ");
+        var metaLine = [dateStr, loc].filter(Boolean).join(" · ");
+        return '<div class="result-card">' +
+          '<div class="thumb">' +
+          '<img loading="lazy" src="/api/v1/assets/' + encodeURIComponent(it.asset_id) + '/thumbnail?size=thumbnail" alt="搜索结果缩略图" onerror="this.style.display=\'none\'" />' +
+          '<span class="score-badge">' + (it.final_score != null ? (it.final_score * 100).toFixed(0) : "—") + "</span>" +
+          "</div>" +
+          '<div class="info">' +
+          '<div class="scene-chips">' + (scenes || '<span class="scene-chip">未识别</span>') + "</div>" +
+          (metaLine ? '<div class="meta-line">' + escapeHtml(metaLine) + "</div>" : "") +
+          "</div></div>";
+      }).join("");
+      grid.innerHTML = html;
+      grid.classList.add("has-results");
     }
 
     /* =======================================================================

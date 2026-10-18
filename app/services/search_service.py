@@ -13,6 +13,7 @@ from ..core.runtime_config import runtime_enabled
 from ..models.request import SearchRequest
 from ..models.response import SearchResponse, SearchResultItem
 from ..scene.analyzer import SceneAnalyzer
+from ..scene.fallback import apply_fallback_scene
 from .explain import build_explanation
 from .immich import ImmichClient
 from .immich_capabilities import ImmichCapabilities
@@ -179,7 +180,7 @@ class SearchService:
                 assets, date_from, date_to, self._settings.default_datetime_iso
             )
 
-        await self._attach_scenes(assets)
+        await self._attach_scenes(assets, query=request.query)
 
         # 3b. 否定语义过滤：在排序之前过滤掉场景标签命中否定词的结果。
         negation_removed = 0
@@ -358,11 +359,12 @@ class SearchService:
             return base, []
         return enriched, [f"已通过视觉识别增强查询词（{len(keywords)} 个标签）"]
 
-    async def _attach_scenes(self, assets: list[dict]) -> None:
+    async def _attach_scenes(self, assets: list[dict], query: str = "") -> None:
         """并发为每条 asset 生成场景标签，失败不阻塞搜索主链路。
 
         成功时在 asset 上附加 scene_tags 与 primary_scene；整体异常时仅记日志，
         asset 不携带 scene 信息（对应响应中 scene=None）。
+        分析无结果时按「查询推断 → 默认场景」兜底，避免前端显示"未识别"。
         """
         if self._scene_analyzer is None or not runtime_enabled(
             "scene_enabled", self._settings.scene_enabled
@@ -377,8 +379,9 @@ class SearchService:
                 except Exception as exc:
                     logger.warning("场景分析失败，asset_id=%s err=%s", asset.get("id"), exc)
                     return
+                tags = apply_fallback_scene(tags, self._settings, query=query)
                 asset["scene_tags"] = tags
-                asset["primary_scene"] = tags.primary_scene
+                asset["primary_scene"] = tags.primary_scene if tags else None
 
         results = await asyncio.gather(*(_one(asset) for asset in assets), return_exceptions=True)
         for r in results:

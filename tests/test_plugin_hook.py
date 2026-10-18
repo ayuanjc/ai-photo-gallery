@@ -8,8 +8,9 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.routes.plugin import _apply_fallback_scene, _has_scene_content
 from app.main import app
+from app.scene.fallback import apply_fallback_scene, has_scene_content
+from app.scene.models import SceneTags
 
 
 @pytest.fixture
@@ -77,30 +78,30 @@ def test_plugin_hook_response_format(client):
 
 class TestHasSceneContent:
     def test_none(self):
-        assert _has_scene_content(None) is False
+        assert has_scene_content(None) is False
 
     def test_empty_dict(self):
-        assert _has_scene_content({}) is False
+        assert has_scene_content({}) is False
 
     def test_empty_fields(self):
-        assert _has_scene_content(
+        assert has_scene_content(
             {"primary_scene": None, "scenes": [], "sub_scenes": [], "visual_attrs": {}}
         ) is False
 
     def test_has_scenes(self):
-        assert _has_scene_content({"scenes": ["life"]}) is True
+        assert has_scene_content({"scenes": ["life"]}) is True
 
     def test_has_sub_scenes(self):
-        assert _has_scene_content({"sub_scenes": ["food"]}) is True
+        assert has_scene_content({"sub_scenes": ["food"]}) is True
 
     def test_has_visual_attrs(self):
-        assert _has_scene_content({"visual_attrs": {"time": "day"}}) is True
+        assert has_scene_content({"visual_attrs": {"time": "day"}}) is True
 
 
 class TestApplyFallbackScene:
     def test_applies_default_when_empty(self):
         settings = SimpleNamespace(plugin_fallback_scene="life")
-        result = _apply_fallback_scene(None, settings)
+        result = apply_fallback_scene(None, settings)
         assert result is not None
         assert result["primary_scene"] == "life"
         assert result["scenes"] == ["life"]
@@ -109,25 +110,25 @@ class TestApplyFallbackScene:
     def test_applies_when_analysis_returned_empty(self):
         settings = SimpleNamespace(plugin_fallback_scene="life")
         empty = {"primary_scene": None, "scenes": [], "sub_scenes": [], "visual_attrs": {}}
-        result = _apply_fallback_scene(empty, settings)
+        result = apply_fallback_scene(empty, settings)
         assert result["primary_scene"] == "life"
 
     def test_keeps_existing_content(self):
         settings = SimpleNamespace(plugin_fallback_scene="life")
         existing = {"primary_scene": "nature", "scenes": ["nature"], "sub_scenes": [], "visual_attrs": {}}
-        assert _apply_fallback_scene(existing, settings) is existing
+        assert apply_fallback_scene(existing, settings) is existing
 
     def test_disabled_when_empty_config(self):
         settings = SimpleNamespace(plugin_fallback_scene="")
-        assert _apply_fallback_scene(None, settings) is None
+        assert apply_fallback_scene(None, settings) is None
 
     def test_invalid_scene_key_skipped(self):
         settings = SimpleNamespace(plugin_fallback_scene="not_a_scene")
-        assert _apply_fallback_scene(None, settings) is None
+        assert apply_fallback_scene(None, settings) is None
 
     def test_missing_attr_treated_as_disabled(self):
         settings = SimpleNamespace()
-        assert _apply_fallback_scene(None, settings) is None
+        assert apply_fallback_scene(None, settings) is None
 
 
 def _make_official_payload(event: str = "AssetCreate") -> dict:
@@ -140,10 +141,15 @@ def _make_official_payload(event: str = "AssetCreate") -> dict:
 
 
 def test_plugin_hook_desc_writeback_uses_analyzed_scene(client, monkeypatch):
-    """回归：描述写回必须使用现场分析/兜底出的 scene，而非 payload.asset.scene（恒空）。"""
+    """真实分析结果（source=analyzed）时，描述/标签写回必须使用现场分析的 scene。"""
     monkeypatch.setattr(
         "app.api.routes.plugin.runtime_enabled", lambda key, default: True
     )
+    analyzed = SceneTags(
+        primary_scene="nature", scenes=["nature"], sub_scenes=["beach"], source="analyzed"
+    )
+    analyzer = SimpleNamespace(analyze=AsyncMock(return_value=analyzed))
+    monkeypatch.setattr(app.state, "scene_analyzer", analyzer, raising=False)
     mock_desc = AsyncMock()
     mock_desc.writeback_descriptions = AsyncMock(return_value=[])
     mock_scene = AsyncMock()
@@ -161,19 +167,47 @@ def test_plugin_hook_desc_writeback_uses_analyzed_scene(client, monkeypatch):
     mock_scene.writeback_scene_tags.assert_awaited_once()
     scene_arg = mock_scene.writeback_scene_tags.await_args.args[0][0]
     assert scene_arg["scene"] is not None
-    assert scene_arg["scene"]["primary_scene"]
+    assert scene_arg["scene"]["primary_scene"] == "nature"
+    assert scene_arg["scene"]["source"] == "analyzed"
 
     mock_desc.writeback_descriptions.assert_awaited_once()
     desc_arg = mock_desc.writeback_descriptions.await_args.args[0][0]
     assert desc_arg["scene"] is not None
-    assert desc_arg["scene"]["primary_scene"]
+    assert desc_arg["scene"]["primary_scene"] == "nature"
 
 
-def test_plugin_hook_no_false_rating_without_score(client, monkeypatch):
-    """回归：无 final_score/similarity_score 时不应触发评分写回（避免虚假 1 星）。"""
+def test_plugin_hook_no_writeback_for_fallback_scene(client, monkeypatch):
+    """回归：webhook payload 无 smartInfo，兜底场景是猜测值，一律不写回。"""
     monkeypatch.setattr(
         "app.api.routes.plugin.runtime_enabled", lambda key, default: True
     )
+    mock_desc = AsyncMock()
+    mock_desc.writeback_descriptions = AsyncMock(return_value=[])
+    mock_scene = AsyncMock()
+    mock_scene.writeback_scene_tags = AsyncMock(return_value=[])
+    mock_album = AsyncMock()
+    mock_album.writeback_albums = AsyncMock(return_value=[])
+    monkeypatch.setattr(app.state, "description_writeback", mock_desc, raising=False)
+    monkeypatch.setattr(app.state, "scene_writeback", mock_scene, raising=False)
+    monkeypatch.setattr(app.state, "album_writeback", mock_album, raising=False)
+
+    resp = client.post("/api/v1/plugin/hook", json=_make_official_payload())
+    assert resp.status_code == 200
+    assert resp.json()["continue"] is True
+
+    mock_scene.writeback_scene_tags.assert_not_awaited()
+    mock_desc.writeback_descriptions.assert_not_awaited()
+    mock_album.writeback_albums.assert_not_awaited()
+
+
+def test_plugin_hook_no_false_rating_without_score(client, monkeypatch):
+    """回归：描述写回数据不携带 final_score/similarity_score（排序分不等于图片质量分）。"""
+    monkeypatch.setattr(
+        "app.api.routes.plugin.runtime_enabled", lambda key, default: True
+    )
+    analyzed = SceneTags(primary_scene="life", scenes=["life"], source="analyzed")
+    analyzer = SimpleNamespace(analyze=AsyncMock(return_value=analyzed))
+    monkeypatch.setattr(app.state, "scene_analyzer", analyzer, raising=False)
     mock_desc = AsyncMock()
     mock_desc.writeback_descriptions = AsyncMock(return_value=[])
     monkeypatch.setattr(app.state, "description_writeback", mock_desc, raising=False)
@@ -183,5 +217,5 @@ def test_plugin_hook_no_false_rating_without_score(client, monkeypatch):
     resp = client.post("/api/v1/plugin/hook", json=_make_official_payload())
     assert resp.status_code == 200
     desc_arg = mock_desc.writeback_descriptions.await_args.args[0][0]
-    assert desc_arg["final_score"] is None
-    assert desc_arg["similarity_score"] is None
+    assert "final_score" not in desc_arg
+    assert "similarity_score" not in desc_arg

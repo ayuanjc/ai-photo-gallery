@@ -47,34 +47,36 @@ async def smart_search(
     """语义搜索端点，支持评分附加与 min_rating 过滤 + 场景标签写回。"""
     response = await service.search(request)
 
-    # 场景标签写回 + AI相册写回（BackgroundTask，非阻塞）
+    # 场景标签写回 + AI相册写回（BackgroundTask，非阻塞）。
+    # 仅写回真实分析结果（source=analyzed）：查询推断/兜底的猜测场景只用于前端展示，
+    # 写回会把猜测当事实污染图库（标签/描述/评分/相册）。
     if (
         not response.cached
-        and response.results
         and runtime_enabled("writeback_enabled", getattr(get_settings(), "writeback_enabled", False))
     ):
-        results_data = [
-            {"asset_id": r.asset_id, "scene": r.scene.model_dump() if r.scene else None}
-            for r in response.results
+        analyzed = [
+            r for r in response.results if r.scene is not None and r.scene.source == "analyzed"
         ]
-        scene_writeback = getattr(http_request.app.state, "scene_writeback", None)
-        if scene_writeback is not None:
-            background_tasks.add_task(scene_writeback.writeback_scene_tags, results_data)
-        album_writeback = getattr(http_request.app.state, "album_writeback", None)
-        if album_writeback is not None:
-            background_tasks.add_task(album_writeback.writeback_albums, results_data)
-        desc_writeback = getattr(http_request.app.state, "description_writeback", None)
-        if desc_writeback is not None:
-            desc_data = [
-                {
-                    "asset_id": r.asset_id,
-                    "scene": r.scene.model_dump() if r.scene else None,
-                    "final_score": r.final_score,
-                    "similarity_score": r.similarity_score,
-                }
-                for r in response.results
+        if analyzed:
+            results_data = [
+                {"asset_id": r.asset_id, "scene": r.scene.model_dump()} for r in analyzed
             ]
-            background_tasks.add_task(desc_writeback.writeback_descriptions, desc_data)
+            scene_writeback = getattr(http_request.app.state, "scene_writeback", None)
+            if scene_writeback is not None:
+                background_tasks.add_task(scene_writeback.writeback_scene_tags, results_data)
+            album_writeback = getattr(http_request.app.state, "album_writeback", None)
+            if album_writeback is not None:
+                background_tasks.add_task(album_writeback.writeback_albums, results_data)
+            desc_writeback = getattr(http_request.app.state, "description_writeback", None)
+            if desc_writeback is not None:
+                desc_data = [
+                    {
+                        "asset_id": r.asset_id,
+                        "scene": r.scene.model_dump(),
+                    }
+                    for r in analyzed
+                ]
+                background_tasks.add_task(desc_writeback.writeback_descriptions, desc_data)
 
     # 评分附加与 min_rating 过滤
     rating_service = getattr(http_request.app.state, "rating_service", None)

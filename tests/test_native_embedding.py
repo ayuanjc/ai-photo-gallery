@@ -478,7 +478,10 @@ class TestAlbumWritebackIntegration:
 
             payload = PluginHookPayload(
                 event="AssetCreate",
-                asset={"id": "a1", "scene": {"primary_scene": "nature"}},
+                asset={
+                    "id": "a1",
+                    "scene": {"primary_scene": "nature", "source": "analyzed"},
+                },
             )
 
             result = await plugin_hook(
@@ -492,8 +495,43 @@ class TestAlbumWritebackIntegration:
             assert "albums_updated" in result.changes
 
     @pytest.mark.asyncio
+    async def test_album_writeback_not_called_for_unanalyzed_scene(self):
+        """自定义 payload 的 scene 无 source=analyzed 标记时不写回（猜测值禁写）。"""
+        from app.api.routes.plugin import PluginHookPayload
+
+        settings = Settings(plugin_hook_token="", writeback_enabled=True)
+        with patch("app.api.routes.plugin.get_settings", return_value=settings):
+            from app.api.routes.plugin import plugin_hook
+
+            request = MagicMock()
+            request.state.request_id = "test-req"
+            request.app.state = MagicMock()
+            request.app.state.redis_client = None
+
+            album_wb = AsyncMock()
+            album_wb.writeback_albums = AsyncMock(return_value=[])
+
+            request.app.state.scene_writeback = AsyncMock()
+            request.app.state.album_writeback = album_wb
+            request.app.state.description_writeback = AsyncMock()
+
+            payload = PluginHookPayload(
+                event="AssetCreate",
+                asset={"id": "a1", "scene": {"primary_scene": "nature"}},
+            )
+
+            await plugin_hook(
+                payload=payload,
+                request=request,
+                response=MagicMock(),
+                x_plugin_token=None,
+            )
+
+            album_wb.writeback_albums.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_album_writeback_called_on_asset_tagged(self):
-        """AssetTagged 事件也触发 album_writeback（相册归档）。"""
+        """AssetTagged 事件不再触发 album_writeback（防事件循环放大）。"""
         from app.api.routes.plugin import PluginHookPayload
 
         settings = Settings(plugin_hook_token="", writeback_enabled=True)
@@ -529,4 +567,4 @@ class TestAlbumWritebackIntegration:
                 x_plugin_token=None,
             )
 
-            album_wb.writeback_albums.assert_called_once()
+            album_wb.writeback_albums.assert_not_called()
