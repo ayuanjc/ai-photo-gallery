@@ -60,6 +60,8 @@ _QUERY_SCENE_HINTS: list[tuple[str, str, str | None]] = [
     # ---- 生活 ----
     ("生活", "life", None), ("美食", "life", "food"), ("食物", "life", "food"),
     ("咖啡", "life", "food"), ("宠物", "life", "pet"),
+    ("晚餐", "life", "food"), ("早餐", "life", "food"), ("午餐", "life", "food"),
+    ("大餐", "life", "food"), ("甜点", "life", "food"), ("宵夜", "life", "food"),
     ("家居", "life", "home"), ("宅家", "life", "home"),
     ("办公", "life", "office"), ("工作", "life", "office"),
     ("运动", "life", "sport"), ("健身", "life", "sport"), ("跑步", "life", "sport"),

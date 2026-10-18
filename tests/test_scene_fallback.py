@@ -38,6 +38,12 @@ class TestInferSceneFromQuery:
         assert "beach" in inferred.sub_scenes
         assert "cat" in inferred.sub_scenes
 
+    def test_meal_query(self):
+        inferred = infer_scene_from_query("诱人的晚餐", get_scene_dict())
+        assert inferred is not None
+        assert "life" in inferred.scenes
+        assert "food" in inferred.sub_scenes
+
     def test_whitespace_tolerant(self):
         assert infer_scene_from_query("  海边  ", get_scene_dict()) is not None
 

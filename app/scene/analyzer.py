@@ -161,10 +161,13 @@ class SceneAnalyzer:
                 confidence=base.confidence,
             )
 
+        # 合并两级结果：大场景/子场景/置信度以推理结果为准（推断器无
+        # infer_full 时 inferred 仅含大场景），保留第一级已映射的子场景与视觉属性。
+        merged_subs = list(dict.fromkeys([*base.sub_scenes, *inferred.sub_scenes]))
         merged = SceneTags(
             primary_scene=inferred.primary_scene,
             scenes=inferred.scenes,
-            sub_scenes=base.sub_scenes,
+            sub_scenes=merged_subs,
             visual_attrs=base.visual_attrs,
             confidence={**base.confidence, **inferred.confidence},
         )
@@ -243,7 +246,34 @@ class SceneAnalyzer:
 
     # ---- 第二级：零样本推理（带超时降级）----
     async def _infer(self, asset: dict) -> SceneTags | None:
-        """调用推理器判断大场景，超时或异常返回 None。"""
+        """调用推理器判断场景，超时或异常返回 None。
+
+        推理器可实现 infer_full 返回完整 SceneTags（含子场景/置信度/source），
+        如 ClipSceneInferrer；旧接口 infer_scenes 仅返回大场景列表。
+        """
+        try:
+            inferrer = self._inferrer
+            if hasattr(inferrer, "infer_full"):
+                inferred = await asyncio.wait_for(
+                    inferrer.infer_full(asset), timeout=self._timeout
+                )
+            else:
+                inferred = None
+            if inferred is not None:
+                return self._sanitize_inferred(inferred)
+            if hasattr(inferrer, "infer_full"):
+                return None  # 完整推理已执行但无结果，不再走旧接口
+        except asyncio.TimeoutError:
+            logger.warning(
+                "场景推理超时（>%.1fs），降级返回，asset_id=%s",
+                self._timeout,
+                asset.get("id"),
+            )
+            return None
+        except Exception as exc:  # 推理失败不应导致搜索失败
+            logger.warning("场景推理失败，asset_id=%s err=%s", asset.get("id"), exc)
+            return None
+
         try:
             scenes = await asyncio.wait_for(
                 self._inferrer.infer_scenes(asset), timeout=self._timeout
@@ -273,6 +303,33 @@ class SceneAnalyzer:
             primary_scene=_pick_primary(valid_scenes, confidence),
             scenes=valid_scenes,
             confidence=confidence,
+            source="analyzed",
+        )
+
+    def _sanitize_inferred(self, inferred: SceneTags) -> SceneTags | None:
+        """完整推理结果的白名单校验：过滤非法 key、补全子场景的父场景。"""
+        valid_scenes = [
+            s for s in inferred.scenes if self._dict.is_valid_scene(s)
+        ]
+        valid_subs = [s for s in inferred.sub_scenes if self._dict.is_valid_sub_scene(s)]
+        for sub in valid_subs:
+            parent = self._dict.parent_of(sub)
+            if parent is not None and parent not in valid_scenes:
+                valid_scenes.append(parent)
+        if not valid_scenes and not valid_subs:
+            return None
+        confidence = {
+            k: v for k, v in inferred.confidence.items() if k in set(valid_scenes + valid_subs)
+        }
+        return SceneTags(
+            primary_scene=inferred.primary_scene
+            if inferred.primary_scene in valid_scenes
+            else _pick_primary(valid_scenes, confidence),
+            scenes=valid_scenes,
+            sub_scenes=valid_subs,
+            visual_attrs=inferred.visual_attrs,
+            confidence=confidence,
+            source="analyzed",
         )
 
     async def _get_cached(self, asset_id: str) -> SceneTags | None:
