@@ -94,13 +94,18 @@ _QUERY_SCENE_HINTS: list[tuple[str, str, str | None]] = [
 
 
 def has_scene_content(scene: SceneTags | dict[str, Any] | None) -> bool:
-    """判断场景结果是否有可写回内容（大场景/小场景/视觉属性任一非空）。"""
+    """判断场景结果是否有可写回内容（主场景/大场景/小场景/视觉属性任一非空）。"""
     if scene is None:
         return False
     if isinstance(scene, SceneTags):
-        return scene.has_scene() or bool(scene.visual_attrs)
+        return bool(scene.primary_scene or scene.scenes or scene.sub_scenes) or bool(
+            scene.visual_attrs
+        )
     return bool(
-        scene.get("scenes") or scene.get("sub_scenes") or scene.get("visual_attrs")
+        scene.get("primary_scene")
+        or scene.get("scenes")
+        or scene.get("sub_scenes")
+        or scene.get("visual_attrs")
     )
 
 
@@ -147,6 +152,7 @@ def infer_scene_from_query(query: str, dictionary: SceneDict) -> SceneTags | Non
         sub_scenes=sub_scenes,
         visual_attrs={},
         confidence=confidence,
+        source="inferred",
     )
 
 
@@ -193,5 +199,6 @@ def apply_fallback_scene(
         sub_scenes=[],
         visual_attrs={},
         confidence={fallback: _FALLBACK_CONFIDENCE},
+        source="fallback",
     )
     return result.model_dump() if is_dict else result

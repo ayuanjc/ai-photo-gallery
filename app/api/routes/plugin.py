@@ -201,13 +201,26 @@ async def plugin_hook(
         else:
             logger.info("场景分析器未启用，跳过现场分析")
 
-    # 兜底：分析无结果时赋予默认场景，保证新资产至少有可写回的标签/描述
+    # 兜底：分析无结果时赋予默认场景（仅用于响应展示，不写回）。
     if payload.event in ("AssetCreate", "AssetMetadataExtraction"):
         scene_dict = apply_fallback_scene(scene_dict, settings)
 
+    # 写回闸门：仅真实分析结果（source=analyzed）允许写回 Immich。
+    # webhook payload 不含 smartInfo、推理端点未配置时分析恒空，
+    # 兜底/推断场景属于猜测值，写回会污染图库并引发 AssetTagged 事件循环。
+    scene_writable = bool(
+        isinstance(scene_dict, dict) and scene_dict.get("source") == "analyzed"
+    )
+    if not scene_writable:
+        logger.info(
+            "场景非真实分析结果（source=%s），跳过写回 asset_id=%s",
+            scene_dict.get("source") if isinstance(scene_dict, dict) else None,
+            asset_id,
+        )
+
     results_data = [{"asset_id": asset_id, "scene": scene_dict}]
 
-    if payload.event in ("AssetCreate", "AssetMetadataExtraction"):
+    if payload.event in ("AssetCreate", "AssetMetadataExtraction") and scene_writable:
         if scene_writeback is not None:
             try:
                 entries = await scene_writeback.writeback_scene_tags(results_data)
@@ -225,8 +238,6 @@ async def plugin_hook(
                     {
                         "asset_id": asset_id,
                         "scene": scene_dict,
-                        "final_score": payload.asset.get("final_score"),
-                        "similarity_score": payload.asset.get("similarity_score"),
                     }
                 ]
                 desc_entries = await desc_writeback.writeback_descriptions(desc_data)
@@ -252,14 +263,9 @@ async def plugin_hook(
 
         logger.info("AssetTagged 事件: asset=%s tags=%s", asset_id, tags)
 
-        if album_writeback is not None:
-            try:
-                entries = await album_writeback.writeback_albums(results_data)
-                succeeded = sum(1 for e in entries if e.success)
-                changes["albums_updated"] = succeeded
-            except Exception as exc:
-                logger.warning("相册归档失败: %s", exc)
-                warnings.append(f"相册归档异常: {exc}")
+        # AssetTagged 的 payload 不含 scene/分析上下文，写回相册只会空转；
+        # 且本服务写标签会触发该事件，写相册会形成事件循环放大。
+        changes["albums_updated"] = 0
 
     elapsed = round((time.monotonic() - t0) * 1000, 1)
     logger.info(

@@ -65,6 +65,7 @@ class TestApplyFallbackSceneQueryInference:
         assert isinstance(result, SceneTags)
         assert result.primary_scene == "nature"
         assert result.confidence["nature"] == 0.4
+        assert result.source == "inferred"
 
     def test_query_inference_for_dict(self):
         result = apply_fallback_scene(
@@ -73,6 +74,7 @@ class TestApplyFallbackSceneQueryInference:
         assert isinstance(result, dict)
         assert result["primary_scene"] == "night"
         assert result["confidence"]["night"] == 0.4
+        assert result["source"] == "inferred"
 
     def test_unmatchable_query_falls_to_default(self):
         result = apply_fallback_scene(
@@ -80,6 +82,7 @@ class TestApplyFallbackSceneQueryInference:
         )
         assert result["primary_scene"] == "life"
         assert result["confidence"]["life"] == 0.1
+        assert result["source"] == "fallback"
 
     def test_real_content_not_overridden(self):
         existing = {"primary_scene": "city", "scenes": ["city"]}
@@ -134,6 +137,13 @@ class TestHasSceneContentSceneTags:
 
     def test_scenetags_with_scenes(self):
         tags = SceneTags(primary_scene="life", scenes=["life"])
+        assert has_scene_content(tags) is True
+
+    def test_dict_primary_scene_only(self):
+        assert has_scene_content({"primary_scene": "nature"}) is True
+
+    def test_scenetags_primary_scene_only(self):
+        tags = SceneTags(primary_scene="nature")
         assert has_scene_content(tags) is True
 
     def test_scenetags_with_visual_attrs_only(self):

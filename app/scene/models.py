@@ -26,7 +26,16 @@ class SceneTags(BaseModel):
     confidence: dict[str, float] = Field(
         default_factory=dict, description="标签置信度，取值 0~1"
     )
+    source: str = Field(
+        default="analyzed",
+        description="场景来源：analyzed=真实分析（smartInfo/ML推理）/ inferred=查询词推断 / fallback=默认兜底。仅 analyzed 允许写回 Immich",
+    )
 
     def has_scene(self) -> bool:
         """是否存在任何大场景或小场景标签。"""
         return bool(self.scenes or self.sub_scenes)
+
+    @property
+    def writable(self) -> bool:
+        """是否允许写回 Immich（仅真实分析结果，猜测值只用于展示）。"""
+        return self.source == "analyzed"
