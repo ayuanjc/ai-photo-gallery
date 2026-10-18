@@ -1,8 +1,8 @@
 """场景标签写回服务：将搜索结果中的 AI 场景标签写回 Immich。
 
 流程：
-1. 从搜索结果提取每张图片的场景标签（primary_scene + scenes）
-2. 为每个场景生成 AI/<场景中文名> 标签
+1. 从搜索结果提取每张图片的场景标签（primary_scene + scenes + sub_scenes）
+2. 为每个场景生成 AI/<场景中文名> 标签（子场景用 _SUB_SCENE_LABELS 映射）
 3. 通过 ImmichWriteBack 幂等写入 Immich
 4. 非阻塞：失败仅记日志，不影响搜索结果
 
@@ -21,6 +21,38 @@ from .immich_writeback import ImmichWriteBack, WriteBackEntry
 logger = logging.getLogger(__name__)
 
 _AI_PREFIX = "AI·"
+
+# 子场景 key → 中文标签（词典 children 无中文 label，写回标签用此映射）。
+_SUB_SCENE_LABELS: dict[str, str] = {
+    # nature
+    "beach": "海滩", "mountain": "山脉", "forest": "森林", "lake": "湖泊",
+    "desert": "沙漠", "snow": "雪景", "ocean": "海洋", "sky": "天空", "flower": "花卉",
+    # city
+    "street": "街道", "building": "高楼", "night_view": "城市夜色", "traffic": "车流",
+    "landmark": "地标",
+    # people
+    "single": "单人", "group": "合影", "wedding": "婚礼", "party": "派对",
+    "child": "儿童", "portrait": "人像", "family": "家庭",
+    # life
+    "food": "美食", "pet": "宠物", "home": "家居", "office": "办公", "sport": "运动",
+    # event
+    "festival": "节日", "celebration": "庆祝", "performance": "演出",
+    "travel": "旅行", "graduation": "毕业",
+    # animal
+    "dog": "狗", "cat": "猫", "bird": "鸟类", "wildlife": "野生动物",
+    "marine": "海洋生物", "insect": "昆虫",
+    # architecture
+    "temple": "庙宇", "bridge": "桥梁", "modern": "现代建筑",
+    "historic": "历史建筑", "interior": "室内",
+    # night
+    "starry": "星空", "city_lights": "城市灯光", "moon": "月亮",
+    "fireworks": "烟花", "neon": "霓虹",
+    # vehicle
+    "car": "汽车", "bike": "自行车", "boat": "船只", "plane": "飞机", "train": "火车",
+    # art
+    "painting": "画作", "sculpture": "雕塑", "graffiti": "涂鸦",
+    "design": "设计", "craft": "手工",
+}
 
 
 class SceneWriteBack:
@@ -48,7 +80,8 @@ class SceneWriteBack:
 
             scene_tags = result.get("scene")
             scenes = self._extract_scenes(scene_tags)
-            if not scenes:
+            subs = self._extract_sub_scenes(scene_tags)
+            if not scenes and not subs:
                 continue
 
             for scene_key in scenes:
@@ -63,6 +96,19 @@ class SceneWriteBack:
                     logger.warning(
                         "场景标签写回异常 asset=%s scene=%s: %s",
                         asset_id, scene_key, exc,
+                    )
+
+            for sub_key in subs:
+                tag_name = f"{_AI_PREFIX}{_SUB_SCENE_LABELS.get(sub_key, sub_key)}"
+                try:
+                    entry = await self._writeback.add_tag(
+                        asset_id, tag_name, dry_run=dry_run
+                    )
+                    entries.append(entry)
+                except Exception as exc:
+                    logger.warning(
+                        "子场景标签写回异常 asset=%s sub=%s: %s",
+                        asset_id, sub_key, exc,
                     )
 
         succeeded = sum(1 for e in entries if e.success)
@@ -86,6 +132,16 @@ class SceneWriteBack:
         if primary and primary not in scenes and primary != "default":
             scenes.insert(0, primary)
         return [s for s in scenes if s and s != "default"]
+
+    @staticmethod
+    def _extract_sub_scenes(scene_tags: Any) -> list[str]:
+        if scene_tags is None:
+            return []
+        if isinstance(scene_tags, dict):
+            subs = list(scene_tags.get("sub_scenes") or [])
+        else:
+            subs = list(getattr(scene_tags, "sub_scenes", None) or [])
+        return [s for s in subs if s]
 
     def _load_scene_dict(self) -> Any:
         try:

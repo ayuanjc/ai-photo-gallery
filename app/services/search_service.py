@@ -14,6 +14,7 @@ from ..models.request import SearchRequest
 from ..models.response import SearchResponse, SearchResultItem
 from ..scene.analyzer import SceneAnalyzer
 from ..scene.fallback import apply_fallback_scene
+from ..scene.query_translate import translate_query_for_clip
 from .explain import build_explanation
 from .immich import ImmichClient
 from .immich_capabilities import ImmichCapabilities
@@ -142,9 +143,15 @@ class SearchService:
             warnings.extend(image_warnings)
 
         # 2. 调用 Immich 语义搜索（上游不可用/超时时降级返回空结果，不报 5xx）。
+        #    Immich CLIP（ViT-B-32）不支持中文：中文查询先翻译为英文提示词再检索，
+        #    否则中文 embedding 无区分度，召回基本无效。
+        clip_query, translated = translate_query_for_clip(enriched_query)
+        if translated:
+            logger.info("中文查询翻译为英文检索词: %r -> %r", enriched_query, clip_query)
+
         try:
             assets = await self._immich.smart_search(
-                enriched_query, k=request.limit, asset_ids=effective_asset_ids
+                clip_query, k=request.limit, asset_ids=effective_asset_ids
             )
         except (UpstreamUnavailableError, UpstreamTimeoutError) as exc:
             logger.error("Immich 不可用，降级返回空结果: %s", exc)
@@ -287,6 +294,7 @@ class SearchService:
             warnings=warnings,
             results=results,
             enriched_query=enriched_query if enriched_query != cleaned_query else None,
+            translated_query=clip_query if translated else None,
             dedup_removed=dedup_removed,
             image_query_used=image_query_used,
             applied_negations=applied_negations if applied_negations else [],

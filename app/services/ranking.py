@@ -186,16 +186,25 @@ def rank_assets(
         (asset, final_score, similarity_score, time_freshness, captured_at, captured_at_source)
     """
     now = now or datetime.now(timezone.utc)
+    total = len(assets)
     scored: list[tuple[dict, float, float, float, datetime | None, str]] = []
 
-    for asset in assets:
+    for rank, asset in enumerate(assets):
         # 按 asset 的多场景综合选权重；scenes 为空时回退到 primary_scene 单场景兜底。
         alpha, beta = blend_scene_weights(
             asset.get("scenes") or [asset.get("primary_scene")],
             default_alpha=time_weight,
             default_beta=similarity_weight,
         )
-        similarity = clamp(safe_float(asset.get("score", 1.0), default=1.0))
+        # Immich smart search（v3.x）不返回显式 score，结果顺序即 CLIP 相似度
+        # 排序：score 缺失时按排名位置线性反推 similarity（第 1 名 1.0 → 末位 0.5），
+        # 避免全部默认 1.0 使排序退化为纯时间排序（最新照片在任意查询霸榜）。
+        rank_similarity = 1.0 - 0.5 * (rank / max(total - 1, 1))
+        raw_score = asset.get("score")
+        if raw_score is None:
+            similarity = rank_similarity
+        else:
+            similarity = clamp(safe_float(raw_score, default=rank_similarity))
         captured_at, source = resolve_captured_at(asset, default_iso)
         freshness = time_freshness(captured_at, now=now, half_life_days=half_life_days)
         final = alpha * freshness + beta * similarity

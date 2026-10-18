@@ -19,7 +19,6 @@ from app.scene.dictionary import load_scene_dict
 from app.services.search_service import SearchService
 from app.services.vision.base import VisionProvider, VisionResult
 
-
 # ---- 测试替身 ----
 
 
@@ -40,9 +39,11 @@ class FakeImmich:
         self.assets = assets
         self.raise_on_search = raise_on_search
         self.search_calls = 0
+        self.last_query: str | None = None
 
     async def smart_search(self, query: str, k: int = 50, asset_ids=None):
         self.search_calls += 1
+        self.last_query = query
         if self.raise_on_search:
             raise self.raise_on_search
         return self.assets
@@ -186,6 +187,32 @@ async def test_search_cache_hit_skips_immich(settings):
     assert immich.search_calls == 1  # 缓存命中，仅调 Immich 一次
     assert second.total == first.total
     assert second.results[0].asset_id == first.results[0].asset_id
+
+
+async def test_chinese_query_translated_for_immich(settings):
+    """中文查询翻译为英文再调 Immich：translated_query 回填，不触发 degraded。"""
+    immich = FakeImmich([_asset("a", 0.9)])
+    vision = FakeVision()
+    svc = SearchService(settings, immich, vision)
+
+    response = await svc.search(_request(query="海滩"))
+
+    assert immich.last_query is not None
+    assert "beach" in immich.last_query  # Immich 收到英文提示词
+    assert response.translated_query == immich.last_query
+    assert response.degraded is False  # 翻译是正常行为，不算降级
+
+
+async def test_english_query_not_translated(settings):
+    """英文查询透传：translated_query 为 None。"""
+    immich = FakeImmich([_asset("a", 0.9)])
+    vision = FakeVision()
+    svc = SearchService(settings, immich, vision)
+
+    response = await svc.search(_request(query="sunny beach"))
+
+    assert immich.last_query == "sunny beach"
+    assert response.translated_query is None
 
 
 async def test_search_different_query_no_cross_cache(settings):
