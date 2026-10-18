@@ -2,9 +2,11 @@
 
 流程：
 1. 从搜索结果提取每张图片的场景标签（primary_scene + scenes + sub_scenes）
-2. 为每个场景生成 AI/<场景中文名> 标签（子场景用 _SUB_SCENE_LABELS 映射）
-3. 通过 ImmichWriteBack 幂等写入 Immich
-4. 非阻塞：失败仅记日志，不影响搜索结果
+2. 白名单过滤：只写 source=analyzed 且置信度 >= scene_min_confidence 的标签
+   （查询推断/兜底 fallback 的猜测场景只用于前端展示，写回会把猜测当事实污染图库）
+3. 为每个场景生成 AI/<场景中文名> 标签（子场景用 _SUB_SCENE_LABELS 映射）
+4. 通过 ImmichWriteBack 幂等写入 Immich（Redis SETNX 窗口 + Immich find-or-create）
+5. 非阻塞：失败仅记日志，不影响搜索结果
 
 触发方式：搜索路由返回结果后，作为 BackgroundTask 执行。
 """
@@ -14,7 +16,6 @@ import logging
 from typing import Any
 
 from ..core.config import Settings
-from ..core.runtime_config import runtime_enabled
 from ..scene.dictionary import get_scene_dict
 from .immich_writeback import ImmichWriteBack, WriteBackEntry
 
@@ -59,19 +60,21 @@ class SceneWriteBack:
     def __init__(self, writeback: ImmichWriteBack, settings: Settings) -> None:
         self._writeback = writeback
         self._settings = settings
+        # 白名单置信度下限：与场景推理共用同一旋钮（默认 0.60）。
+        self._min_conf = float(getattr(settings, "scene_min_confidence", 0.60))
 
     async def writeback_scene_tags(
         self,
         results: list[dict[str, Any]],
         dry_run: bool = False,
     ) -> list[WriteBackEntry]:
-        if not runtime_enabled(
-            "writeback_enabled", getattr(self._settings, "writeback_enabled", False)
-        ):
+        if not self._settings.writeback_enabled:
             return []
 
         scene_dict = self._load_scene_dict()
         entries: list[WriteBackEntry] = []
+        skipped_fallback = 0
+        skipped_low_conf = 0
 
         for result in results:
             asset_id = result.get("asset_id")
@@ -79,8 +82,27 @@ class SceneWriteBack:
                 continue
 
             scene_tags = result.get("scene")
-            scenes = self._extract_scenes(scene_tags)
-            subs = self._extract_sub_scenes(scene_tags)
+
+            # 白名单第一关：非 analyzed（查询推断/兜底）一律不写。
+            if self._extract_source(scene_tags) != "analyzed":
+                if scene_tags is not None:
+                    skipped_fallback += 1
+                continue
+
+            # 白名单第二关：置信度低于下限的标签不写。
+            confidence = self._extract_confidence(scene_tags)
+
+            def _conf_ok(key: str, confidence: dict = confidence) -> bool:
+                conf = confidence.get(key)
+                return conf is not None and float(conf) >= self._min_conf
+
+            all_scenes = self._extract_scenes(scene_tags)
+            all_subs = self._extract_sub_scenes(scene_tags)
+            scenes = [s for s in all_scenes if _conf_ok(s)]
+            subs = [s for s in all_subs if _conf_ok(s)]
+            skipped_low_conf += (len(all_scenes) - len(scenes)) + (
+                len(all_subs) - len(subs)
+            )
             if not scenes and not subs:
                 continue
 
@@ -113,10 +135,30 @@ class SceneWriteBack:
 
         succeeded = sum(1 for e in entries if e.success)
         logger.info(
-            "场景标签写回完成: %d 条操作, %d 成功, %d 失败",
+            "场景标签写回完成: %d 条操作, %d 成功, %d 失败, "
+            "白名单拦截(非analyzed)=%d, 白名单拦截(低置信)=%d",
             len(entries), succeeded, len(entries) - succeeded,
+            skipped_fallback, skipped_low_conf,
         )
         return entries
+
+    @staticmethod
+    def _extract_source(scene_tags: Any) -> str | None:
+        if scene_tags is None:
+            return None
+        if isinstance(scene_tags, dict):
+            return scene_tags.get("source")
+        return getattr(scene_tags, "source", None)
+
+    @staticmethod
+    def _extract_confidence(scene_tags: Any) -> dict[str, Any]:
+        if scene_tags is None:
+            return {}
+        if isinstance(scene_tags, dict):
+            conf = scene_tags.get("confidence")
+            return conf if isinstance(conf, dict) else {}
+        conf = getattr(scene_tags, "confidence", None)
+        return conf if isinstance(conf, dict) else {}
 
     def _extract_scenes(self, scene_tags: Any) -> list[str]:
         if scene_tags is None:

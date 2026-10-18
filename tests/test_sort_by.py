@@ -15,10 +15,9 @@ import pytest
 
 from app.core.config import Settings
 from app.models.request import SearchRequest
-from app.services.ranking import apply_sort_by, rank_assets
+from app.services.ranking import apply_sort_by
 from app.services.search_service import SearchService
 from app.services.vision.base import VisionProvider, VisionResult
-
 
 # ---- 辅助 ----
 

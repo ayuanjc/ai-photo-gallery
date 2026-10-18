@@ -1,10 +1,14 @@
-"""二次排序算法：EXIF 拍摄时间与语义相似度的加权融合。
+"""搜索结果排序：以 Immich 召回顺序为权威，本服务只做诚实的展示计算。
 
-融合公式（权重已归一化）：
-    final_score = α * time_freshness + β * similarity_score
+两种模式（settings.rank_mode）：
+    immich（默认）：结果顺序与 Immich 返回顺序完全一致。final_score 不编造
+        （None）；similarity 仅在上游返回真实 score 时才有值。
+    blend：final = (1-w_time)*relevance_prior + w_time*freshness，
+        relevance_prior = 60/(60+immich_rank)（RRF 归一化），w_time 上限 0.2。
+        场景动态权重（SCENE_WEIGHTS）已移除——场景标签绝不参与搜索排序。
 
-- similarity_score 归一化到 [0, 1]（Immich 返回分数若超出该区间会被裁切）。
-- time_freshness 由指数衰减得到，见 utils/time_parsing.py。
+- Immich v3.3.1 smart search 不返回相似度分数，任何按名次编造的
+  similarity 都是伪数据（曾导致：前端展示假"匹配度%"、去重误删高分结果）。
 - 拍摄时间来源优先级：EXIF dateTimeOriginal > fileCreatedAt > 默认时间。
 """
 from __future__ import annotations
@@ -13,45 +17,6 @@ import random as _random
 from datetime import datetime, timezone
 
 from ..utils.time_parsing import DEFAULT_SOURCE, parse_datetime, time_freshness
-
-# 各主场景动态排序权重表（alpha=时间权重，beta=语义权重，和为 1）。
-# 未命中主场景时回退到调用方传入的默认权重（来源为环境变量 time_weight / similarity_weight）。
-SCENE_WEIGHTS: dict[str, dict[str, float]] = {
-    "people": {"alpha": 0.5, "beta": 0.5},
-    "nature": {"alpha": 0.2, "beta": 0.8},
-    "event": {"alpha": 0.4, "beta": 0.6},
-}
-
-
-def blend_scene_weights(
-    scenes: list[str],
-    default_alpha: float,
-    default_beta: float,
-) -> tuple[float, float]:
-    """多场景权重加权综合：对 scenes 中每个场景取 SCENE_WEIGHTS 的 (alpha, beta) 算术平均。
-
-    - 不在 SCENE_WEIGHTS 中的场景（含 "default" 标识）跳过。
-    - scenes 为空或过滤后为空时回退 default_alpha / default_beta。
-    - 平均后做归一化，保证 alpha + beta == 1。
-    """
-    alphas: list[float] = []
-    betas: list[float] = []
-    for scene in scenes or []:
-        entry = SCENE_WEIGHTS.get(scene) if scene else None
-        if entry is None or scene == "default":
-            continue
-        alphas.append(entry["alpha"])
-        betas.append(entry["beta"])
-
-    if not alphas:
-        return default_alpha, default_beta
-
-    alpha = sum(alphas) / len(alphas)
-    beta = sum(betas) / len(betas)
-    total = alpha + beta
-    if total <= 0:
-        return default_alpha, default_beta
-    return alpha / total, beta / total
 
 
 def clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
@@ -100,10 +65,7 @@ def calculate_dynamic_weights(
     最终 clamp α 到 [0,1]，β = 1 - α。
     """
     total = base_alpha + base_beta
-    if total <= 0:
-        alpha_norm = 0.0
-    else:
-        alpha_norm = base_alpha / total
+    alpha_norm = 0.0 if total <= 0 else base_alpha / total
 
     score = intent_score(query)
     alpha_dynamic = clamp(alpha_norm + gamma * score)
@@ -168,58 +130,74 @@ def resolve_captured_at(asset: dict, default_iso: str) -> tuple[datetime | None,
     return default_dt, DEFAULT_SOURCE
 
 
-def rank_assets(
+# blend 模式的 RRF 常数（rank 0 的 prior 归一化后为 1.0）。
+_RRF_K = 60.0
+# blend 模式时间权重上限（超过则截断，保证相关度主导）。
+_BLEND_W_TIME_MAX = 0.2
+
+
+def rank_results(
     assets: list[dict],
     *,
-    time_weight: float,
-    similarity_weight: float,
-    half_life_days: float,
-    default_iso: str,
+    mode: str = "immich",
+    time_weight: float = 0.3,
+    half_life_days: float = 365.0,
+    default_iso: str = "1970-01-01T00:00:00+00:00",
     now: datetime | None = None,
-) -> list[tuple[dict, float, float, float, datetime | None, str]]:
-    """对 Immich 返回的资产列表做加权融合排序。
+) -> list[dict]:
+    """按 rank_mode 计算展示字段；similarity 仅在真实 score 存在时有值。
 
-    每条 asset 的融合权重按其 scenes 多场景综合选择（见 blend_scene_weights），
-    scenes 为空时回退到 primary_scene 单场景，再为空则用传入的默认权重。
+    返回 dict 行列表（顺序即输出顺序）：
+        {asset, immich_rank(0-based), final(None|float), similarity(None|float),
+         freshness, captured_at, captured_at_source, similarity_source}
 
-    返回按 final_score 降序排列的元组列表：
-        (asset, final_score, similarity_score, time_freshness, captured_at, captured_at_source)
+    - mode="immich"：输出顺序与输入（Immich 返回）顺序完全一致，final=None。
+    - mode="blend"：final = (1-w)*60/(60+rank) + w*freshness，w=min(time_weight, 0.2)，
+      按 final 降序稳定排序。SCENE_WEIGHTS 场景动态权重已移除，场景不参与排序。
     """
     now = now or datetime.now(timezone.utc)
-    total = len(assets)
-    scored: list[tuple[dict, float, float, float, datetime | None, str]] = []
+    rows: list[dict] = []
 
     for rank, asset in enumerate(assets):
-        # 按 asset 的多场景综合选权重；scenes 为空时回退到 primary_scene 单场景兜底。
-        alpha, beta = blend_scene_weights(
-            asset.get("scenes") or [asset.get("primary_scene")],
-            default_alpha=time_weight,
-            default_beta=similarity_weight,
-        )
-        # Immich smart search（v3.x）不返回显式 score，结果顺序即 CLIP 相似度
-        # 排序：score 缺失时按排名位置线性反推 similarity（第 1 名 1.0 → 末位 0.5），
-        # 避免全部默认 1.0 使排序退化为纯时间排序（最新照片在任意查询霸榜）。
-        rank_similarity = 1.0 - 0.5 * (rank / max(total - 1, 1))
-        raw_score = asset.get("score")
-        if raw_score is None:
-            similarity = rank_similarity
-        else:
-            similarity = clamp(safe_float(raw_score, default=rank_similarity))
         captured_at, source = resolve_captured_at(asset, default_iso)
         freshness = time_freshness(captured_at, now=now, half_life_days=half_life_days)
-        final = alpha * freshness + beta * similarity
-        scored.append((asset, final, similarity, freshness, captured_at, source))
+        raw_score = asset.get("score")
+        if raw_score is None:
+            similarity = None
+            similarity_source = "none"
+        else:
+            similarity = clamp(safe_float(raw_score))
+            similarity_source = "upstream"
+        rows.append(
+            {
+                "asset": asset,
+                "immich_rank": rank,
+                "final": None,
+                "similarity": similarity,
+                "similarity_source": similarity_source,
+                "freshness": freshness,
+                "captured_at": captured_at,
+                "captured_at_source": source,
+            }
+        )
 
-    scored.sort(key=lambda item: (-item[1], item[0].get("id", "")))
-    return scored
+    if mode == "blend":
+        w = min(max(time_weight, 0.0), _BLEND_W_TIME_MAX)
+        for row in rows:
+            prior = _RRF_K / (_RRF_K + row["immich_rank"])
+            row["final"] = (1.0 - w) * prior + w * row["freshness"]
+        rows.sort(key=lambda r: (-r["final"], r["asset"].get("id", "")))
 
-def apply_feedback_boost(final_score: float, boost: float) -> float:
+    return rows
+
+
+def apply_feedback_boost(final_score: float | None, boost: float) -> float | None:
     """将反馈加权值叠加到最终排序分数上，结果裁切到 [0, 1]。
 
-    - boost > 0（用户点击多）→ 分数微升。
-    - boost < 0（用户跳过多）→ 分数微降。
-    - boost == 0 → 分数不变（与无反馈时行为完全一致）。
+    final_score 为 None（immich 模式未编分）时原样返回 None，不伪造分数。
     """
+    if final_score is None:
+        return None
     return clamp(final_score + boost)
 
 # ---- 排序维度切换 ----

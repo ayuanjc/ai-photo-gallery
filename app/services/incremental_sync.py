@@ -14,9 +14,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from ..core.config import Settings
 from .immich import ImmichClient

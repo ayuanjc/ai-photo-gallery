@@ -13,7 +13,6 @@ from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-
 from app.api.routes.ratings import router as ratings_router
 from app.api.routes.search import router as search_router
 from app.core.errors import AppError

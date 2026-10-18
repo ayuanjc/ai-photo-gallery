@@ -6,7 +6,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-
 # 拍摄时间来源枚举：按回退优先级排列。
 TakenAtSource = Literal[
     "exif_datetime_original",  # EXIF DateTimeOriginal

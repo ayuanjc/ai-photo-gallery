@@ -2,14 +2,12 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import httpx
-import pytest
 
-from app.services.immich import ImmichClient
-from app.services.immich_writeback import ImmichWriteBack, WriteBackEntry
 from app.services.description_writeback import DescriptionWriteBack
+from app.services.immich import ImmichClient
+from app.services.immich_writeback import ImmichWriteBack
 
 
 def make_client(handler, settings):

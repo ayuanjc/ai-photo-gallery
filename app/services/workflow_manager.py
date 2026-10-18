@@ -74,12 +74,14 @@ class WorkflowManager:
         trigger: str,
         description: str = "",
         steps: list[dict[str, Any]] | None = None,
+        logging_enabled: bool = True,
     ) -> dict[str, Any] | None:
         payload: dict[str, Any] = {
             "name": name,
             "trigger": trigger,
             "description": description,
             "enabled": True,
+            "logging": logging_enabled,
             "steps": [],
         }
         try:
@@ -88,7 +90,10 @@ class WorkflowManager:
             )
             wf_id = result.get("id") if isinstance(result, dict) else None
             if wf_id and steps:
-                updated = await self.update_workflow(wf_id, name, trigger, description, steps)
+                updated = await self.update_workflow(
+                    wf_id, name, trigger, description, steps,
+                    logging_enabled=logging_enabled,
+                )
                 return updated
             return result if isinstance(result, dict) else None
         except Exception as exc:
@@ -103,14 +108,18 @@ class WorkflowManager:
         description: str = "",
         steps: list[dict[str, Any]] | None = None,
         enabled: bool = True,
+        logging_enabled: bool | None = None,
     ) -> dict[str, Any] | None:
-        payload = {
+        """更新工作流。logging_enabled=None 时不修改 logging 字段。"""
+        payload: dict[str, Any] = {
             "name": name,
             "trigger": trigger,
             "description": description,
             "enabled": enabled,
             "steps": steps or [],
         }
+        if logging_enabled is not None:
+            payload["logging"] = logging_enabled
         try:
             result = await self._immich.request_json(
                 "PUT", f"/api/workflows/{wf_id}", json=payload
@@ -119,6 +128,7 @@ class WorkflowManager:
         except Exception as exc:
             logger.error("更新工作流失败 id=%s: %s", wf_id, exc)
             return None
+
 
     async def delete_workflow(self, wf_id: str) -> bool:
         try:
@@ -237,6 +247,7 @@ class WorkflowManager:
                     updated = await self.update_workflow(
                         wf_id, name, trigger, description,
                         steps=desired_steps, enabled=True,
+                        logging_enabled=logging_enabled,
                     )
                     if updated:
                         result["updated"].append({"name": name, "id": wf_id})
@@ -247,7 +258,7 @@ class WorkflowManager:
             else:
                 created = await self.create_workflow(
                     name=name, trigger=trigger, description=description,
-                    steps=desired_steps,
+                    steps=desired_steps, logging_enabled=logging_enabled,
                 )
                 if created:
                     result["created"].append({"name": name, "id": created.get("id")})
@@ -316,6 +327,10 @@ class WorkflowManager:
             if existing_config.get("url") != desired_config.get("url"):
                 return True
             if existing_config.get("method") != desired_config.get("method"):
+                return True
+            if existing_config.get("headerName") != desired_config.get("headerName"):
+                return True
+            if existing_config.get("headerValue") != desired_config.get("headerValue"):
                 return True
             if not existing_step.get("enabled", False):
                 return True

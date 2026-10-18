@@ -1,10 +1,7 @@
 """多模态查询加权融合测试。"""
 from __future__ import annotations
 
-import pytest
-
 from app.services.ranking import fuse_multimodal_query
-
 
 # ---- 基本融合行为 ----
 

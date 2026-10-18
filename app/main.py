@@ -170,7 +170,8 @@ async def lifespan(app: FastAPI):
     init_feedback_service(cache, settings)
 
     # Immich 写回：场景标签 → Immich tags, AI 相册
-    writeback = ImmichWriteBack(immich, settings)
+    # Redis SETNX 幂等窗口（24h）随写回客户端注入
+    writeback = ImmichWriteBack(immich, settings, redis_client=redis_client)
     app.state.immich_writeback = writeback
     app.state.scene_writeback = SceneWriteBack(writeback, settings)
     app.state.album_writeback = AlbumWriteBack(writeback, settings)
@@ -188,8 +189,14 @@ async def lifespan(app: FastAPI):
     # 工作流管理：Immich 原生工作流创建/管理
     app.state.workflow_manager = WorkflowManager(immich, settings)
 
-    # 历史资产回填服务
-    app.state.backfill_service = BackfillService(immich, settings)
+    # 历史资产回填服务（真实场景分析 + 白名单写回 + Redis 进度）
+    app.state.backfill_service = BackfillService(
+        immich,
+        settings,
+        scene_analyzer=scene_analyzer,
+        scene_writeback=app.state.scene_writeback,
+        redis_client=redis_client,
+    )
 
     # ML 服务层：场景推理 + 向量索引 + 模型管理
     from .services.ml_scene_inferrer import create_ml_inferrer

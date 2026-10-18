@@ -1,14 +1,12 @@
 """搜索建议与纠错测试：SuggestService 单元测试 + API 集成测试。"""
 from __future__ import annotations
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings
 from app.main import app
 from app.scene.dictionary import get_scene_dict
 from app.services.suggest_service import SuggestService, reset_suggest_service
-
 
 # ============================================================================
 # 辅助

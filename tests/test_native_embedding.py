@@ -346,11 +346,11 @@ class TestPluginHookSecurity:
         assert k1 != k2
 
 
-# ============ T5: 回填分页与跳过已打标 ============
+# ============ T5: 回填分页与跳过已打标（T7 改造后） ============
 
 
 class TestBackfillService:
-    """T5: 历史资产回填。"""
+    """T7 改造后的历史资产回填：真实分析接线 + skip 集合 + Redis 进度。"""
 
     @pytest.mark.asyncio
     async def test_backfill_status_initial(self):
@@ -358,52 +358,114 @@ class TestBackfillService:
         immich = MagicMock()
         settings = Settings()
         svc = BackfillService(immich, settings)
-        status = svc.get_status()
+        status = await svc.get_status()
         assert status["status"] == "idle"
         assert status["processed"] == 0
 
     @pytest.mark.asyncio
     async def test_backfill_skips_tagged_assets(self):
-        """skip_tagged=True 时跳过已有 AI· 标签的资产。"""
+        """skip_tagged=True：批量加载 AI· 标签资产集合，命中即跳过。"""
         immich = MagicMock()
         immich.request_json = AsyncMock()
-        immich.request_json.return_value = {
-            "assets": {
-                "items": [
-                    {"id": "a1", "tags": [{"value": "AI·自然"}]},
-                    {"id": "a2", "tags": []},
-                ]
-            }
-        }
+        immich.request_json.side_effect = [
+            # 1) GET /api/tags → 一个 AI· 标签一个普通标签
+            [{"id": "t1", "value": "AI·自然"}, {"id": "t2", "value": "旅行"}],
+            # 2) GET /api/tags/t1/assets → a1 已打标
+            {"assets": {"items": [{"id": "a1"}]}},
+            # 3) POST /api/search/metadata 第一页
+            {"assets": {"items": [{"id": "a1"}, {"id": "a2"}]}},
+            # 4) 第二页空
+            {"assets": {"items": []}},
+        ]
         settings = Settings(writeback_enabled=False)
         svc = BackfillService(immich, settings)
 
         result = await svc.run_backfill(limit=10, skip_tagged=True)
 
         assert result["status"] == "completed"
-        assert result["skipped"] >= 1
+        # a1 在 skip 集合；a2 无 analyzer（未接线）→ skipped
+        assert result["skipped"] >= 2
 
     @pytest.mark.asyncio
-    async def test_backfill_dry_run(self):
-        """dry_run=True 时不实际写回。"""
+    async def test_backfill_analyzer_writes_analyzed_only(self):
+        """接线 analyzer：source=analyzed 才交给 SceneWriteBack，其他 skipped。"""
+        from app.scene.models import SceneTags
+
+        analyzed = SceneTags(
+            primary_scene="nature", scenes=["nature"], sub_scenes=[],
+            visual_attrs={}, confidence={"nature": 0.9}, source="analyzed",
+        )
+        fallback = SceneTags(
+            primary_scene="life", scenes=["life"], sub_scenes=[],
+            visual_attrs={}, confidence={}, source="fallback",
+        )
+        analyzer = MagicMock()
+        analyzer.analyze = AsyncMock(side_effect=[analyzed, fallback])
+
+        writeback = MagicMock()
+        writeback.writeback_scene_tags = AsyncMock(return_value=[])
+
         immich = MagicMock()
         immich.request_json = AsyncMock()
-        immich.request_json.return_value = {"assets": {"items": []}}
-        settings = Settings()
-        svc = BackfillService(immich, settings)
+        immich.request_json.side_effect = [
+            {"assets": {"items": [{"id": "a1"}, {"id": "a2"}]}},
+            {"assets": {"items": []}},
+        ]
+        settings = Settings(writeback_enabled=True)
+        svc = BackfillService(
+            immich, settings, scene_analyzer=analyzer, scene_writeback=writeback
+        )
 
-        result = await svc.run_backfill(dry_run=True)
+        result = await svc.run_backfill(skip_tagged=False)
+
+        assert result["status"] == "completed"
+        assert result["succeeded"] == 1  # 仅 analyzed
+        assert result["skipped"] == 1  # fallback 被白名单拦截
+        # 只把 analyzed 资产交给写回
+        write_args = writeback.writeback_scene_tags.call_args[0][0]
+        assert write_args[0]["asset_id"] == "a1"
+        assert write_args[0]["scene"]["source"] == "analyzed"
+
+    @pytest.mark.asyncio
+    async def test_backfill_dry_run_analyzes_without_writeback(self):
+        """dry_run=True：跑分析但不调用写回。"""
+        from app.scene.models import SceneTags
+
+        analyzer = MagicMock()
+        analyzer.analyze = AsyncMock(return_value=SceneTags(
+            primary_scene="nature", scenes=["nature"], sub_scenes=[],
+            visual_attrs={}, confidence={"nature": 0.9}, source="analyzed",
+        ))
+        writeback = MagicMock()
+        writeback.writeback_scene_tags = AsyncMock(return_value=[])
+
+        immich = MagicMock()
+        immich.request_json = AsyncMock()
+        immich.request_json.side_effect = [
+            {"assets": {"items": [{"id": "a1"}]}},
+            {"assets": {"items": []}},
+        ]
+        settings = Settings(writeback_enabled=True)
+        svc = BackfillService(
+            immich, settings, scene_analyzer=analyzer, scene_writeback=writeback
+        )
+
+        result = await svc.run_backfill(dry_run=True, skip_tagged=False)
 
         assert result["status"] == "completed"
         assert result["dry_run"] is True
+        assert result["succeeded"] == 1
+        writeback.writeback_scene_tags.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_backfill_pagination(self):
         """分页拉取：第一页满页，第二页空。"""
         immich = MagicMock()
         immich.request_json = AsyncMock()
-        page1_items = [{"id": f"a{i}", "tags": []} for i in range(1000)]
+        page1_items = [{"id": f"a{i}"} for i in range(1000)]
         immich.request_json.side_effect = [
+            [{"id": "t1", "value": "AI·自然"}],  # GET /api/tags（skip 集合）
+            {"assets": {"items": []}},  # GET /api/tags/t1/assets → 空
             {"assets": {"items": page1_items}},
             {"assets": {"items": []}},
         ]
@@ -428,13 +490,60 @@ class TestBackfillService:
         result = await svc.run_backfill()
         assert "error" in result
 
-    def test_has_ai_tags_detection(self):
-        """检测资产是否已有 AI· 前缀标签。"""
-        assert BackfillService._has_ai_tags({"tags": [{"value": "AI·自然"}]}) is True
-        assert BackfillService._has_ai_tags({"tags": [{"value": "nature"}]}) is False
-        assert BackfillService._has_ai_tags({"tags": []}) is False
-        assert BackfillService._has_ai_tags({}) is False
-        assert BackfillService._has_ai_tags({"tags": ["AI·自然"]}) is True
+    @pytest.mark.asyncio
+    async def test_backfill_progress_to_redis(self):
+        """进度快照写 Redis；任务不在内存时从 Redis 恢复展示。"""
+        import json as _json
+
+        store: dict[str, str] = {}
+
+        class _FakeRedis:
+            async def set(self, key, value, **kwargs):
+                store[key] = value
+
+            async def get(self, key):
+                return store.get(key)
+
+        class _FakeRedisClient:
+            connected = True
+
+            @property
+            def redis(self):
+                return _FakeRedis()
+
+        immich = MagicMock()
+        immich.request_json = AsyncMock()
+        immich.request_json.side_effect = [
+            {"assets": {"items": [{"id": "a1"}]}},
+            {"assets": {"items": []}},
+        ]
+        settings = Settings(writeback_enabled=False)
+        rc = _FakeRedisClient()
+        svc = BackfillService(immich, settings, redis_client=rc)
+
+        result = await svc.run_backfill(skip_tagged=True)
+        assert result["status"] == "completed"
+
+        snapshot = _json.loads(store["backfill:progress"])
+        assert snapshot["status"] == "completed"
+        # 内存不在运行时 → 从 Redis 读快照
+        assert (await svc.get_status())["status"] == "completed"
+
+    @pytest.mark.asyncio
+    async def test_backfill_tag_load_failure_degrades(self):
+        """skip 集合加载失败：降级为空集合继续跑，不抛异常。"""
+        immich = MagicMock()
+        immich.request_json = AsyncMock()
+        immich.request_json.side_effect = [
+            RuntimeError("tags down"),  # GET /api/tags 失败
+            {"assets": {"items": [{"id": "a1"}]}},
+            {"assets": {"items": []}},
+        ]
+        settings = Settings(writeback_enabled=False)
+        svc = BackfillService(immich, settings)
+
+        result = await svc.run_backfill(skip_tagged=True)
+        assert result["status"] == "completed"
 
 
 # ============ T3: 相册写回被调用 ============

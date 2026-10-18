@@ -1,12 +1,14 @@
-"""搜索结果去重：连拍/相似图只保留一张（优先保留 final_score 最高的）。
+"""搜索结果去重：连拍/重复图只保留一张（保留 Immich 排名靠前的）。
 
-去重信号（按优先级）：
+去重信号（按优先级，全部基于真实数据，禁止使用编造分数）：
     1. 同一 asset_id：直接去重
-    2. EXIF 拍摄时间相近（默认 3 秒内）+ 尺寸相同 → 视为连拍
-    3. 画面相似度：相似度分数超过阈值 + 尺寸相同 → 视为重复
+    2. 内容指纹相同：asset.checksum 或 exifInfo.thumbHash 相同 → 同一文件
+    3. EXIF 拍摄时间相近（默认 3 秒内）且宽高完全相同 → 连拍
+    4. 上游真实相似度分数超过阈值 + 尺寸相同 → 重复
+       （仅 similarity_source == "upstream" 时启用；Immich v3.3.1 不返回
+       score，历史名次编分 1.0/0.958 曾在此误删高分结果）
 
-保留策略：同组内保留 final_score 最高的一张。
-输入要求：items 已按 final_score 降序排列（保证第一个出现的即是最高分）。
+保留策略：同组内保留 Immich 排名靠前（先出现）的一张。
 """
 from __future__ import annotations
 
@@ -82,9 +84,9 @@ def _is_duplicate(
 ) -> bool:
     """判断两条结果是否为重复。
 
-    既然 items 已按 final_score 降序排列，a 的分数 >= b 的分数。
-    判定为重复时保留 a（先出现的），移除 b。
-    但此函数只判断是否重复，保留逻辑由调用方处理。
+    输入顺序即 Immich 排名顺序，判定重复时保留先出现（排名靠前）的一条。
+    所有信号基于真实数据（asset_id / checksum / thumbHash / EXIF），
+    相似度信号仅在上游真实分数（similarity_source == "upstream"）时启用。
     """
     asset_a = a.get("asset") or {}
     asset_b = b.get("asset") or {}
@@ -95,11 +97,15 @@ def _is_duplicate(
     if id_a and id_a == id_b:
         return True
 
+    # 信号 2：内容指纹相同（checksum / thumbHash）→ 同一文件的不同副本
+    if _same_fingerprint(asset_a, asset_b):
+        return True
+
     # 获取尺寸
     dims_a = _get_dimensions(asset_a)
     dims_b = _get_dimensions(asset_b)
 
-    # 信号 2：拍摄时间相近 + 尺寸相同 → 连拍
+    # 信号 3：EXIF 拍摄时间相近 + 宽高完全相同 → 连拍
     if time_window_sec > 0:
         time_a = a.get("captured_at")
         time_b = b.get("captured_at")
@@ -108,18 +114,32 @@ def _is_duplicate(
             if diff_sec <= time_window_sec and dims_a == dims_b and dims_a is not None:
                 return True
 
-    # 信号 3：相似度分数超过阈值 + 尺寸相同 → 重复
-    sim_a = _safe_float(a.get("similarity", 0.0))
-    sim_b = _safe_float(b.get("similarity", 0.0))
-    if (
-        sim_a >= similarity_threshold
-        and sim_b >= similarity_threshold
-        and dims_a is not None
-        and dims_a == dims_b
-    ):
-        return True
+    # 信号 4：上游真实相似度分数超过阈值 + 尺寸相同 → 重复。
+    # Immich v3.3.1 无 score，历史 bug 曾用名次编分（1.0/0.958）在此误删
+    # 高分结果；现在仅 similarity_source == "upstream" 才允许触发。
+    if a.get("similarity_source") == "upstream" and b.get("similarity_source") == "upstream":
+        sim_a = _safe_float(a.get("similarity") or 0.0)
+        sim_b = _safe_float(b.get("similarity") or 0.0)
+        if (
+            sim_a >= similarity_threshold
+            and sim_b >= similarity_threshold
+            and dims_a is not None
+            and dims_a == dims_b
+        ):
+            return True
 
     return False
+
+
+def _same_fingerprint(asset_a: dict[str, Any], asset_b: dict[str, Any]) -> bool:
+    """checksum 或 thumbHash 相同视为同一内容（缺失字段不判重）。"""
+    checksum_a = str(asset_a.get("checksum") or "")
+    checksum_b = str(asset_b.get("checksum") or "")
+    if checksum_a and checksum_a == checksum_b:
+        return True
+    thumb_a = str((asset_a.get("exifInfo") or {}).get("thumbHash") or "")
+    thumb_b = str((asset_b.get("exifInfo") or {}).get("thumbHash") or "")
+    return bool(thumb_a and thumb_a == thumb_b)
 
 
 def _get_dimensions(asset: dict[str, Any]) -> tuple[int, int] | None:

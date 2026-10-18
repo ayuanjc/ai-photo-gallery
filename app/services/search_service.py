@@ -8,27 +8,26 @@ import logging
 
 from ..core.cache import CacheBackend
 from ..core.config import Settings
-from ..core.errors import UpstreamTimeoutError, UpstreamUnavailableError, VisionError
+from ..core.errors import UpstreamTimeoutError, UpstreamUnavailableError
 from ..core.runtime_config import runtime_enabled
 from ..models.request import SearchRequest
 from ..models.response import SearchResponse, SearchResultItem
 from ..scene.analyzer import SceneAnalyzer
 from ..scene.fallback import apply_fallback_scene
-from ..scene.query_translate import translate_query_for_clip
+from ..scene.query_translate import query_has_cjk, translate_query_for_search
+from .dedup import dedup_items
 from .explain import build_explanation
+from .image_query_service import ImageQueryService
 from .immich import ImmichClient
 from .immich_capabilities import ImmichCapabilities
+from .negation_parser import filter_by_negations, parse_negations
 from .ranking import (
     apply_sort_by,
-    blend_scene_weights,
     calculate_dynamic_weights,
     clamp,
     fuse_multimodal_query,
-    rank_assets,
+    rank_results,
 )
-from .dedup import dedup_items
-from .image_query_service import ImageQueryService
-from .negation_parser import filter_by_negations, parse_negations
 from .time_parser import filter_by_time_range, parse_time_hint
 from .vision.base import VisionProvider
 
@@ -145,9 +144,20 @@ class SearchService:
         # 2. 调用 Immich 语义搜索（上游不可用/超时时降级返回空结果，不报 5xx）。
         #    Immich CLIP（ViT-B-32）不支持中文：中文查询先翻译为英文提示词再检索，
         #    否则中文 embedding 无区分度，召回基本无效。
-        clip_query, translated = translate_query_for_clip(enriched_query)
+        clip_query, translated, translate_provider_used = await translate_query_for_search(
+            enriched_query, self._settings
+        )
         if translated:
-            logger.info("中文查询翻译为英文检索词: %r -> %r", enriched_query, clip_query)
+            logger.info(
+                "查询翻译(%s): %r -> %r",
+                translate_provider_used,
+                enriched_query,
+                clip_query,
+            )
+        elif query_has_cjk(enriched_query):
+            warnings.append(
+                "查询含中文但未能语义化为英文检索词，Immich 召回质量可能下降"
+            )
 
         try:
             assets = await self._immich.smart_search(
@@ -190,37 +200,37 @@ class SearchService:
         await self._attach_scenes(assets, query=request.query)
 
         # 3b. 否定语义过滤：在排序之前过滤掉场景标签命中否定词的结果。
-        negation_removed = 0
         if applied_negations and runtime_enabled(
             "negation_enabled", self._settings.negation_enabled
         ):
-            before = len(assets)
             assets = filter_by_negations(assets, applied_negations)
-            negation_removed = before - len(assets)
 
         # 4. 解析单次请求的权重覆盖（否则用全局配置）。
         time_weight, similarity_weight = self._resolve_weights(request)
 
-        # 5. 二次排序（权重按各 asset 的 primary_scene 动态选择）。
-        ranked = rank_assets(
+        # 5. 排序：rank_mode=immich（默认）完全保持 Immich 返回顺序，final 不编造；
+        #    blend 模式按 RRF 先验 + 时间新鲜度加权（w_time 上限 0.2，场景不参与）。
+        ranked = rank_results(
             assets,
+            mode=self._settings.rank_mode,
             time_weight=time_weight,
-            similarity_weight=similarity_weight,
             half_life_days=self._settings.time_decay_half_life_days,
             default_iso=self._settings.default_datetime_iso,
         )
 
-        # 6. 组装结果（去重在后、排序在前，保证保留高分图；EXPLAIN_ENABLED 时附加排序解释）。
+        # 6. 组装结果（去重在后、排序在前；EXPLAIN_ENABLED 时附加排序解释）。
         dedup_input = [
             {
-                "asset": asset,
-                "final_score": final,
-                "similarity": similarity,
-                "freshness": freshness,
-                "captured_at": captured_at,
-                "source": source,
+                "asset": row["asset"],
+                "final_score": row["final"],
+                "similarity": row["similarity"],
+                "similarity_source": row["similarity_source"],
+                "immich_rank": row["immich_rank"],
+                "freshness": row["freshness"],
+                "captured_at": row["captured_at"],
+                "source": row["captured_at_source"],
             }
-            for asset, final, similarity, freshness, captured_at, source in ranked[: request.limit]
+            for row in ranked[: request.limit]
         ]
 
         dedup_removed = 0
@@ -259,16 +269,16 @@ class SearchService:
             freshness = item["freshness"]
             captured_at = item["captured_at"]
             source = item["source"]
+            immich_rank = item.get("immich_rank", 0)
             explanation = None
             if explain_enabled:
                 try:
-                    alpha, beta = blend_scene_weights(
-                        asset.get("scenes") or [asset.get("primary_scene")],
-                        default_alpha=time_weight,
-                        default_beta=similarity_weight,
-                    )
                     explanation = build_explanation(
-                        asset, similarity, freshness, (alpha, beta), asset.get("scene_tags")
+                        asset,
+                        similarity,
+                        freshness,
+                        (time_weight, similarity_weight),
+                        asset.get("scene_tags"),
                     )
                 except Exception as exc:
                     logger.warning("解释生成失败，跳过该条解释: %s", exc)
@@ -281,6 +291,7 @@ class SearchService:
                     freshness=freshness,
                     captured_at=captured_at,
                     source=source,
+                    immich_rank=immich_rank,
                     fields=request.include_metadata_fields,
                     include_original=request.include_original_url,
                     explanation=explanation,
@@ -417,11 +428,12 @@ class SearchService:
         self,
         asset: dict,
         *,
-        final: float,
-        similarity: float,
+        final: float | None,
+        similarity: float | None,
         freshness: float,
         captured_at,
         source: str,
+        immich_rank: int = 0,
         fields: list[str],
         include_original: bool,
         explanation: dict | None = None,
@@ -435,9 +447,10 @@ class SearchService:
             original_url=self._immich.original_url(asset_id) if include_original else None,
             captured_at=captured_at,
             captured_at_source=source,
-            similarity_score=round(clamp(similarity), 6),
+            similarity_score=None if similarity is None else round(clamp(similarity), 6),
             time_freshness=round(clamp(freshness), 6),
-            final_score=round(clamp(final), 6),
+            final_score=None if final is None else round(clamp(final), 6),
+            immich_rank=immich_rank,
             metadata=metadata,
             scene=asset.get("scene_tags"),
             explanation=explanation,

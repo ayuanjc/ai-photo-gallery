@@ -10,14 +10,11 @@ from PIL import Image
 from app.api.deps import get_watermark_processor
 from app.main import app
 from app.models.watermark import (
-    TextWatermarkStyle,
-    WatermarkPosition,
     WatermarkRequest,
     WatermarkResponse,
     WatermarkResultItem,
 )
 from app.services.watermark_processor import BatchWatermarkProcessor
-
 
 # ---- 处理器端到端 ----
 

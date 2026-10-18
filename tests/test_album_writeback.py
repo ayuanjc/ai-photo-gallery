@@ -2,15 +2,12 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from unittest.mock import AsyncMock
 
 import httpx
-import pytest
 
+from app.services.album_writeback import AlbumWriteBack
 from app.services.immich import ImmichClient
 from app.services.immich_writeback import ImmichWriteBack
-from app.services.album_writeback import AlbumWriteBack
 
 
 def make_client(handler, settings):

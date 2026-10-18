@@ -10,7 +10,6 @@ import asyncio
 from datetime import datetime, timezone
 
 from app.core.config import Settings
-from app.services.immich import ImmichClient
 from app.services.stats_provider import StatsProvider
 
 

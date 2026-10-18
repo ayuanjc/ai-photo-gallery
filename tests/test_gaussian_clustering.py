@@ -11,7 +11,6 @@ import pytest
 
 from app.services.face_service import FaceService, calculate_gaussian_probability
 
-
 # ---- calculate_gaussian_probability 单元测试 ----
 
 

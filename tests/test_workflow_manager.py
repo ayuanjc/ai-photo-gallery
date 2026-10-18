@@ -2,10 +2,8 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock
 
 import httpx
-import pytest
 
 from app.services.immich import ImmichClient
 from app.services.workflow_manager import WorkflowManager
@@ -143,5 +141,108 @@ async def test_failure_non_blocking(settings):
         assert wfs == []
         wf = await mgr.create_workflow("test", "AssetCreate")
         assert wf is None
+    finally:
+        await client.aclose()
+
+
+# ---- T8：logging 统一 + webhook 鉴权头对比 ----
+
+
+async def test_update_workflow_writes_logging_flag(settings):
+    """update_workflow 携带 logging 字段（修复：此前检测到不一致也无法写回）。"""
+    put_bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/workflows/wf-1" and request.method == "PUT":
+            put_bodies.append(json.loads(request.content))
+            return httpx.Response(200, json={"id": "wf-1"})
+        return httpx.Response(404)
+
+    ic, client = make_client(handler, settings)
+    try:
+        mgr = WorkflowManager(ic, settings)
+        result = await mgr.update_workflow(
+            "wf-1", "yunying-on-upload", "AssetCreate",
+            steps=[], logging_enabled=True,
+        )
+        assert result is not None
+        assert put_bodies[0]["logging"] is True
+
+        put_bodies.clear()
+        await mgr.update_workflow(
+            "wf-1", "yunying-on-upload", "AssetCreate", steps=[]
+        )
+        assert "logging" not in put_bodies[0]
+    finally:
+        await client.aclose()
+
+
+async def test_sync_flips_logging_false_to_true(settings):
+    """线上问题回归：-metadata/-tagged 两条 logging=False，sync 后必须变 True。"""
+    put_bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/api/workflows" and request.method == "GET":
+            return httpx.Response(200, json=[
+                {"id": "wf-1", "name": "yunying-on-upload", "trigger": "AssetCreate",
+                 "description": "上传即分析：新资产上传后回调云影图鉴进行场景分析+标签写回",
+                 "enabled": True, "logging": True,
+                 "steps": [{"method": "immich-plugin-core#webhook",
+                            "config": {"url": "http://x/hook", "method": "POST"},
+                            "enabled": True}]},
+                {"id": "wf-2", "name": "yunying-on-metadata", "trigger": "AssetMetadataExtraction",
+                 "description": "元数据补全：EXIF 提取完成后回调云影图鉴补全场景描述",
+                 "enabled": True, "logging": False,
+                 "steps": [{"method": "immich-plugin-core#webhook",
+                            "config": {"url": "http://x/hook", "method": "POST"},
+                            "enabled": True}]},
+                {"id": "wf-3", "name": "yunying-on-tagged", "trigger": "AssetTagged",
+                 "description": "打标后归档：标签添加完成后回调云影图鉴检查是否需要自动归档",
+                 "enabled": True, "logging": False,
+                 "steps": [{"method": "immich-plugin-core#webhook",
+                            "config": {"url": "http://x/hook", "method": "POST"},
+                            "enabled": True}]},
+            ])
+        if path.startswith("/api/workflows/wf-") and request.method == "PUT":
+            put_bodies.append(json.loads(request.content))
+            return httpx.Response(200, json={"id": "wf-x"})
+        return httpx.Response(404)
+
+    ic, client = make_client(handler, settings)
+    try:
+        mgr = WorkflowManager(ic, settings)
+        result = await mgr.sync_default_workflows("http://x/hook")
+        assert sorted(u["name"] for u in result["updated"]) == [
+            "yunying-on-metadata", "yunying-on-tagged",
+        ]
+        assert all(b.get("logging") is True for b in put_bodies)
+        assert "yunying-on-upload" in [u["name"] for u in result["unchanged"]]
+    finally:
+        await client.aclose()
+
+
+async def test_sync_detects_token_header_change(settings):
+    """token 首次配置/变更时，headerName/headerValue 差异必须触发更新。"""
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/api/workflows" and request.method == "GET":
+            return httpx.Response(200, json=[
+                {"id": "wf-1", "name": "yunying-on-upload", "trigger": "AssetCreate",
+                 "description": "上传即分析：新资产上传后回调云影图鉴进行场景分析+标签写回",
+                 "enabled": True, "logging": True,
+                 "steps": [{"method": "immich-plugin-core#webhook",
+                            "config": {"url": "http://x/hook", "method": "POST"},
+                            "enabled": True}]},
+            ])
+        if path.startswith("/api/workflows/wf-") and request.method == "PUT":
+            return httpx.Response(200, json={"id": "wf-x"})
+        return httpx.Response(404)
+
+    ic, client = make_client(handler, settings)
+    try:
+        mgr = WorkflowManager(ic, settings)
+        result = await mgr.sync_default_workflows("http://x/hook", "new-token")
+        assert len(result["updated"]) == 1
     finally:
         await client.aclose()

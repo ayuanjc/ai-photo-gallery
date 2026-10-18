@@ -27,6 +27,7 @@ from ...core.runtime_config import (
     get_runtime_config,
     runtime_enabled,
 )
+from ...services.immich_writeback import DEFAULT_CLEANUP_ALBUM_NAMES
 
 router = APIRouter(tags=["admin"])
 
@@ -129,6 +130,46 @@ async def rollback_asset(asset_id: str, request: Request) -> dict:
         raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "写回管理服务未初始化")
     result = await mgr.rollback_by_asset(asset_id)
     return {"rollback": result}
+
+
+@router.post("/admin/api/immich/cleanup")
+async def immich_cleanup(request: Request) -> dict:
+    """清理写回 Immich 的污染数据（AI· 前缀标签/相册 + 冒充入口相册）。
+
+    Body:
+        {"dry_run": true,              默认 true，仅扫描返回将删除的清单
+         "tag_prefix": "AI·",          标签前缀匹配
+         "album_prefix": "AI·",        相册前缀匹配
+         "include_album_names": []}    额外精确匹配的相册名
+    dry_run=false 才实际删除，逐条审计，单项失败不中断。
+    """
+    _verify_admin_key(request)
+    wb = getattr(request.app.state, "immich_writeback", None)
+    if wb is None:
+        raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "写回客户端未初始化")
+    body = await _parse_json_body(request)
+    dry_run = body.get("dry_run", True)
+    if not isinstance(dry_run, bool):
+        raise AppError(ErrorCode.INVALID_PARAMS, "dry_run 必须是布尔值")
+    tag_prefix = body.get("tag_prefix", "AI·")
+    if not isinstance(tag_prefix, str) or not tag_prefix.strip():
+        raise AppError(ErrorCode.INVALID_PARAMS, "tag_prefix 必须是非空字符串")
+    album_prefix = body.get("album_prefix", "AI·")
+    if not isinstance(album_prefix, str) or not album_prefix.strip():
+        raise AppError(ErrorCode.INVALID_PARAMS, "album_prefix 必须是非空字符串")
+    include_names = body.get(
+        "include_album_names", list(DEFAULT_CLEANUP_ALBUM_NAMES)
+    )
+    if not isinstance(include_names, list) or not all(
+        isinstance(x, str) for x in include_names
+    ):
+        raise AppError(ErrorCode.INVALID_PARAMS, "include_album_names 必须是字符串列表")
+    return await wb.cleanup(
+        tag_prefix=tag_prefix,
+        album_prefix=album_prefix,
+        album_names=include_names,
+        dry_run=dry_run,
+    )
 
 
 @router.post("/admin/api/writeback/descriptions")
@@ -251,12 +292,25 @@ async def trigger_backfill(request: Request) -> dict:
 
 @router.get("/admin/api/backfill/status")
 async def backfill_status(request: Request) -> dict:
-    """查询回填任务进度。"""
+    """查询回填任务进度（内存优先，任务不在内存时回退 Redis 快照）。"""
     _verify_admin_key(request)
     svc = getattr(request.app.state, "backfill_service", None)
     if svc is None:
         raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "回填服务未初始化")
-    return {"status": svc.get_status()}
+    return {"status": await svc.get_status()}
+
+
+@router.get("/admin/api/search/translate")
+async def debug_search_translate(request: Request) -> dict:
+    """人工核对：中文查询 → 英文 CLIP 检索短语（本地词表路径，不调外部 API）。
+
+    Query: ?q=海边日落
+    """
+    _verify_admin_key(request)
+    from ...scene.query_translate import translate_query_detailed
+
+    q = request.query_params.get("q", "")
+    return translate_query_detailed(q)
 
 
 @router.get("/admin/api/ml/health")
@@ -385,6 +439,13 @@ async def system_status(request: Request) -> dict:
         "cache_backend": cache_backend,
         "features_enabled": enabled_count,
         "features_total": len(features),
+        "writeback": {
+            "enabled": settings.writeback_enabled,
+            "source": ".env WRITEBACK_ENABLED（单一来源，无运行时覆盖）",
+            "whitelist": "source=analyzed 且置信度 >= scene_min_confidence",
+            "min_confidence": settings.scene_min_confidence,
+            "dedup_ttl_seconds": settings.writeback_dedup_ttl_seconds,
+        },
     }
 
 

@@ -1,7 +1,7 @@
 """防御性编程修复测试。"""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -102,22 +102,19 @@ class TestLivezReadyz:
 
 
 class TestRankingTiebreaker:
-    """P2 排序确定性 tiebreaker。"""
+    """P2 排序确定性：immich 模式输出顺序稳定、可复现。"""
 
-    def test_same_score_sorted_by_asset_id(self):
-        from app.services.ranking import rank_assets
+    def test_immich_mode_deterministic_order(self):
+        from app.services.ranking import rank_results
 
         assets = [
             {"id": "zzz", "score": 0.5},
             {"id": "aaa", "score": 0.5},
             {"id": "mmm", "score": 0.5},
         ]
-        scored = rank_assets(
-            assets,
-            time_weight=0.3,
-            similarity_weight=0.7,
-            half_life_days=365.0,
-            default_iso="1970-01-01T00:00:00+00:00",
-        )
-        ids = [a[0]["id"] for a in scored]
-        assert ids == ["aaa", "mmm", "zzz"]
+        r1 = rank_results(assets, mode="immich")
+        r2 = rank_results(list(reversed(assets)), mode="immich")
+        # 相同输入 → 相同输出；顺序即输入顺序（确定性，无随机扰动）
+        assert [row["asset"]["id"] for row in r1] == ["zzz", "aaa", "mmm"]
+        # 反向输入 → 保持反向（上游顺序是唯一权威）
+        assert [row["asset"]["id"] for row in r2] == ["mmm", "aaa", "zzz"]

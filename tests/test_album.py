@@ -3,8 +3,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
-
 from app.core.config import Settings
 from app.services.album_service import AlbumService
 

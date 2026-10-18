@@ -25,23 +25,23 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, Request
 
 from ...core.config import Settings
-from ...core.errors import ServiceUnavailableError, UpstreamError
+from ...core.errors import ServiceUnavailableError
 from ...core.runtime_config import runtime_enabled
-from ...utils.date_parse import parse_date_param
 from ...models.stats import (
+    BrandRatioItem,
     CityStat,
     CountryStat,
     ExifStatsResponse,
-    MapPoint,
-    MapStatsResponse,
-    NameCount,
-    ValueCount,
-    BrandRatioItem,
     FavoriteCombo,
     GearStatsResponse,
     GearTopItem,
+    MapPoint,
+    MapStatsResponse,
     MonthCount,
+    NameCount,
+    ValueCount,
 )
+from ...utils.date_parse import parse_date_param
 from ..deps import get_settings_dep, rate_limit_guard, verify_api_key
 
 logger = logging.getLogger(__name__)

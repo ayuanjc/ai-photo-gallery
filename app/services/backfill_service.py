@@ -4,20 +4,28 @@
 
 流程：
 1. 用 Immich metadata search API 分页拉取资产
-2. 可选过滤：只处理没有 AI/ 前缀标签的资产
-3. 对每张资产跑场景分析 + 标签写回 + 描述补全
+2. skip_tagged：批量加载全部 AI· 标签下的资产 ID 集合，命中即跳过
+   （metadata search 响应不含 tags 字段，逐资产查询代价过高）
+3. 对每张资产跑真实场景分析（CLIP，source=analyzed），
+   再经 SceneWriteBack 白名单（analyzed + 置信度下限）写回
 4. 受并发与速率限制
-5. 进度写 Redis 供 GET /admin/api/backfill/status 查询
+5. 进度写内存 + Redis（跨重启可见），GET /admin/api/backfill/status 查询
 """
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..core.config import Settings
 from .immich import ImmichClient
+
+if TYPE_CHECKING:
+    from ..core.redis_client import RedisClient
+    from ..scene.analyzer import SceneAnalyzer
+    from .scene_writeback import SceneWriteBack
 
 logger = logging.getLogger(__name__)
 
@@ -30,9 +38,15 @@ class BackfillService:
         self,
         immich: ImmichClient,
         settings: Settings,
+        scene_analyzer: SceneAnalyzer | None = None,
+        scene_writeback: SceneWriteBack | None = None,
+        redis_client: RedisClient | None = None,
     ) -> None:
         self._immich = immich
         self._settings = settings
+        self._analyzer = scene_analyzer
+        self._writeback = scene_writeback
+        self._redis = redis_client
         self._running = False
         self._progress: dict[str, Any] = {
             "status": "idle",
@@ -47,12 +61,43 @@ class BackfillService:
             "errors": [],
         }
 
-    def get_status(self) -> dict[str, Any]:
+    def _public_progress(self) -> dict[str, Any]:
+        return {k: v for k, v in self._progress.items() if not k.startswith("_")}
+
+    async def get_status(self) -> dict[str, Any]:
         if self._running:
             self._progress["elapsed_seconds"] = round(
                 time.monotonic() - self._progress.get("_t0", 0), 1
             )
-        return {k: v for k, v in self._progress.items() if not k.startswith("_")}
+            return self._public_progress()
+        snapshot = await self._read_progress_redis()
+        if snapshot is not None:
+            return snapshot
+        return self._public_progress()
+
+    async def _save_progress_redis(self) -> None:
+        """进度快照写 Redis（跨重启可见）；不可用仅记日志。"""
+        if self._redis is None or not getattr(self._redis, "connected", False):
+            return
+        try:
+            await self._redis.redis.set(
+                _PROGRESS_KEY, json.dumps(self._public_progress(), ensure_ascii=False)
+            )
+        except Exception as exc:
+            logger.warning("回填进度写 Redis 失败: %s", exc)
+
+    async def _read_progress_redis(self) -> dict[str, Any] | None:
+        """读取 Redis 进度快照（任务不在内存运行时的跨重启展示）。"""
+        if self._redis is None or not getattr(self._redis, "connected", False):
+            return None
+        try:
+            raw = await self._redis.redis.get(_PROGRESS_KEY)
+            if raw is None:
+                return None
+            data = json.loads(raw)
+            return data if isinstance(data, dict) else None
+        except Exception:
+            return None
 
     async def run_backfill(
         self,
@@ -66,8 +111,8 @@ class BackfillService:
         参数:
             limit: 最多处理资产数（0 = 不限）。
             since: 只处理 updatedAt >= since 的资产（ISO 格式）。
-            dry_run: 仅统计不实际写回。
-            skip_tagged: 跳过已有 AI/ 前缀标签的资产。
+            dry_run: 仅分析不实际写回。
+            skip_tagged: 跳过已有 AI· 前缀标签的资产。
         """
         if self._running:
             return {"error": "回填任务正在运行中"}
@@ -90,6 +135,7 @@ class BackfillService:
             "since": since,
             "skip_tagged": skip_tagged,
         }
+        await self._save_progress_redis()
 
         try:
             await self._do_backfill(limit, since, dry_run, skip_tagged)
@@ -103,8 +149,9 @@ class BackfillService:
                 time.monotonic() - self._progress.pop("_t0", 0), 1
             )
             self._running = False
+            await self._save_progress_redis()
 
-        return self.get_status()
+        return await self.get_status()
 
     async def _do_backfill(
         self,
@@ -116,6 +163,10 @@ class BackfillService:
         page_size = getattr(self._settings, "backfill_page_size", 1000)
         concurrency = getattr(self._settings, "backfill_concurrency", 5)
         sem = asyncio.Semaphore(concurrency)
+
+        skip_ids: set[str] = set()
+        if skip_tagged:
+            skip_ids = await self._load_tagged_asset_ids()
 
         page = 1
         total_processed = 0
@@ -135,7 +186,7 @@ class BackfillService:
             self._progress["total"] += len(assets)
 
             tasks = [
-                self._process_one(asset, sem, dry_run, skip_tagged)
+                self._process_one(asset, sem, dry_run, skip_ids)
                 for asset in assets
             ]
             results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -156,6 +207,7 @@ class BackfillService:
             self._progress["skipped"] = total_skipped
             self._progress["succeeded"] = total_succeeded
             self._progress["failed"] = total_failed
+            await self._save_progress_redis()
 
             if len(assets) < page_size:
                 break
@@ -165,6 +217,44 @@ class BackfillService:
             "回填完成: processed=%d skipped=%d succeeded=%d failed=%d",
             total_processed, total_skipped, total_succeeded, total_failed,
         )
+
+    async def _load_tagged_asset_ids(self) -> set[str]:
+        """批量加载所有 AI· 标签下的资产 ID（skip_tagged 的跳过集合）。
+
+        任一标签查询失败仅记日志继续（降级：该标签下资产可能被重复处理，
+        由写回白名单 + Redis SETNX 幂等兜底）。
+        """
+        ids: set[str] = set()
+        try:
+            data = await self._immich.request_json("GET", "/api/tags")
+        except Exception as exc:
+            logger.warning("回填加载标签列表失败（skip 集合为空）: %s", exc)
+            return ids
+        tags = data if isinstance(data, list) else []
+        for tag in tags:
+            if not isinstance(tag, dict):
+                continue
+            value = str(tag.get("value") or tag.get("name") or "")
+            if not value.startswith(_AI_TAG_PREFIX):
+                continue
+            tag_id = tag.get("id")
+            if not tag_id:
+                continue
+            try:
+                assets = await self._immich.request_json(
+                    "GET", f"/api/tags/{tag_id}/assets"
+                )
+            except Exception as exc:
+                logger.warning("回填加载标签资产失败 tag=%s: %s", value, exc)
+                continue
+            items = self._extract_items(assets)
+            for asset in items:
+                asset_id = asset.get("id") if isinstance(asset, dict) else None
+                if asset_id:
+                    ids.add(str(asset_id))
+        if ids:
+            logger.info("回填 skip 集合加载完成: %d 个已打标资产", len(ids))
+        return ids
 
     async def _fetch_page(
         self,
@@ -211,51 +301,35 @@ class BackfillService:
         asset: dict[str, Any],
         sem: asyncio.Semaphore,
         dry_run: bool,
-        skip_tagged: bool,
+        skip_ids: set[str],
     ) -> str:
-        """处理单张资产：场景分析 + 标签写回 + 描述补全。"""
+        """处理单张资产：真实场景分析 → SceneWriteBack 白名单写回。"""
         asset_id = asset.get("id")
         if not asset_id:
             return "skipped"
 
-        if skip_tagged and self._has_ai_tags(asset):
+        if asset_id in skip_ids:
+            return "skipped"
+
+        if not self._settings.writeback_enabled and not dry_run:
+            return "skipped"
+
+        if self._analyzer is None or self._writeback is None:
             return "skipped"
 
         async with sem:
             try:
-                from ..core.runtime_config import runtime_enabled
-                if not runtime_enabled(
-                    "writeback_enabled",
-                    getattr(self._settings, "writeback_enabled", False),
-                ):
+                scene_tags = await self._analyzer.analyze(asset)
+                if scene_tags is None or scene_tags.source != "analyzed":
                     return "skipped"
 
-                results_data = [{"asset_id": asset_id, "scene": None}]
-
-                scene_writeback = getattr(
-                    self._immich, "_scene_writeback", None
-                )
-                if scene_writeback is not None and not dry_run:
-                    await scene_writeback.writeback_scene_tags(results_data)
-
+                result = {
+                    "asset_id": asset_id,
+                    "scene": scene_tags.model_dump(),
+                }
+                if not dry_run:
+                    await self._writeback.writeback_scene_tags([result])
                 return "succeeded"
             except Exception as exc:
                 logger.warning("回填处理失败 asset=%s: %s", asset_id, exc)
                 return "failed"
-
-    @staticmethod
-    def _has_ai_tags(asset: dict[str, Any]) -> bool:
-        """检查资产是否已有 AI/ 前缀标签。"""
-        tags = asset.get("tags", [])
-        if not tags:
-            return False
-        for tag in tags:
-            if isinstance(tag, dict):
-                value = tag.get("value", "") or tag.get("name", "")
-            elif isinstance(tag, str):
-                value = tag
-            else:
-                continue
-            if value.startswith(_AI_TAG_PREFIX):
-                return True
-        return False

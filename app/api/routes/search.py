@@ -8,7 +8,6 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Request
 logger = logging.getLogger(__name__)
 
 from ...core.config import get_settings
-from ...core.runtime_config import runtime_enabled
 from ...models.request import FeedbackRequest, MultiConditionSearchRequest, SearchRequest
 from ...models.response import (
     FeedbackResponse,
@@ -52,7 +51,7 @@ async def smart_search(
     # 写回会把猜测当事实污染图库（标签/描述/评分/相册）。
     if (
         not response.cached
-        and runtime_enabled("writeback_enabled", getattr(get_settings(), "writeback_enabled", False))
+        and get_settings().writeback_enabled
     ):
         analyzed = [
             r for r in response.results if r.scene is not None and r.scene.source == "analyzed"

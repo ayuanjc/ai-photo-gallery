@@ -5,7 +5,6 @@ import pytest
 
 from app.services.ranking import calculate_dynamic_weights, intent_score
 
-
 # ---- intent_score 单元测试 ----
 
 

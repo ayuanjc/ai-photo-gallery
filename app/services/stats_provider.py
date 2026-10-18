@@ -13,8 +13,8 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from .immich import ImmichClient
 from ..core.runtime_config import runtime_enabled
+from .immich import ImmichClient
 
 if TYPE_CHECKING:
     from ..core.config import Settings

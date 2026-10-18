@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from app.core.errors import VisionError
 from app.models.request import SearchRequest
-from app.services.search_service import SearchService
 from app.services.immich_capabilities import ImmichCapabilities
+from app.services.search_service import SearchService
 from app.services.vision.base import VisionProvider, VisionResult
 
 
@@ -55,7 +55,8 @@ def _request(**overrides) -> SearchRequest:
     return SearchRequest(**payload)
 
 
-async def test_search_returns_ranked_results(settings):
+async def test_search_preserves_immich_order(settings):
+    """immich 模式（默认）：顺序完全保持 Immich 返回，final_score 不编造。"""
     immich = FakeImmich([_asset("a", 0.9), _asset("b", 1.0)])
     vision = FakeVision()
     svc = SearchService(settings, immich, vision)
@@ -63,9 +64,39 @@ async def test_search_returns_ranked_results(settings):
     resp = await svc.search(_request())
 
     assert resp.total == 2
-    assert resp.results[0].asset_id == "b"  # 相似度更高且时间相同
+    assert [r.asset_id for r in resp.results] == ["a", "b"]
+    assert resp.results[0].immich_rank == 0
+    assert resp.results[1].immich_rank == 1
+    assert resp.results[0].final_score is None  # 不再伪造最终分
+    assert resp.results[0].similarity_score == 0.9  # 上游真实 score 透传
+    assert resp.results[1].similarity_score == 1.0
     assert resp.enriched_query is not None  # 被视觉标签增强
     assert "海边" in resp.enriched_query
+
+
+async def test_blend_mode_computes_final_score(settings):
+    """blend 模式：RRF 先验 + 时间新鲜度，final_score 有值。"""
+    blend = settings.model_copy(update={"rank_mode": "blend"})
+    immich = FakeImmich([_asset("a", 1.0)])
+    vision = FakeVision()
+    svc = SearchService(blend, immich, vision)
+
+    resp = await svc.search(_request())
+    assert resp.total == 1
+    assert resp.results[0].final_score is not None
+    assert 0.0 <= resp.results[0].final_score <= 1.0
+
+
+async def test_request_weight_override(settings):
+    immich = FakeImmich([_asset("a", 1.0)])
+    vision = FakeVision()
+    svc = SearchService(settings, immich, vision)
+
+    req = _request(time_weight=1.0, similarity_weight=0.0)
+    resp = await svc.search(req)
+    assert resp.total == 1
+    # immich 模式下权重覆盖仍被解析（不报错），final_score 保持不编造
+    assert resp.results[0].final_score is None
 
 
 async def test_vision_failure_degrades_not_blocks(settings):
@@ -79,17 +110,6 @@ async def test_vision_failure_degrades_not_blocks(settings):
     assert any("视觉" in w or "标签" in w for w in resp.warnings) or resp.enriched_query is None
     assert resp.total == 1
 
-
-async def test_request_weight_override(settings):
-    immich = FakeImmich([_asset("a", 1.0)])
-    vision = FakeVision()
-    svc = SearchService(settings, immich, vision)
-
-    req = _request(time_weight=1.0, similarity_weight=0.0)
-    resp = await svc.search(req)
-    assert resp.total == 1
-    # 权重全给时间，相似度不影响最终分数公式（此处仅验证不报错且归一化正确）
-    assert 0.0 <= resp.results[0].final_score <= 1.0
 
 
 async def test_metadata_filtering(settings):

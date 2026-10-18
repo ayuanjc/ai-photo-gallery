@@ -5,6 +5,7 @@
   运行时值，否则回退 Settings 默认值（保证测试中 Settings(dedup_enabled=False)
   等构造方式不受影响）。
 - 修改写入内存 + JSON 文件持久化（重启后覆盖值继续生效）。
+- writeback_enabled 例外：不在运行时开关内，只认 .env / Settings 单一来源。
 """
 from __future__ import annotations
 
@@ -12,7 +13,6 @@ import asyncio
 import json
 import logging
 import os
-
 from pathlib import Path
 from typing import Any
 
@@ -89,11 +89,8 @@ FEATURES_META: dict[str, dict[str, str | bool]] = {
         "description": "人脸分类功能（重启生效）",
         "requires_restart": True,
     },
-    "writeback_enabled": {
-        "name": "Immich 写回",
-        "description": "将 AI 场景标签/相册/描述写回 Immich（可撤销）",
-        "requires_restart": False,
-    },
+    # writeback_enabled 不在此列：写回是危险开关，只认 .env / Settings 单一来源，
+    # 避免出现 .env=false 但运行时覆盖=true 的双源污染（历史事故根因之一）。
 }
 
 
@@ -118,7 +115,7 @@ class RuntimeConfig:
             "correct_enabled": getattr(settings, "correct_enabled", True),
             "huawei_enabled": settings.huawei_enabled,
             "huawei_face_enabled": settings.huawei_face_enabled,
-            "writeback_enabled": getattr(settings, "writeback_enabled", False),
+
         }
         self._load()
 
