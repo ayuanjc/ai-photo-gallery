@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import uuid
@@ -39,7 +40,8 @@ from .core.logging import setup_logging
 from .core.rate_limit import TokenBucketRateLimiter
 from .core.redis_client import RedisClient
 from .db import close_db, init_db
-from .scene.analyzer import HttpSceneInferrer, NullSceneInferrer, SceneAnalyzer
+from .scene.analyzer import HttpSceneInferrer, NullSceneInferrer, SceneAnalyzer, SceneInferrer
+from .scene.clip_inferrer import ClipSceneInferrer
 from .scene.dictionary import get_scene_dict
 from .services.album_writeback import AlbumWriteBack
 from .services.backfill_service import BackfillService
@@ -114,11 +116,23 @@ async def lifespan(app: FastAPI):
     cache = await get_cache(settings, redis_client)
     app.state.cache = cache
 
-    scene_inferrer = (
-        HttpSceneInferrer(settings.scene_inference_endpoint)
-        if settings.scene_inference_endpoint
-        else NullSceneInferrer()
-    )
+    if not settings.scene_inference_endpoint:
+        scene_inferrer: SceneInferrer = NullSceneInferrer()
+    elif settings.scene_inferrer_type == "http":
+        scene_inferrer = HttpSceneInferrer(settings.scene_inference_endpoint)
+    else:
+        scene_inferrer = ClipSceneInferrer.from_settings(settings, scene_dictionary)
+
+    # CLIP 提示词预热：后台执行，失败不阻塞启动（首次推理时会懒加载重试）。
+    if isinstance(scene_inferrer, ClipSceneInferrer):
+
+        async def _warmup_clip() -> None:
+            try:
+                await scene_inferrer.warmup()
+            except Exception as exc:
+                logger.warning("CLIP 提示词预热失败（将在首次推理时重试）: %s", exc)
+
+        asyncio.create_task(_warmup_clip())
     scene_analyzer = (
         SceneAnalyzer(
             scene_dictionary,

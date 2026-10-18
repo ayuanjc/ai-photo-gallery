@@ -12,6 +12,9 @@ from app.core.config import Settings
 from app.core.runtime_config import RuntimeConfig, reset_runtime_config
 
 os.environ.setdefault("URL_TRUSTED_HOSTS", "a.com,immich.test,example.com")
+# 测试环境屏蔽真实推理端点（避免 TestClient 启动时真调 ML 容器拖慢/不稳定）；
+# 环境变量优先级高于 .env，test_clip_inferrer 自行构造 mock，不受影响。
+os.environ.setdefault("SCENE_INFERENCE_ENDPOINT", "")
 
 
 @pytest.fixture(autouse=True)

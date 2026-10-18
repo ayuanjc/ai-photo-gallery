@@ -58,6 +58,12 @@ class Settings(BaseSettings):
     # ---- 智能场景分析（多标签体系）----
     scene_enabled: bool = True
     scene_inference_endpoint: str = ""
+    scene_inferrer_type: str = "clip"
+    scene_clip_model: str = "ViT-B-32__openai"
+    scene_clip_scene_threshold: float = 0.25
+    scene_clip_sub_scene_threshold: float = 0.26
+    scene_clip_max_scenes: int = 3
+    scene_clip_max_sub_scenes: int = 5
     scene_cache_size: int = 2000
     scene_cache_halflife_days: float = 7.0
     scene_infer_timeout_seconds: float = 3.0
