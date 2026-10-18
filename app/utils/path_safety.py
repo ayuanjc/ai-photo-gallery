@@ -1,7 +1,6 @@
 """文件路径安全校验：目录白名单 + 符号链接逃逸 + 文件类型过滤。"""
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 _ALLOWED_IMAGE_EXTENSIONS = frozenset(

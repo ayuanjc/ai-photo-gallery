@@ -1,16 +1,11 @@
 """搜索结果可解释性测试：build_explanation 单元测试 + SearchService 集成测试。"""
 from __future__ import annotations
 
-import math
-
-import pytest
-
 from app.core.errors import VisionError
 from app.models.request import SearchRequest
 from app.services.explain import build_explanation
 from app.services.search_service import SearchService
 from app.services.vision.base import VisionProvider, VisionResult
-
 
 # ============================================================================
 # 辅助：复用 test_search_service.py 的 Fake 模式
@@ -200,8 +195,8 @@ class TestExplainIntegration:
         assert resp.results[0].explanation is None
 
     async def test_weights_used_match_ranking_blend(self, settings):
-        """weights_used 与 ranking.py 的 blend_scene_weights 权重一致。"""
-        from app.services.ranking import blend_scene_weights
+        """weights_used 与 ranking.py 的静态权重一致（gamma=0，场景不再参与）。"""
+        from app.services.ranking import calculate_dynamic_weights
 
         asset = {
             "id": "a",
@@ -218,9 +213,7 @@ class TestExplainIntegration:
         exp = resp.results[0].explanation
         assert exp is not None
 
-        # 与 ranking.py 对同一 asset 计算的权重一致
-        alpha, beta = blend_scene_weights(
-            ["nature"], default_alpha=0.3, default_beta=0.7
-        )
+        # 与 ranking.py 对同一查询计算的权重一致（gamma=0 时即静态归一化权重）
+        alpha, beta = calculate_dynamic_weights("海滩", 0.3, 0.7, gamma=0.0)
         assert exp["weights_used"]["alpha"] == round(alpha, 4)
         assert exp["weights_used"]["beta"] == round(beta, 4)

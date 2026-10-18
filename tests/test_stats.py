@@ -18,14 +18,12 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app.api.deps import get_settings_dep
 from app.core.cache import MemoryCache
 from app.core.errors import UpstreamUnavailableError
 from app.main import app
-
 
 # ============================================================================
 # 测试辅助

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -44,11 +45,23 @@ class Settings(BaseSettings):
     search_max_concurrent_vision: int = 5
     search_max_concurrent_scene: int = 10
 
+    # ---- 查询翻译（中文 → 英文 CLIP 检索词）----
+    # 翻译提供方：dict=本地词表组合（默认，零外部依赖）；
+    #             huawei=华为云 NLP 机器翻译（未配置/失败自动降级词表）。
+    translate_provider: Literal["dict", "huawei"] = "dict"
+    # 华为云 NLP 请求超时（秒）。
+    translate_timeout_seconds: float = 3.0
+    # 华为云 NLP 服务终端节点。
+    huawei_nlp_endpoint: str = "https://nlp.cn-north-4.myhuaweicloud.com"
+
     # ---- 排序权重（二次排序：时间 α + 相似度 β）----
+    # 排序模式：immich=完全保持 Immich 返回顺序（推荐，不撒谎）；
+    #           blend=RRF 先验 + 时间新鲜度加权（w_time 上限 0.2）。
+    rank_mode: Literal["immich", "blend"] = "immich"
     time_weight: float = 0.3
     similarity_weight: float = 0.7
-    # 查询意图动态权重调整强度（0=完全静态，1=最大动态偏移）。
-    query_intent_gamma: float = Field(default=0.4, ge=0.0, le=1.0)
+    # 查询意图动态权重调整强度（0=完全静态；默认关闭，避免破坏 Immich 相关度顺序）。
+    query_intent_gamma: float = Field(default=0.0, ge=0.0, le=1.0)
     # 多模态查询融合权重 λ（V_final = λ*V_text + (1-λ)*V_vision）。
     multimodal_lambda: float = 0.7
     # 时间新鲜度指数衰减的半衰期（天）。半衰期越小，越“喜新厌旧”。
@@ -60,10 +73,14 @@ class Settings(BaseSettings):
     scene_inference_endpoint: str = ""
     scene_inferrer_type: str = "clip"
     scene_clip_model: str = "ViT-B-32__openai"
-    scene_clip_scene_threshold: float = 0.25
-    scene_clip_sub_scene_threshold: float = 0.26
-    scene_clip_max_scenes: int = 3
-    scene_clip_max_sub_scenes: int = 5
+    # sim 阈值按 ViT-B-32 实测分布校准（top1 sim 中位 0.260 / p25 0.242）：拦掉最弱 ~25%。
+    scene_clip_scene_threshold: float = 0.24
+    scene_clip_sub_scene_threshold: float = 0.24
+    # 场景收紧：低于该置信度的标签不返回、不展示、不写回。
+    scene_min_confidence: float = 0.60
+    # 只保留 top1 大场景 + 最多 2 个子场景（多场景混标即噪声）。
+    scene_max_scenes: int = 1
+    scene_max_sub_scenes: int = 2
     scene_cache_size: int = 2000
     scene_cache_halflife_days: float = 7.0
     scene_infer_timeout_seconds: float = 3.0
@@ -105,7 +122,10 @@ class Settings(BaseSettings):
     huawei_enabled: bool = False
 
     # ---- Immich 写回（标签/相册/描述，默认关闭）----
+    # 注意：写回开关只认 .env / Settings（危险开关，不提供运行时切换，避免双源覆盖）。
     writeback_enabled: bool = False
+    # (asset_id, tag) 写回 Redis SETNX 幂等窗口（秒），默认 24h。
+    writeback_dedup_ttl_seconds: int = 86400
     # 插件 hook 鉴权 token（空 = 不鉴权，非空 = 强制校验 x-plugin-token 头）
     plugin_hook_token: SecretStr = SecretStr("")
     # 工作流回调基地址（空 = 自动探测 host.docker.internal:{port}）

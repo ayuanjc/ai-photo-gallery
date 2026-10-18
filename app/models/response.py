@@ -17,9 +17,19 @@ class SearchResultItem(BaseModel):
     original_url: str | None = None
     captured_at: datetime | None = Field(default=None, description="EXIF 拍摄时间（回退后）")
     captured_at_source: str = Field(default="default", description="拍摄时间来源: exif | file_created | default")
-    similarity_score: float = Field(ge=0.0, le=1.0, description="语义相似度分数（归一化到 0~1）")
+    similarity_score: float | None = Field(
+        default=None, ge=0.0, le=1.0,
+        description="上游真实相似度分数；Immich v3.3.1 不返回 score，此时为 null（禁止编造）",
+    )
     time_freshness: float = Field(ge=0.0, le=1.0, description="时间新鲜度（归一化到 0~1）")
-    final_score: float = Field(ge=0.0, le=1.0, description="加权融合后的最终排序分数")
+    final_score: float | None = Field(
+        default=None, ge=0.0, le=1.0,
+        description="加权融合排序分（仅 blend 模式有值；immich 模式为 null）",
+    )
+    immich_rank: int = Field(
+        default=0, ge=0,
+        description="该结果在 Immich 原始返回中的排名（0-based，权威顺序）",
+    )
     metadata: dict[str, Any] = Field(default_factory=dict, description="所选元数据字段")
     scene: SceneTags | None = Field(default=None, description="多标签场景分析结果")
     explanation: dict[str, Any] | None = Field(

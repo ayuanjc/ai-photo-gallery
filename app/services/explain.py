@@ -68,7 +68,7 @@ def _collect_scene_candidates(asset: Any, scene_tags: Any) -> list[str]:
     elif scene_tags is not None:
         scenes = list(getattr(scene_tags, "scenes", None) or [])
         if not scenes and getattr(scene_tags, "primary_scene", None):
-            scenes = [getattr(scene_tags, "primary_scene")]
+            scenes = [scene_tags.primary_scene]
     else:
         scenes = []
 

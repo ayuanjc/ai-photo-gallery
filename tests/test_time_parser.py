@@ -12,8 +12,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-import pytest
-
 from app.core.errors import VisionError
 from app.models.request import SearchRequest
 from app.services.search_service import SearchService

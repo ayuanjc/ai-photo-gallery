@@ -123,9 +123,7 @@
 POST /api/v1/search/smart
 {
   "query": "海边日落",
-  "asset_ids": ["3f2c...", "a1b2..."],
-  "limit": 20,
-  "include_metadata_fields": ["width", "height", "latitude", "longitude", "city"]
+  "limit": 20
 }
 ```
 
@@ -134,24 +132,89 @@ POST /api/v1/search/smart
 ```json
 {
   "query": "海边日落",
-  "total": 2,
+  "total": 1,
   "degraded": false,
   "warnings": [],
-  "enriched_query": "海边日落 海边日落 沙滩 夕阳 海鸥",
+  "translated_query": "a photo of the sunset at the beach",
+  "cached": false,
+  "dedup_removed": 1,
   "results": [
     {
-      "asset_id": "3f2c...",
-      "thumbnail_url": "http://immich:2283/api/assets/3f2c.../thumbnail?size=preview",
-      "captured_at": "2024-06-10T18:20:31Z",
+      "asset_id": "74f0...",
+      "thumbnail_url": "http://127.0.0.1:3200/api/assets/74f0.../thumbnail?size=preview",
+      "original_url": "http://127.0.0.1:3200/api/assets/74f0.../original",
+      "captured_at": "2025-11-09T09:05:31Z",
       "captured_at_source": "exif",
-      "similarity_score": 0.81,
-      "time_freshness": 0.92,
-      "final_score": 0.843,
-      "metadata": {"width": 4000, "height": 3000, "city": "三亚"}
+      "similarity_score": null,
+      "immich_rank": 0,
+      "time_freshness": 0.521,
+      "final_score": null,
+      "metadata": {"width": 6048, "height": 4024, "format": "image/arw"},
+      "scene": {
+        "primary_scene": "nature",
+        "sub_scenes": ["ocean", "beach"],
+        "confidence": {"ocean": 0.7419, "beach": 0.7224, "nature": 0.6732},
+        "source": "analyzed"
+      },
+      "explanation": {"reasons": ["命中场景：自然"], "time_score": 0.5212}
     }
   ]
 }
 ```
+
+## 搜索链路与可信度说明
+
+> 本节回答「搜索结果为什么可信、分数从哪里来」。上线前请通读，避免误读字段。
+
+### 检索主链路（Immich 单一事实源）
+
+```
+中文查询 → 词表语义化（translated_query）→ Immich smart search（CLIP）
+        → 4 级去重 → 按上游顺序返回（不二次排序）
+```
+
+1. **查询语义化**：`app/scene/query_translate.py` 维护 1000+ 词条（主体名词 / 修饰词 / 景别），
+   最长优先贪心匹配，组合成**单条英文短语**（如 `海边日落` → `a photo of the sunset at the beach`），
+   交给 Immich ML 的 CLIP 多语言检索。禁止逗号拼接泛化 prompt（会稀释语义导致结果与查询不相关）。
+2. **检索与排序**：结果顺序即 Immich 返回顺序（`immich_rank` 从 0 开始），**服务端不做任何二次排序**。
+3. **去重信号（4 级）**：`dedup_removed` 字段报告本次去重数量（asset_id / 内容指纹 / 上游位置 / 时间）。
+
+### 分数字段语义（防误读）
+
+| 字段 | 语义 | 何时为 null |
+|------|------|------------|
+| `similarity_score` | 上游相似度。Immich v3.3.1 smart search **不返回分数**，因此恒为 `null`，前端不应展示百分比 | 上游无分数时 |
+| `immich_rank` | 上游排序位次（0 = 第一名）。前端应以此展示「排序来源：Immich 智能搜索」 | 永不为 null |
+| `final_score` | 历史综合分。当前链路下为 `null`，仅多条件搜索等场景有值 | 未计算时 |
+| `time_freshness` | 时间新鲜度（0-1），仅作解释展示，不参与排序 | 永不为 null |
+| `scene.confidence` | CLIP 场景分类置信度（0.5-0.95，按 ViT-B-32 实测分布校准），仅描述场景标签可信度，**不是**与查询的相关度 | 无场景时 |
+
+**原则**：服务端绝不伪造相似度分数。无法从上游拿到分数时宁可返回 `null`。
+
+### 场景来源三态（scene.source）
+
+| source | 含义 | 会写回 Immich 吗 |
+|--------|------|-----------------|
+| `analyzed` | CLIP 零样本真实推理结果（置信度 ≥ `SCENE_MIN_CONFIDENCE`） | ✅ 白名单放行 |
+| `inferred` | 按查询词推断的场景（仅搜索展示用） | ❌ |
+| `fallback` | 兜底默认场景（`life`） | ❌ 白名单拦截 |
+
+只有 `analyzed` 且过置信度门槛的场景才会写回 Immich（防止兜底值污染图库）。
+写回总开关为 `.env` 的 `WRITEBACK_ENABLED`（单一来源，无运行时覆盖），可在
+`GET /admin/api/status` 的 `writeback` 块实时查看。
+
+### 验收脚本（T9 交付）
+
+```bash
+# 搜索链路：20 条中文查询端到端（翻译/结果数/告警/分数来源）
+python scripts/verify_search.py --base-url http://127.0.0.1:8000
+
+# 原生嵌入：健康/容器可达/工作流/hook鉴权/上传出标签/相册/审计/幂等/降级
+python scripts/verify_native.py --immich-key <key> --output data/verify_native_report.json
+```
+
+2026-10-18 基线：搜索 20/20 PASS，原生嵌入 13/13 PASS。
+
 
 ### 错误响应
 

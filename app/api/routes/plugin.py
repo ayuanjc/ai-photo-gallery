@@ -35,7 +35,6 @@ from fastapi import APIRouter, Depends, Header, Request, Response
 from pydantic import BaseModel, Field, model_validator
 
 from ...core.config import get_settings
-from ...core.runtime_config import runtime_enabled
 from ...scene.fallback import apply_fallback_scene
 from ..deps import rate_limit_guard
 
@@ -170,9 +169,7 @@ async def plugin_hook(
     scene_writeback = getattr(request.app.state, "scene_writeback", None)
     album_writeback = getattr(request.app.state, "album_writeback", None)
     desc_writeback = getattr(request.app.state, "description_writeback", None)
-    writeback_enabled = runtime_enabled(
-        "writeback_enabled", getattr(settings, "writeback_enabled", False)
-    )
+    writeback_enabled = bool(settings.writeback_enabled)
 
     if not writeback_enabled:
         elapsed = round((time.monotonic() - t0) * 1000, 1)

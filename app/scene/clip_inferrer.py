@@ -27,10 +27,10 @@ from .models import SceneTags
 
 logger = logging.getLogger(__name__)
 
-# 相似度 → 置信度的线性映射参数（sim=0.25 → 0.5，sim=0.35 → 0.95）。
-# 上限按 ViT-B-32 零样本实际分布校准（子场景断层第一约 0.27~0.31）。
-_CONF_MIN_SIM = 0.25
-_CONF_MAX_SIM = 0.35
+# 相似度 → 置信度的线性映射参数（sim=0.22 → 0.5，sim=0.30 → 0.95）。
+# 区间按 ViT-B-32 零样本实测分布校准（40 样本 top1 sim 0.230~0.281，中位 0.260）。
+_CONF_MIN_SIM = 0.22
+_CONF_MAX_SIM = 0.30
 _CONF_MIN = 0.5
 _CONF_MAX = 0.95
 
@@ -158,10 +158,11 @@ class ClipSceneInferrer(SceneInferrer):
         immich_api_key: str,
         dictionary: SceneDict,
         *,
-        scene_threshold: float = 0.22,
-        sub_scene_threshold: float = 0.26,
-        max_scenes: int = 3,
-        max_sub_scenes: int = 5,
+        scene_threshold: float = 0.30,
+        sub_scene_threshold: float = 0.32,
+        min_confidence: float = 0.60,
+        max_scenes: int = 1,
+        max_sub_scenes: int = 2,
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self._endpoint = endpoint.rstrip("/")
@@ -171,6 +172,8 @@ class ClipSceneInferrer(SceneInferrer):
         self._dict = dictionary
         self._scene_threshold = scene_threshold
         self._sub_threshold = sub_scene_threshold
+        # 置信度下限：低于该值的标签不返回、不展示、不写回（多场景混标即噪声）。
+        self._min_conf = min_confidence
         self._max_scenes = max(1, max_scenes)
         self._max_subs = max(1, max_sub_scenes)
         if client is not None:
@@ -197,8 +200,9 @@ class ClipSceneInferrer(SceneInferrer):
             dictionary=dictionary,
             scene_threshold=settings.scene_clip_scene_threshold,
             sub_scene_threshold=settings.scene_clip_sub_scene_threshold,
-            max_scenes=settings.scene_clip_max_scenes,
-            max_sub_scenes=settings.scene_clip_max_sub_scenes,
+            min_confidence=settings.scene_min_confidence,
+            max_scenes=settings.scene_max_scenes,
+            max_sub_scenes=settings.scene_max_sub_scenes,
         )
 
     async def warmup(self) -> None:
@@ -227,41 +231,65 @@ class ClipSceneInferrer(SceneInferrer):
 
     # ---- 内部实现 ----
     def _classify(self, image_emb: list[float]) -> SceneTags | None:
-        """图片 embedding 与提示词矩阵比对，组装 SceneTags。"""
+        """图片 embedding 与提示词矩阵比对，组装 SceneTags。
+
+        收紧规则（多场景混标即噪声）：
+        - 大场景只保留 top-N（默认 1），子场景 top-M（默认 2）；
+        - 置信度低于 min_confidence 的标签一律丢弃（不展示、不写回）；
+        - 最高置信子场景的父大场景插到首位（保证 primary 与子场景一致），
+          再截断到 max_scenes。
+        """
         assert self._prompts is not None
         sims: dict[str, float] = {}
         for key, embeddings in self._prompts.items():
             sims[key] = max(_cosine(image_emb, emb) for emb in embeddings)
 
-        scene_sims = {
-            k: v
-            for k, v in sims.items()
-            if self._dict.is_valid_scene(k) and v >= self._scene_threshold
-        }
-        sub_sims = {
-            k: v
-            for k, v in sims.items()
-            if self._dict.is_valid_sub_scene(k) and v >= self._sub_threshold
-        }
+        scene_items = sorted(
+            (
+                (k, v)
+                for k, v in sims.items()
+                if self._dict.is_valid_scene(k)
+                and v >= self._scene_threshold
+                and _sim_to_confidence(v) >= self._min_conf
+            ),
+            key=lambda kv: kv[1],
+            reverse=True,
+        )
+        sub_items = sorted(
+            (
+                (k, v)
+                for k, v in sims.items()
+                if self._dict.is_valid_sub_scene(k)
+                and v >= self._sub_threshold
+                and _sim_to_confidence(v) >= self._min_conf
+            ),
+            key=lambda kv: kv[1],
+            reverse=True,
+        )
 
-        top_scenes = sorted(scene_sims, key=scene_sims.get, reverse=True)[: self._max_scenes]
-        top_subs = sorted(sub_sims, key=sub_sims.get, reverse=True)[: self._max_subs]
+        top_scenes = [k for k, _ in scene_items[: self._max_scenes]]
+        top_subs = [k for k, _ in sub_items[: self._max_subs]]
 
-        # 子场景命中时其父大场景一并纳入（子场景已达标，父场景必然相关）。
-        for sub in top_subs:
-            parent = self._dict.parent_of(sub)
-            if parent is not None and parent not in top_scenes:
-                top_scenes.append(parent)
-                scene_sims[parent] = sub_sims[sub]
+        # 最高置信子场景的父大场景置首（子场景达标，父场景必然相关），
+        # 随后截断，保证不超出 max_scenes。
+        if top_subs:
+            parent = self._dict.parent_of(top_subs[0])
+            if parent is not None:
+                if parent not in top_scenes:
+                    top_scenes.insert(0, parent)
+                else:
+                    top_scenes.remove(parent)
+                    top_scenes.insert(0, parent)
+                top_scenes = top_scenes[: self._max_scenes]
 
         if not top_scenes:
             return None
 
         confidence = {
-            **{k: _sim_to_confidence(v) for k, v in sub_sims.items() if k in top_subs},
-            **{k: _sim_to_confidence(v) for k, v in scene_sims.items() if k in top_scenes},
+            **{k: _sim_to_confidence(sims[k]) for k in top_subs},
+            **{k: _sim_to_confidence(sims[k]) for k in top_scenes if k in sims},
         }
-        primary = max(top_scenes, key=lambda s: scene_sims.get(s, 0.0))
+        primary = top_scenes[0]
         return SceneTags(
             primary_scene=primary,
             scenes=top_scenes,
@@ -317,16 +345,29 @@ class ClipSceneInferrer(SceneInferrer):
         return self._parse_embedding(resp.json())
 
     async def _download_thumbnail(self, asset_id: str) -> bytes | None:
-        resp = await self._client.get(
-            f"{self._immich_base}/api/assets/{asset_id}/thumbnail",
-            headers={"x-api-key": self._immich_key},
-        )
-        if resp.status_code != 200:
-            logger.debug(
-                "缩略图下载失败 asset_id=%s status=%s", asset_id, resp.status_code
+        """下载缩略图；404（新上传缩略图未生成）时指数退避重试。
+
+        Immich 上传后缩略图生成存在亚秒级延迟，AssetCreate 事件先于
+        缩略图就绪到达，不重试会导致新图永远打不上标签。
+        """
+        delay = 0.5
+        for attempt in range(5):
+            resp = await self._client.get(
+                f"{self._immich_base}/api/assets/{asset_id}/thumbnail",
+                headers={"x-api-key": self._immich_key},
             )
-            return None
-        return resp.content
+            if resp.status_code == 200:
+                return resp.content
+            if resp.status_code != 404:
+                logger.debug(
+                    "缩略图下载失败 asset_id=%s status=%s", asset_id, resp.status_code
+                )
+                return None
+            if attempt < 4:
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 2.0)
+        logger.debug("缩略图重试后仍不可用 asset_id=%s", asset_id)
+        return None
 
     @staticmethod
     def _parse_embedding(payload: dict) -> list[float] | None:

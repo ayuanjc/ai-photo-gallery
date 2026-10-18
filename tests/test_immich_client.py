@@ -28,15 +28,16 @@ async def test_smart_search_ok(settings):
         await client.aclose()
 
 
-async def test_smart_search_fills_missing_score(settings):
+async def test_smart_search_no_fabricated_score(settings):
+    """上游无 score 时不得按名次编造相似度（R2 回归守卫）。"""
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"assets": {"items": [{"id": "1"}, {"id": "2"}]}})
 
     ic, client = make_client(handler, settings)
     try:
         items = await ic.smart_search("海滩")
-        assert items[0]["score"] == 1.0
-        assert items[1]["score"] == 0.5
+        assert items[0].get("score") is None
+        assert items[1].get("score") is None
     finally:
         await client.aclose()
 

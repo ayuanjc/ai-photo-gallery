@@ -5,14 +5,12 @@ import json
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 from app.services.description_writeback import DescriptionWriteBack
-from app.services.immich_writeback import ImmichWriteBack
 from app.services.immich import ImmichClient
+from app.services.immich_writeback import ImmichWriteBack
+from app.services.model_manager import ModelManager
 from app.services.vector_index import VectorIndex
-from app.services.model_manager import ModelManager, ModelStatus
-
 
 # ---- DescriptionWriteBack 边缘 ----
 

@@ -15,8 +15,6 @@ import logging
 from typing import Any
 
 from ..core.config import Settings
-from ..core.runtime_config import runtime_enabled
-from ..scene.dictionary import get_scene_dict
 from .immich_writeback import ImmichWriteBack, WriteBackEntry
 
 logger = logging.getLogger(__name__)
@@ -56,9 +54,7 @@ class DescriptionWriteBack:
         results: list[dict[str, Any]],
         dry_run: bool = False,
     ) -> list[WriteBackEntry]:
-        if not runtime_enabled(
-            "writeback_enabled", getattr(self._settings, "writeback_enabled", False)
-        ):
+        if not self._settings.writeback_enabled:
             return []
 
         entries: list[WriteBackEntry] = []

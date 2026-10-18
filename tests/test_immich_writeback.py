@@ -2,10 +2,8 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import httpx
-import pytest
 
 from app.services.immich import ImmichClient
 from app.services.immich_writeback import ImmichWriteBack, WriteBackEntry
@@ -246,5 +244,129 @@ async def test_failure_non_blocking(settings, tmp_path):
         entry = await wb.add_tag("asset-001", "AI/自然")
         assert entry.success is False
         assert entry.error is not None
+    finally:
+        await client.aclose()
+
+# ---- T7：Redis SETNX 幂等窗口 ----
+
+
+class _FakeRedis:
+    """单节点 fake：set(nx=True) 语义与 redis.asyncio 一致。"""
+
+    def __init__(self):
+        self.store: dict[str, str] = {}
+        self.set_calls: list[dict] = []
+
+    async def set(self, key, value, ex=None, nx=False):
+        self.set_calls.append({"key": key, "ex": ex, "nx": nx})
+        if nx and key in self.store:
+            return None
+        self.store[key] = value
+        return True
+
+
+class _FakeRedisClient:
+    def __init__(self):
+        self._redis = _FakeRedis()
+        self.connected = True
+
+    @property
+    def redis(self):
+        return self._redis
+
+
+class _BrokenRedis:
+    async def set(self, *args, **kwargs):
+        raise RuntimeError("redis down")
+
+
+class _BrokenRedisClient:
+    connected = True
+
+    @property
+    def redis(self):
+        return _BrokenRedis()
+
+
+def _tag_handler(request: httpx.Request) -> httpx.Response:
+    path = request.url.path
+    if path == "/api/tags" and request.method == "GET":
+        return httpx.Response(200, json=[{"id": "tag-1", "value": "AI·自然"}])
+    if path == "/api/tags" and request.method == "POST":
+        body = json.loads(request.content)
+        return httpx.Response(201, json={"id": f"tag-{body['name']}", "name": body["name"]})
+    if path.startswith("/api/tags/") and path.endswith("/assets") and request.method == "PUT":
+        return httpx.Response(200, json=[])
+    return httpx.Response(404)
+
+
+async def test_add_tag_redis_dedup_skips_second_write(settings, tmp_path):
+    """(asset_id, tag) 首次写入成功，幂等窗口内第二次直接跳过（不发 HTTP）。"""
+    put_count = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/tags/tag-1/assets" and request.method == "PUT":
+            put_count["n"] += 1
+        return _tag_handler(request)
+
+    s = _settings_with_writeback(settings)
+    ic, client = make_client(handler, s)
+    rc = _FakeRedisClient()
+    try:
+        wb = ImmichWriteBack(ic, s, audit_path=tmp_path / "audit.jsonl", redis_client=rc)
+        e1 = await wb.add_tag("asset-001", "AI·自然")
+        e2 = await wb.add_tag("asset-001", "AI·自然")
+        assert e1.success is True
+        assert e2.success is True
+        assert e2.error == "幂等窗口内已写过，跳过"
+        assert put_count["n"] == 1
+        assert rc._redis.set_calls[0]["nx"] is True
+        assert rc._redis.set_calls[0]["ex"] == s.writeback_dedup_ttl_seconds
+        # 跳过的条目不写审计（未实际写入 Immich）
+        lines = (tmp_path / "audit.jsonl").read_text(encoding="utf-8").splitlines()
+        assert len(lines) == 1
+    finally:
+        await client.aclose()
+
+
+async def test_add_tag_different_tag_or_asset_not_deduped(settings, tmp_path):
+    """不同 asset 或不同 tag 不共享幂等键，各自正常写入。"""
+    s = _settings_with_writeback(settings)
+    ic, client = make_client(_tag_handler, s)
+    rc = _FakeRedisClient()
+    try:
+        wb = ImmichWriteBack(ic, s, audit_path=tmp_path / "audit.jsonl", redis_client=rc)
+        e1 = await wb.add_tag("asset-001", "AI·自然")
+        e2 = await wb.add_tag("asset-002", "AI·自然")
+        e3 = await wb.add_tag("asset-001", "AI·城市")
+        assert all(e.success for e in (e1, e2, e3))
+        assert len(rc._redis.store) == 3
+    finally:
+        await client.aclose()
+
+
+async def test_add_tag_redis_failure_degrades_to_write(settings, tmp_path):
+    """Redis 出错时降级直写（Immich 侧 find-or-create + PUT 幂等兜底）。"""
+    s = _settings_with_writeback(settings)
+    ic, client = make_client(_tag_handler, s)
+    try:
+        wb = ImmichWriteBack(
+            ic, s, audit_path=tmp_path / "audit.jsonl", redis_client=_BrokenRedisClient()
+        )
+        entry = await wb.add_tag("asset-001", "AI·自然")
+        assert entry.success is True
+        assert entry.error is None
+    finally:
+        await client.aclose()
+
+
+async def test_add_tag_no_redis_writes_directly(settings, tmp_path):
+    """未接 Redis（或未连接）时直接写入，行为与旧版一致。"""
+    s = _settings_with_writeback(settings)
+    ic, client = make_client(_tag_handler, s)
+    try:
+        wb = ImmichWriteBack(ic, s, audit_path=tmp_path / "audit.jsonl")
+        entry = await wb.add_tag("asset-001", "AI·自然")
+        assert entry.success is True
     finally:
         await client.aclose()

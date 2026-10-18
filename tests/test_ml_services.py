@@ -7,14 +7,12 @@ import httpx
 import pytest
 
 from app.services.ml_scene_inferrer import (
-    LocalMLInferrer,
     HttpMLInferrer,
-    MLSceneInferrer,
+    LocalMLInferrer,
     create_ml_inferrer,
 )
-from app.services.vector_index import VectorIndex, _normalize, _dot
 from app.services.model_manager import ModelManager, ModelStatus
-
+from app.services.vector_index import VectorIndex, _dot, _normalize
 
 # ==================== P22: ML 场景推理 ====================
 

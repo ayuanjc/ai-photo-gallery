@@ -8,8 +8,8 @@ from fastapi import APIRouter, Depends
 from ...ai.base import AnalysisResult, ImageAnalyzer
 from ...core.config import Settings
 from ...models.ai import AIAnalyzeRequest
-from .admin import feature_gate
 from ..deps import get_ai_analyzer, get_settings_dep, rate_limit_guard, verify_api_key
+from .admin import feature_gate
 
 router = APIRouter(
     tags=["ai"], dependencies=[Depends(verify_api_key), Depends(rate_limit_guard)]

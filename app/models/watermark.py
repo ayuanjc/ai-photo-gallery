@@ -120,7 +120,7 @@ class WatermarkTemplate(BaseModel):
     tile: TileOptions | None = Field(default=None, description="平铺间距配置")
 
     @model_validator(mode="after")
-    def _require_visible_style(self) -> "WatermarkTemplate":
+    def _require_visible_style(self) -> WatermarkTemplate:
         """确保模板至少包含一种可见水印样式（文字或图片）。"""
         if self.text is None and self.image is None:
             raise ValueError("模板必须包含文字水印或图片水印至少其一")

@@ -9,8 +9,6 @@
 """
 from __future__ import annotations
 
-import pytest
-
 from app.core.errors import VisionError
 from app.models.request import SearchRequest
 from app.scene.models import SceneTags

@@ -1161,10 +1161,12 @@
       var items = data.results || [];
       var bits = [];
       bits.push("共 <b>" + (data.total != null ? data.total : items.length) + "</b> 条结果");
+      if (data.translated_query) bits.push("检索词: " + escapeHtml(data.translated_query));
       if (data.cached) bits.push("命中缓存");
       if (data.degraded) bits.push('<span class="warn-text">已降级</span>');
       if (data.dedup_removed) bits.push("去重移除 " + data.dedup_removed + " 条");
       if (data.image_query_used) bits.push("以图搜图增强");
+      if ((data.warnings || []).length) bits.push('<span class="warn-text">' + escapeHtml(data.warnings.join("; ")) + "</span>");
       meta.innerHTML = bits.join(" · ");
 
       if (!items.length) {
@@ -1175,21 +1177,29 @@
 
       var html = items.map(function (it) {
         var scene = it.scene || {};
+        var sceneSrc = scene.source || "";
+        var sceneTag = "";
+        if (sceneSrc === "inferred") sceneTag = "·推测";
+        else if (sceneSrc === "fallback") sceneTag = "·兜底";
         var scenes = (scene.scenes || []).slice(0, 3).map(function (s) {
-          return '<span class="scene-chip">' + escapeHtml(SCENE_LABELS[s] || s) + "</span>";
+          return '<span class="scene-chip">' + escapeHtml((SCENE_LABELS[s] || s) + sceneTag) + "</span>";
+        }).join("");
+        var subs = (scene.sub_scenes || []).slice(0, 2).map(function (s) {
+          return '<span class="scene-chip sub">' + escapeHtml(s + sceneTag) + "</span>";
         }).join("");
         var dateStr = it.captured_at ? new Date(it.captured_at).toLocaleDateString("zh-CN") : "";
         var loc = "";
         var md = it.metadata || {};
         if (md.city || md.country) loc = [md.city, md.country].filter(Boolean).join(", ");
         var metaLine = [dateStr, loc].filter(Boolean).join(" · ");
+        var badge = it.immich_rank != null ? "#" + (it.immich_rank + 1) : "—";
         return '<div class="result-card">' +
           '<div class="thumb">' +
           '<img loading="lazy" src="/api/v1/assets/' + encodeURIComponent(it.asset_id) + '/thumbnail?size=thumbnail" alt="搜索结果缩略图" onerror="this.style.display=\'none\'" />' +
-          '<span class="score-badge">' + (it.final_score != null ? (it.final_score * 100).toFixed(0) : "—") + "</span>" +
+          '<span class="score-badge">' + escapeHtml(badge) + "</span>" +
           "</div>" +
           '<div class="info">' +
-          '<div class="scene-chips">' + (scenes || '<span class="scene-chip">未识别</span>') + "</div>" +
+          '<div class="scene-chips">' + (scenes + subs || '<span class="scene-chip">未识别</span>') + "</div>" +
           (metaLine ? '<div class="meta-line">' + escapeHtml(metaLine) + "</div>" : "") +
           "</div></div>";
       }).join("");

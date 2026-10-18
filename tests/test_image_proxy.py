@@ -4,8 +4,8 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from app.services.immich import ImmichClient
 from app.services.image_proxy import ImageProxyService, ThumbnailFetchError
+from app.services.immich import ImmichClient
 
 
 def make_client(handler, settings):

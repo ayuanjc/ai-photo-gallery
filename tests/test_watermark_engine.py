@@ -20,7 +20,6 @@ from app.services.watermark_engine import (
     apply_to_file,
 )
 
-
 # ---- _parse_color ----
 
 

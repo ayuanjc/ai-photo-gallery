@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.api.routes.ratings import router
-from app.core.errors import AppError, ErrorCode
+from app.core.errors import AppError
 from app.db import Base
 from app.repositories.sql_rating import SqlRatingRepository
 from app.services.rating_service import RatingService

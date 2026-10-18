@@ -8,9 +8,23 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core.config import get_settings
 from app.main import app
 from app.scene.fallback import apply_fallback_scene, has_scene_content
 from app.scene.models import SceneTags
+
+
+@pytest.fixture(autouse=True)
+def _isolate_hook_settings(monkeypatch):
+    """与 .env 解耦：默认清空 hook token、关闭写回。
+
+    .env 配置 PLUGIN_HOOK_TOKEN 后，未隔离的直连测试会因 401 失败。
+    测试内部自行 monkeypatch get_settings 时会覆盖本 fixture。
+    """
+    settings = get_settings().model_copy(
+        update={"plugin_hook_token": "", "writeback_enabled": False}
+    )
+    monkeypatch.setattr("app.api.routes.plugin.get_settings", lambda: settings)
 
 
 @pytest.fixture
@@ -143,7 +157,8 @@ def _make_official_payload(event: str = "AssetCreate") -> dict:
 def test_plugin_hook_desc_writeback_uses_analyzed_scene(client, monkeypatch):
     """真实分析结果（source=analyzed）时，描述/标签写回必须使用现场分析的 scene。"""
     monkeypatch.setattr(
-        "app.api.routes.plugin.runtime_enabled", lambda key, default: True
+        "app.api.routes.plugin.get_settings",
+        lambda: get_settings().model_copy(update={"writeback_enabled": True, "plugin_hook_token": ""}),
     )
     analyzed = SceneTags(
         primary_scene="nature", scenes=["nature"], sub_scenes=["beach"], source="analyzed"
@@ -179,7 +194,8 @@ def test_plugin_hook_desc_writeback_uses_analyzed_scene(client, monkeypatch):
 def test_plugin_hook_no_writeback_for_fallback_scene(client, monkeypatch):
     """回归：webhook payload 无 smartInfo，兜底场景是猜测值，一律不写回。"""
     monkeypatch.setattr(
-        "app.api.routes.plugin.runtime_enabled", lambda key, default: True
+        "app.api.routes.plugin.get_settings",
+        lambda: get_settings().model_copy(update={"writeback_enabled": True, "plugin_hook_token": ""}),
     )
     mock_desc = AsyncMock()
     mock_desc.writeback_descriptions = AsyncMock(return_value=[])
@@ -203,7 +219,8 @@ def test_plugin_hook_no_writeback_for_fallback_scene(client, monkeypatch):
 def test_plugin_hook_no_false_rating_without_score(client, monkeypatch):
     """回归：描述写回数据不携带 final_score/similarity_score（排序分不等于图片质量分）。"""
     monkeypatch.setattr(
-        "app.api.routes.plugin.runtime_enabled", lambda key, default: True
+        "app.api.routes.plugin.get_settings",
+        lambda: get_settings().model_copy(update={"writeback_enabled": True, "plugin_hook_token": ""}),
     )
     analyzed = SceneTags(primary_scene="life", scenes=["life"], source="analyzed")
     analyzer = SimpleNamespace(analyze=AsyncMock(return_value=analyzed))

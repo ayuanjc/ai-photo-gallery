@@ -118,6 +118,10 @@ class ImmichClient:
         resp = await self._request_with_retry(method, path, **kwargs)
         return self._parse_json(resp)
 
+    async def request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
+        """公开方法：发送请求并返回原始响应（用于空响应体的 DELETE 等场景）。"""
+        return await self._request_with_retry(method, path, **kwargs)
+
     @staticmethod
     def extract_items(data: Any) -> list[dict]:
         """公开方法：从 Immich 响应中提取资产列表（兼容多种格式）。"""
@@ -158,8 +162,7 @@ class ImmichClient:
             )
 
         data = self._parse_json(resp)
-        items = self._extract_items(data)
-        return self._fill_missing_score(items)
+        return self._extract_items(data)
 
     async def get_asset(self, asset_id: str) -> dict:
         """调用 GET /api/assets/{id} 获取单条资产详情（含 people 人物分组信息）。"""
@@ -217,7 +220,7 @@ class ImmichClient:
                 details={"status": resp.status_code},
             )
         data = self._parse_json(resp)
-        return self._fill_missing_score(self._extract_items(data))
+        return self._extract_items(data)
 
     async def list_people(self) -> list[dict]:
         """调用 GET /api/people 获取人物列表（用于健康检查与人物可用性判断）。"""
@@ -247,7 +250,7 @@ class ImmichClient:
                 details={"status": resp.status_code},
             )
         data = self._parse_json(resp)
-        return self._fill_missing_score(self._extract_items(data))
+        return self._extract_items(data)
 
     async def search_by_location(self, location: str, k: int = 200) -> list[dict]:
         """调用 POST /api/search/metadata 按 EXIF 城市/国家搜索资产。"""
@@ -262,7 +265,7 @@ class ImmichClient:
                 details={"status": resp.status_code},
             )
         data = self._parse_json(resp)
-        return self._fill_missing_score(self._extract_items(data))
+        return self._extract_items(data)
 
     @staticmethod
     def _extract_items(data: Any) -> list[dict]:
@@ -280,14 +283,6 @@ class ImmichClient:
             items = []
         return [item for item in items if isinstance(item, dict)]
 
-    @staticmethod
-    def _fill_missing_score(items: list[dict]) -> list[dict]:
-        total = len(items)
-        for idx, item in enumerate(items):
-            if item.get("score") is None:
-                # Immich 部分版本不返回显式分数，按排名线性衰减补分。
-                item["score"] = 1.0 - (idx / total) if total > 1 else 1.0
-        return items
 
     # ---- 资源 URL 构建 ----
     def thumbnail_url(self, asset_id: str, size: str = "preview") -> str:

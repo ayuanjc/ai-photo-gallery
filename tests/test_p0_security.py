@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 import pytest
 
@@ -51,9 +50,9 @@ class TestHuaweiVisionProvider:
     """P0.2 占位 AI 功能修复。"""
 
     async def test_huawei_vision_raises_without_credentials(self):
-        from app.services.vision.huawei import HuaweiVisionProvider
         from app.core.config import Settings
         from app.core.errors import VisionUnavailableError
+        from app.services.vision.huawei import HuaweiVisionProvider
 
         provider = HuaweiVisionProvider(Settings())
         with pytest.raises(VisionUnavailableError, match="AK/SK"):
@@ -81,7 +80,6 @@ class TestAdminSettingsSecurity:
 
     def test_production_rejects_env_write(self):
         from app.core.config import Settings
-        from app.core.errors import AppError
 
         prod_settings = Settings(
             app_env="production",

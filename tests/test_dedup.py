@@ -1,17 +1,13 @@
 """搜索结果去重测试：dedup_items 单元测试 + SearchService 集成测试。"""
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
-import pytest
+from datetime import datetime
 
 from app.core.config import Settings
 from app.models.request import SearchRequest
 from app.services.dedup import dedup_items
 from app.services.search_service import SearchService
 from app.services.vision.base import VisionProvider, VisionResult
-from app.core.errors import VisionError
-
 
 # ============================================================================
 # 辅助
@@ -25,6 +21,7 @@ def _item(
     width: int | None = 4000,
     height: int | None = 3000,
     exif_time: str | None = None,
+    similarity_source: str = "none",
 ) -> dict:
     """构造 dedup_items 输入项。"""
     exif = {}
@@ -38,6 +35,8 @@ def _item(
         "asset": {"id": aid, "exifInfo": exif},
         "final_score": final,
         "similarity": similarity,
+        "similarity_source": similarity_source,
+        "immich_rank": 0,
         "captured_at": captured_at,
         "freshness": 0.5,
         "source": "exif",
@@ -105,14 +104,24 @@ class TestDedupItems:
         assert removed == 0
 
     def test_high_similarity_same_dims_deduped(self):
-        """相似度超阈值 + 同尺寸：去重。"""
+        """上游真实相似度超阈值 + 同尺寸：去重。"""
         items = [
-            _item("a", final=0.95, similarity=0.98, captured_at=None),
-            _item("b", final=0.90, similarity=0.97, captured_at=None),
+            _item("a", final=0.95, similarity=0.98, captured_at=None, similarity_source="upstream"),
+            _item("b", final=0.90, similarity=0.97, captured_at=None, similarity_source="upstream"),
         ]
         result, removed = dedup_items(items, similarity_threshold=0.95)
         assert len(result) == 1
         assert removed == 1
+
+    def test_fabricated_similarity_not_deduped(self):
+        """非 upstream 相似度（历史名次编分）不得触发去重（R5 回归守卫）。"""
+        items = [
+            _item("a", final=0.95, similarity=0.98, captured_at=None, similarity_source="none"),
+            _item("b", final=0.90, similarity=0.97, captured_at=None, similarity_source="none"),
+        ]
+        result, removed = dedup_items(items, similarity_threshold=0.95)
+        assert len(result) == 2
+        assert removed == 0
 
     def test_below_similarity_threshold_both_kept(self):
         """相似度低于阈值：都保留。"""

@@ -9,7 +9,6 @@ from app.models.watermark import (
     LicenseType,
     TextWatermarkStyle,
     TileOptions,
-    WatermarkPosition,
     WatermarkTemplate,
 )
 from app.services.watermark_templates import (

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import httpx
-import pytest
 
 from app.services.immich import ImmichClient
 from app.services.immich_capabilities import ImmichCapabilities
