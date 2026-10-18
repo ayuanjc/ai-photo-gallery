@@ -96,6 +96,75 @@ def test_rank_sorted_descending():
     finals = [r[1] for r in ranked]
     assert finals == sorted(finals, reverse=True)
 
+# ---- score 缺失时的排名反推（Immich smart search 无显式 score）----
+
+
+def _asset_no_score(asset_id: str, exif_dt: str | None = None, file_created: str | None = None) -> dict:
+    return {
+        "id": asset_id,
+        "fileCreatedAt": file_created,
+        "exifInfo": {"dateTimeOriginal": exif_dt},
+    }
+
+
+def test_rank_missing_score_uses_rank_position():
+    """score 缺失时按 Immich 返回顺序反推相似度：第 1 名 > 末位。"""
+    now = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    assets = [
+        _asset_no_score("first", exif_dt="2023-06-15T10:00:00Z"),
+        _asset_no_score("second", exif_dt="2023-06-15T10:00:00Z"),
+        _asset_no_score("third", exif_dt="2023-06-15T10:00:00Z"),
+    ]
+    ranked = rank_assets(
+        assets,
+        time_weight=0.0,
+        similarity_weight=1.0,
+        half_life_days=365.0,
+        default_iso="1970-01-01T00:00:00+00:00",
+        now=now,
+    )
+    assert ranked[0][0]["id"] == "first"
+    assert ranked[1][0]["id"] == "second"
+    assert ranked[2][0]["id"] == "third"
+    # 纯相似度权重下 final 即 similarity：首名 1.0，末位 0.5
+    assert ranked[0][2] == 1.0
+    assert ranked[2][2] == 0.5
+
+
+def test_rank_single_asset_missing_score():
+    """单条结果无 score：rank 分母为 0 时应安全取 1.0。"""
+    now = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    ranked = rank_assets(
+        [_asset_no_score("only", exif_dt="2023-06-15T10:00:00Z")],
+        time_weight=0.0,
+        similarity_weight=1.0,
+        half_life_days=365.0,
+        default_iso="1970-01-01T00:00:00+00:00",
+        now=now,
+    )
+    assert ranked[0][2] == 1.0
+
+
+def test_rank_explicit_score_preferred_over_position():
+    """显式 score 优先于排名反推（兼容未来 Immich 返回 score）。"""
+    now = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    assets = [
+        _asset("low", 0.2, exif_dt="2023-06-15T10:00:00Z"),
+        _asset_no_score("positional", exif_dt="2023-06-15T10:00:00Z"),
+    ]
+    ranked = rank_assets(
+        assets,
+        time_weight=0.0,
+        similarity_weight=1.0,
+        half_life_days=365.0,
+        default_iso="1970-01-01T00:00:00+00:00",
+        now=now,
+    )
+    # 排第 2 的无 score 图反推 0.5，高于排第 1 但显式 score=0.2 的图
+    assert ranked[0][0]["id"] == "positional"
+    assert ranked[0][2] == 0.5
+    assert ranked[1][2] == 0.2
+
 # ---- blend_scene_weights 单元测试 ----
 
 

@@ -77,6 +77,77 @@ async def test_writeback_skips_no_scene(settings, tmp_path):
         await client.aclose()
 
 
+async def test_writeback_sub_scene_tags(settings, tmp_path):
+    """子场景标签写回为 AI/<子场景中文名>，与大场景标签并存。"""
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/api/tags" and request.method == "GET":
+            return httpx.Response(200, json=[])
+        if path == "/api/tags" and request.method == "POST":
+            body = json.loads(request.content)
+            return httpx.Response(201, json={"id": f"tag-{body['name']}", "name": body["name"]})
+        if "/assets" in path and request.method == "PUT":
+            return httpx.Response(200, json=[])
+        return httpx.Response(404)
+
+    s = _settings_with_writeback(settings)
+    ic, client = make_client(handler, s)
+    try:
+        wb = ImmichWriteBack(ic, s, audit_path=tmp_path / "audit.jsonl")
+        swb = SceneWriteBack(wb, s)
+
+        results = [
+            {
+                "asset_id": "asset-001",
+                "scene": {
+                    "primary_scene": "animal",
+                    "scenes": ["animal"],
+                    "sub_scenes": ["cat", "pet"],
+                },
+            },
+        ]
+        entries = await swb.writeback_scene_tags(results)
+        assert len(entries) == 3  # 1 大场景 + 2 子场景
+        assert all(e.success for e in entries)
+        tag_names = {e.target for e in entries}
+        assert "AI·动物" in tag_names
+        assert "AI·猫" in tag_names
+        assert "AI·宠物" in tag_names
+    finally:
+        await client.aclose()
+
+
+async def test_writeback_sub_scene_only(settings, tmp_path):
+    """仅有子场景（无大场景）时也写回子场景标签。"""
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/tags" and request.method == "GET":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/api/tags" and request.method == "POST":
+            body = json.loads(request.content)
+            return httpx.Response(201, json={"id": f"tag-{body['name']}", "name": body["name"]})
+        if "/assets" in request.url.path and request.method == "PUT":
+            return httpx.Response(200, json=[])
+        return httpx.Response(404)
+
+    s = _settings_with_writeback(settings)
+    ic, client = make_client(handler, s)
+    try:
+        wb = ImmichWriteBack(ic, s, audit_path=tmp_path / "audit.jsonl")
+        swb = SceneWriteBack(wb, s)
+
+        results = [
+            {
+                "asset_id": "asset-001",
+                "scene": {"primary_scene": None, "scenes": [], "sub_scenes": ["night_view"]},
+            },
+        ]
+        entries = await swb.writeback_scene_tags(results)
+        assert len(entries) == 1
+        assert entries[0].target == "AI·城市夜色"
+    finally:
+        await client.aclose()
+
+
 async def test_writeback_disabled(settings, tmp_path):
     """writeback_enabled=False 时不执行写回。"""
     ic, client = make_client(lambda r: httpx.Response(404), settings)
