@@ -34,9 +34,9 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, Request, Response
 from pydantic import BaseModel, Field, model_validator
 
-from ...core.config import Settings, get_settings
+from ...core.config import get_settings
 from ...core.runtime_config import runtime_enabled
-from ...scene.dictionary import get_scene_dict
+from ...scene.fallback import apply_fallback_scene
 from ..deps import rate_limit_guard
 
 logger = logging.getLogger(__name__)
@@ -103,47 +103,6 @@ async def _check_dedup(request: Request, dedup_key: str) -> bool:
         logger.warning("幂等去重检查失败，放行: %s", exc)
         return True
 
-
-def _has_scene_content(scene_dict: dict[str, Any] | None) -> bool:
-    """判断场景分析结果是否有可写回内容（大场景/小场景/视觉属性任一非空）。"""
-    if not scene_dict:
-        return False
-    return bool(
-        scene_dict.get("scenes")
-        or scene_dict.get("sub_scenes")
-        or scene_dict.get("visual_attrs")
-    )
-
-
-def _apply_fallback_scene(
-    scene_dict: dict[str, Any] | None, settings: Settings
-) -> dict[str, Any] | None:
-    """兜底：现场分析无结果时赋予默认大场景，保证新资产至少有一个可写回标签。
-
-    - 兜底场景由 plugin_fallback_scene 配置，须在词典白名单内，空 = 禁用。
-    - 已有任何场景内容时原样返回，不覆盖真实分析结果。
-    """
-    if _has_scene_content(scene_dict):
-        return scene_dict
-    fallback = (getattr(settings, "plugin_fallback_scene", "") or "").strip()
-    if not fallback:
-        return scene_dict
-    try:
-        scene_dict_loaded = get_scene_dict()
-    except Exception as exc:
-        logger.warning("兜底场景：词典加载失败，跳过兜底: %s", exc)
-        return scene_dict
-    if not scene_dict_loaded.is_valid_scene(fallback):
-        logger.warning("兜底场景 %r 不在词典白名单，跳过兜底", fallback)
-        return scene_dict
-    logger.info("场景分析无结果，应用兜底场景: %s", fallback)
-    return {
-        "primary_scene": fallback,
-        "scenes": [fallback],
-        "sub_scenes": [],
-        "visual_attrs": {},
-        "confidence": {fallback: 0.1},
-    }
 
 
 @router.post(
@@ -244,7 +203,7 @@ async def plugin_hook(
 
     # 兜底：分析无结果时赋予默认场景，保证新资产至少有可写回的标签/描述
     if payload.event in ("AssetCreate", "AssetMetadataExtraction"):
-        scene_dict = _apply_fallback_scene(scene_dict, settings)
+        scene_dict = apply_fallback_scene(scene_dict, settings)
 
     results_data = [{"asset_id": asset_id, "scene": scene_dict}]
 

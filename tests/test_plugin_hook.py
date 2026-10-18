@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.routes.plugin import _apply_fallback_scene, _has_scene_content
 from app.main import app
+from app.scene.fallback import apply_fallback_scene, has_scene_content
 
 
 @pytest.fixture
@@ -77,30 +77,30 @@ def test_plugin_hook_response_format(client):
 
 class TestHasSceneContent:
     def test_none(self):
-        assert _has_scene_content(None) is False
+        assert has_scene_content(None) is False
 
     def test_empty_dict(self):
-        assert _has_scene_content({}) is False
+        assert has_scene_content({}) is False
 
     def test_empty_fields(self):
-        assert _has_scene_content(
+        assert has_scene_content(
             {"primary_scene": None, "scenes": [], "sub_scenes": [], "visual_attrs": {}}
         ) is False
 
     def test_has_scenes(self):
-        assert _has_scene_content({"scenes": ["life"]}) is True
+        assert has_scene_content({"scenes": ["life"]}) is True
 
     def test_has_sub_scenes(self):
-        assert _has_scene_content({"sub_scenes": ["food"]}) is True
+        assert has_scene_content({"sub_scenes": ["food"]}) is True
 
     def test_has_visual_attrs(self):
-        assert _has_scene_content({"visual_attrs": {"time": "day"}}) is True
+        assert has_scene_content({"visual_attrs": {"time": "day"}}) is True
 
 
 class TestApplyFallbackScene:
     def test_applies_default_when_empty(self):
         settings = SimpleNamespace(plugin_fallback_scene="life")
-        result = _apply_fallback_scene(None, settings)
+        result = apply_fallback_scene(None, settings)
         assert result is not None
         assert result["primary_scene"] == "life"
         assert result["scenes"] == ["life"]
@@ -109,25 +109,25 @@ class TestApplyFallbackScene:
     def test_applies_when_analysis_returned_empty(self):
         settings = SimpleNamespace(plugin_fallback_scene="life")
         empty = {"primary_scene": None, "scenes": [], "sub_scenes": [], "visual_attrs": {}}
-        result = _apply_fallback_scene(empty, settings)
+        result = apply_fallback_scene(empty, settings)
         assert result["primary_scene"] == "life"
 
     def test_keeps_existing_content(self):
         settings = SimpleNamespace(plugin_fallback_scene="life")
         existing = {"primary_scene": "nature", "scenes": ["nature"], "sub_scenes": [], "visual_attrs": {}}
-        assert _apply_fallback_scene(existing, settings) is existing
+        assert apply_fallback_scene(existing, settings) is existing
 
     def test_disabled_when_empty_config(self):
         settings = SimpleNamespace(plugin_fallback_scene="")
-        assert _apply_fallback_scene(None, settings) is None
+        assert apply_fallback_scene(None, settings) is None
 
     def test_invalid_scene_key_skipped(self):
         settings = SimpleNamespace(plugin_fallback_scene="not_a_scene")
-        assert _apply_fallback_scene(None, settings) is None
+        assert apply_fallback_scene(None, settings) is None
 
     def test_missing_attr_treated_as_disabled(self):
         settings = SimpleNamespace()
-        assert _apply_fallback_scene(None, settings) is None
+        assert apply_fallback_scene(None, settings) is None
 
 
 def _make_official_payload(event: str = "AssetCreate") -> dict:
