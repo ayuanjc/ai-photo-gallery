@@ -118,3 +118,4 @@ nul
 # Rating database
 data/ratings.db
 data/ratings.db-*
+*junit*.xml
