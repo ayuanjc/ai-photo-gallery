@@ -556,6 +556,7 @@ class TestAlbumWritebackIntegration:
     async def test_album_writeback_called_on_asset_create(self):
         """AssetCreate 事件触发 album_writeback.writeback_albums。"""
         from app.api.routes.plugin import PluginHookPayload
+        from app.scene.models import SceneTags
         from app.services.immich_writeback import WriteBackEntry
 
         settings = Settings(plugin_hook_token="", writeback_enabled=True)
@@ -584,6 +585,16 @@ class TestAlbumWritebackIntegration:
 
             response = MagicMock()
             response.status_code = 200
+
+            # F1 修复后 payload 自带 scene 不再采信（外部输入不可作为闸门信任锚），
+            # 写回的正路径改为现场分析产出 source=analyzed：
+            analyzer = AsyncMock()
+            analyzer.analyze = AsyncMock(
+                return_value=SceneTags(
+                    primary_scene="nature", scenes=["nature"], source="analyzed"
+                )
+            )
+            request.app.state.scene_analyzer = analyzer
 
             payload = PluginHookPayload(
                 event="AssetCreate",

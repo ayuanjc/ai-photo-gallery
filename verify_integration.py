@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""P1-P21 端到端验收脚本。
+"""端到端验收脚本（9 项核心链路）。
 
 用法：
     python verify_integration.py [--base-url http://127.0.0.1:8000] [--admin-key KEY]
@@ -82,7 +82,7 @@ async def run_checks(base_url: str, admin_key: str) -> bool:
             resp = await client.get("/api/v1/assets/test-id/thumbnail?size=preview")
             all_pass &= check(
                 "GET /api/v1/assets/{id}/thumbnail",
-                resp.status_code in (200, 400, 404, 502),
+                resp.status_code in (200, 400, 404),
                 f"status={resp.status_code}",
             )
         except Exception as exc:
@@ -154,7 +154,7 @@ async def run_checks(base_url: str, admin_key: str) -> bool:
             )
             all_pass &= check(
                 "POST /api/v1/plugin/hook",
-                resp.status_code in (200, 202, 400, 401, 404, 502),
+                resp.status_code in (200, 202, 400, 401, 404),
                 f"status={resp.status_code}",
             )
         except Exception as exc:
@@ -164,7 +164,7 @@ async def run_checks(base_url: str, admin_key: str) -> bool:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="P1-P21 端到端验收")
+    parser = argparse.ArgumentParser(description="端到端验收（9 项核心链路）")
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
     parser.add_argument("--admin-key", default="")
     args = parser.parse_args()

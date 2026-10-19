@@ -1,39 +1,43 @@
 # MANIFEST
 
-数据源：C:\Users\ayuan/.codeartsdoer/codearts-data/opencode.db
-源库大小：71864320 字节，mtime=2026-10-19 16:17:57
-文件数：31　总字节：375504
+数据源：~/.codeartsdoer/codearts-data/opencode.db
+源库大小：78733312 字节，mtime=2026-10-19 20:52:48
+文件数：35　总字节：428946
 
 | 文件 | 字节 |
 |---|---|
-| 00-总览.md | 7507 |
-| 01-文件改动统计.csv | 8785 |
-| 02-提示词库.md | 115405 |
-| 03-DIFF样例.md | 9817 |
+| 00-总览.md | 8354 |
+| 01-文件改动统计.csv | 12626 |
+| 02-提示词库.md | 130844 |
+| 03-DIFF样例.md | 15273 |
 | 04-工具使用统计.md | 1255 |
-| MANIFEST.txt | 2193 |
-| sessions\01-Adding huawei-cloud-publish skill from g.md | 600 |
-| sessions\02-FastAPI AI图像语义搜索微服务设计与实现.md | 178451 |
-| sessions\03-审查核心层与服务层 (@explore subagent).md | 1603 |
-| sessions\04-审查AI视觉与场景模块 (@explore subagent).md | 1725 |
-| sessions\05-审查API层与模型层 (@explore subagent).md | 1509 |
-| sessions\06-审查测试覆盖与质量 (@explore subagent).md | 1736 |
-| sessions\07-Deep code review of app_ (@explore subag.md | 2241 |
-| sessions\08-Analyze optimization opportunities (@exp.md | 3283 |
-| sessions\09-探索项目整体结构 (@explore subagent).md | 1078 |
-| sessions\10-安全审查：注入_认证_SSRF (@general subagent).md | 2565 |
-| sessions\11-并发与资源管理审查 (@general subagent).md | 2843 |
-| sessions\12-业务逻辑与可靠性审查 (@general subagent).md | 2820 |
-| sessions\13-修复路由文件 (@general subagent).md | 2272 |
-| sessions\14-修复服务层文件 (@general subagent).md | 3267 |
-| sessions\15-修复模型和工具文件 (@general subagent).md | 3069 |
-| sessions\16-更新 test_stats_provider.py (@general suba.md | 1827 |
-| sessions\17-更新 brute_test.py iter_assets (@general s.md | 1482 |
-| sessions\18-分析Immich集成全貌 (@explore subagent).md | 2813 |
-| sessions\19-探索Swagger文档汉化范围 (@explore subagent).md | 1490 |
-| sessions\20-探索项目功能模块 (@explore subagent).md | 1575 |
-| sessions\21-Scan defensive programming gaps (@explor.md | 1954 |
-| sessions\22-全面代码审核找bug (@explore subagent).md | 1865 |
-| sessions\23-深入探索请求链路和模块结构 (@explore subagent).md | 3790 |
-| sessions\24-Auto-Memory Extraction.md | 2342 |
+| MANIFEST.txt | 2192 |
+| sessions\01-Adding huawei-cloud-publish skill from g.md | 587 |
+| sessions\02-FastAPI AI图像语义搜索微服务设计与实现.md | 189450 |
+| sessions\03-审查核心层与服务层 (@explore subagent).md | 1576 |
+| sessions\04-审查AI视觉与场景模块 (@explore subagent).md | 1698 |
+| sessions\05-审查API层与模型层 (@explore subagent).md | 1482 |
+| sessions\06-审查测试覆盖与质量 (@explore subagent).md | 1709 |
+| sessions\07-Deep code review of app_ (@explore subag.md | 2214 |
+| sessions\08-Analyze optimization opportunities (@exp.md | 3256 |
+| sessions\09-探索项目整体结构 (@explore subagent).md | 1051 |
+| sessions\10-安全审查：注入_认证_SSRF (@general subagent).md | 2538 |
+| sessions\11-并发与资源管理审查 (@general subagent).md | 2816 |
+| sessions\12-业务逻辑与可靠性审查 (@general subagent).md | 2793 |
+| sessions\13-修复路由文件 (@general subagent).md | 2245 |
+| sessions\14-修复服务层文件 (@general subagent).md | 3240 |
+| sessions\15-修复模型和工具文件 (@general subagent).md | 3042 |
+| sessions\16-更新 test_stats_provider.py (@general suba.md | 1800 |
+| sessions\17-更新 brute_test.py iter_assets (@general s.md | 1455 |
+| sessions\18-分析Immich集成全貌 (@explore subagent).md | 2786 |
+| sessions\19-探索Swagger文档汉化范围 (@explore subagent).md | 1463 |
+| sessions\20-探索项目功能模块 (@explore subagent).md | 1548 |
+| sessions\21-Scan defensive programming gaps (@explor.md | 1927 |
+| sessions\22-全面代码审核找bug (@explore subagent).md | 1838 |
+| sessions\23-深入探索请求链路和模块结构 (@explore subagent).md | 3763 |
+| sessions\24-Auto-Memory Extraction.md | 2315 |
 | sessions\25-Auto-Memory Extraction.md | 2342 |
+| sessions\25-深度审查app核心链路 (@general subagent).md | 2774 |
+| sessions\26-审查app_核心服务代码 (@general subagent).md | 6842 |
+| sessions\27-审查demo与readme部署件 (@general subagent).md | 3862 |
+| sessions\28-审查tools与根目录正式文件 (@general subagent).md | 3990 |

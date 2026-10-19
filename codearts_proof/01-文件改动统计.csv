@@ -2,18 +2,18 @@
 a01/app/main.py,116,378,120
 a01/app/core/config.py,73,198,48
 a01/app/services/search_service.py,67,305,92
-a01/app/api/routes/admin.py,54,594,25
+a01/app/api/routes/admin.py,58,605,27
 a01/app/api/routes/search.py,44,152,80
+a01/app/api/routes/plugin.py,43,446,114
 a01/README.md,41,729,140
-a01/brute_test.py,38,1593,379
-a01/app/api/routes/plugin.py,38,420,108
-a01/app/services/ranking.py,35,243,121
+a01/brute_test.py,39,1593,379
+a01/app/services/ranking.py,37,248,121
+a01/app/api/deps.py,36,90,30
+a01/app/scene/analyzer.py,36,149,48
 a01/app/services/immich.py,35,284,55
-a01/app/api/deps.py,35,79,25
+a01/app/models/request.py,33,150,14
 a01/app/services/face_service.py,33,84,38
 a01/app/services/vision/huawei_face.py,32,66,42
-a01/app/scene/analyzer.py,32,109,32
-a01/app/models/request.py,30,141,13
 a01/app/api/routes/stats.py,30,195,307
 a01/app/services/multi_condition_service.py,29,382,44
 a01/app/services/stats_provider.py,27,143,123
@@ -21,55 +21,56 @@ a01/app/models/response.py,25,94,18
 a01/app/core/runtime_config.py,25,222,18
 a01/app/services/immich_writeback.py,25,535,7
 a01/app/static/admin.html,24,1096,109
-a01/app/utils/url_safety.py,21,80,7
+a01/app/utils/url_safety.py,23,111,10
 a01/tests/test_stats.py,20,244,242
 a01/tests/test_plugin_hook.py,20,248,10
 a01/scripts/verify_native.py,19,381,60
 a01/app/services/workflow_manager.py,18,420,56
+a01/app/services/backfill_service.py,18,400,57
+a01/tests/test_native_embedding.py,18,767,73
 a01/tests/test_search_service.py,17,185,16
 a01/app/services/immich_uploader.py,17,62,6
 a01/app/services/scene_writeback.py,17,226,23
-a01/tests/test_native_embedding.py,16,756,73
-a01/tests/test_code_review_round3.py,16,317,16
+a01/tests/test_code_review_round3.py,17,336,18
+a01/tools/dump_codearts_proof.py,16,158,57
+a01/.env.example,15,96,17
 a01/app/services/importer.py,15,36,9
 a01/tests/test_stats_provider.py,15,59,46
-a01/app/services/backfill_service.py,15,391,55
 a01/tests/test_clip_inferrer.py,15,386,11
 a01/tests/test_query_fusion.py,14,174,7
 a01/app/core/errors.py,13,76,0
 a01/tests/test_request_models.py,13,77,11
+a01/app/models/face.py,13,13,7
 a01/app/models/batch_import.py,13,31,28
 a01/tests/test_importer.py,13,15,8
 a01/app/services/watermark_processor.py,13,67,23
 a01/requirements.txt,12,13,4
-a01/.env.example,12,91,13
 a01/tests/conftest.py,12,47,1
-a01/app/models/face.py,12,12,6
 a01/app/services/explain.py,12,14,5
 a01/tests/test_explain.py,12,8,8
 a01/tests/test_scene_writeback.py,12,410,55
 a01/app/scene/clip_inferrer.py,12,434,44
 a01/tests/test_scene_api.py,11,2,2
+a01/app/api/routes/ai.py,11,20,6
 a01/app/ai/immich_analyzer.py,11,12,7
+a01/app/api/routes/faces.py,11,13,4
 a01/app/core/cache.py,11,15,4
+a01/app/services/feedback_service.py,11,88,21
+a01/app/services/image_query_service.py,11,46,12
 a01/app/services/immich_proxy.py,11,237,12
 a01/tests/test_p0_security.py,11,143,2
 a01/app/scene/query_translate.py,11,1439,66
 a01/app/scene/dictionary.py,10,24,22
-a01/app/api/routes/ai.py,10,10,6
 a01/local_test_defensive.py,10,642,30
 a01/tests/test_face_service.py,10,4,3
-a01/app/api/routes/faces.py,10,6,4
 a01/tests/test_defensive_fixes.py,10,139,19
 a01/build_docx.py,10,0,0
 a01/app/services/album_writeback.py,10,166,8
+a01/verify_integration.py,10,186,3
 a01/app/scene/fallback.py,10,211,5
-a01/tools/dump_codearts_proof.py,10,143,53
 a01/tests/test_query_intent.py,9,136,2
 a01/tests/test_multi_condition.py,9,272,0
 a01/tests/test_url_safety.py,9,59,0
-a01/app/services/feedback_service.py,9,72,20
-a01/app/services/image_query_service.py,9,38,10
 a01/app/utils/path_safety.py,9,84,4
 a01/app/services/immich_capabilities.py,9,194,0
 a01/tests/test_immich_writeback.py,9,375,1
@@ -88,6 +89,7 @@ a01/tests/test_immich_capabilities.py,8,162,0
 a01/app/services/callback_resolver.py,8,85,0
 a01/tests/test_scene_fallback.py,8,159,2
 a01/tests/test_query_translate.py,8,315,36
+a01/data_junit.xml,8,0,0
 a01/app/services/vision/huawei.py,7,142,19
 a01/tests/test_api.py,7,91,4
 a01/app/api/routes/batch_import.py,7,4,2
@@ -95,10 +97,9 @@ a01/tests/test_suggest.py,7,40,12
 a01/tests/test_album.py,7,15,0
 a01/app/utils/date_parse.py,7,28,0
 a01/tests/test_writeback_manager.py,7,169,0
-a01/verify_integration.py,7,185,2
 a01/app/services/description_writeback.py,7,178,5
-a01/data_junit.xml,7,0,0
 a01/tests/test_writeback_gate.py,7,81,11
+a01/tests/test_final_review_round5.py,7,212,4
 a01/pyproject.toml,6,57,2
 a01/.gitignore,6,27,17
 a01/tests/test_ranking.py,6,243,174
@@ -112,6 +113,7 @@ a01/tests/test_image_proxy.py,6,117,0
 a01/tests/test_bulk_upload_check.py,6,79,0
 a01/app/services/ml_scene_inferrer.py,6,166,1
 a01/tests/test_ml_services.py,6,407,2
+a01/tools/pack_submission.py,6,317,5
 a01/app/services/vision/base.py,5,57,9
 a01/tests/test_search_degrade.py,5,1,1
 a01/app/core/rate_limit.py,5,2,2
@@ -123,13 +125,17 @@ a01/pytest_full.txt,5,0,0
 a01/tests/test_album_writeback.py,5,179,0
 a01/app/services/incremental_sync.py,5,169,0
 a01/tests/test_incremental_sync.py,5,151,0
+a01/docker-compose.override.yml,5,84,0
+a01/nginx.conf,5,64,0
 a01/tests/test_workflow_manager.py,5,147,0
 a01/tests/test_edge_cases.py,5,181,2
 a01/tests/test_fast_probe.py,5,60,0
 a01/tests/test_cleanup.py,5,268,0
 a01/scripts/verify_search.py,5,144,0
+a01/tests/test_final_review_round4.py,5,313,1
 a01/app/utils/time_parsing.py,4,79,1
 a01/tests/test_immich_client.py,4,104,3
+a01/app/models/ai.py,4,19,4
 a01/app/ai/huawei_analyzer.py,4,14,10
 a01/app/api/routes/scene.py,4,2,2
 a01/app/scene/models.py,4,9,0
@@ -140,14 +146,16 @@ a01/extract_pdf.py,4,0,0
 a01/outline.py,4,0,0
 a01/pytest_full2.txt,4,0,0
 a01/thesis_extracted.txt,4,0,0
-a01/docker-compose.override.yml,4,84,0
-a01/nginx.conf,4,58,0
+a01/app/api/routes/ratings.py,4,6,2
 a01/tests/test_description_writeback.py,4,319,0
 a01/app/services/vector_index.py,4,127,0
 a01/app/services/model_manager.py,4,163,0
 a01/setup_immich_sidebar.py,4,140,64
 a01/tests/test_cache_integration.py,4,28,0
 a01/USAGE.md,4,385,0
+a01/demo-web/_mock.log,4,0,0
+a01/readme/install.sh,4,181,29
+a01/demo/web/index.html,4,6,5
 a01/app/core/logging.py,3,22,0
 a01/requirements-dev.txt,3,9,1
 a01/Dockerfile,3,33,8
@@ -155,7 +163,6 @@ a01/docker-compose.yml,3,34,1
 a01/tests/test_scene_dictionary.py,3,1,5
 a01/tests/test_scene_analyzer.py,3,0,0
 a01/local_test_immich.py,3,137,1
-a01/app/models/ai.py,3,17,2
 a01/gen_tech_doc.py,3,873,0
 a01/tests/test_feedback.py,3,0,0
 a01/tests/test_ratelimit_guard.py,3,3,1
@@ -167,7 +174,6 @@ a01/tests/test_negation.py,3,0,0
 a01/tests/test_sort_by.py,3,1,1
 a01/app/api/routes/watermark.py,3,0,0
 a01/app/models/watermark.py,3,0,0
-a01/app/api/routes/ratings.py,3,0,0
 a01/app/db.py,3,0,0
 a01/app/models/rating.py,3,0,0
 a01/app/repositories/rating_base.py,3,0,0
@@ -176,7 +182,13 @@ a01/app/services/rating_service.py,3,0,0
 a01/data/e2e_verify.py,3,77,2
 a01/start_server.cmd,3,3,0
 a01/data/cleanup_pollution.py,3,126,3
-a01/demo-web/_mock.log,3,0,0
+a01/demo-web/index.html,3,752,1
+a01/demo-web/_mock_server.py,3,116,1
+a01/demo-web/交付说明.md,3,72,1
+a01/readme/01-环境依赖与一键安装.md,3,180,0
+a01/readme/02-部署运行步骤.md,3,157,2
+a01/readme/04-码道应用总结.md,3,66,1
+a01/submit_log.md,3,25,0
 a01/tests/test_time_parsing.py,2,42,0
 a01/migration/generate_work_items.py,2,198,0
 a01/migration/export_github_issues.py,2,130,0
@@ -201,11 +213,46 @@ a01/tests/test_search_with_rating.py,2,0,0
 a01/data/_calibrate.py,2,52,17
 a01/tests/test_huawei_face_client.py,2,0,0
 a01/tests/test_huawei_signer.py,2,0,0
-a01/demo-web/index.html,2,752,1
-a01/demo-web/_mock_server.py,2,116,1
 a01/demo-web/_check.mjs,2,0,0
-a01/demo-web/交付说明.md,2,72,1
-C:/Users/ayuan/Desktop/AI/skills-lock.json,1,0,0
+a01/codearts_proof/00-总览.md,2,0,0
+a01/codearts_proof/01-文件改动统计.csv,2,0,0
+a01/codearts_proof/02-提示词库.md,2,0,0
+a01/codearts_proof/03-DIFF样例.md,2,0,0
+a01/codearts_proof/04-工具使用统计.md,2,0,0
+a01/codearts_proof/MANIFEST.txt,2,0,0
+a01/codearts_proof/sessions/01-Adding huawei-cloud-publish skill from g.md,2,0,0
+a01/codearts_proof/sessions/02-FastAPI AI图像语义搜索微服务设计与实现.md,2,0,0
+a01/codearts_proof/sessions/03-审查核心层与服务层 (@explore subagent).md,2,0,0
+a01/codearts_proof/sessions/04-审查AI视觉与场景模块 (@explore subagent).md,2,0,0
+a01/codearts_proof/sessions/05-审查API层与模型层 (@explore subagent).md,2,0,0
+a01/codearts_proof/sessions/06-审查测试覆盖与质量 (@explore subagent).md,2,0,0
+a01/codearts_proof/sessions/07-Deep code review of app_ (@explore subag.md,2,0,0
+a01/codearts_proof/sessions/08-Analyze optimization opportunities (@exp.md,2,0,0
+a01/codearts_proof/sessions/09-探索项目整体结构 (@explore subagent).md,2,0,0
+a01/codearts_proof/sessions/10-安全审查：注入_认证_SSRF (@general subagent).md,2,0,0
+a01/codearts_proof/sessions/11-并发与资源管理审查 (@general subagent).md,2,0,0
+a01/codearts_proof/sessions/12-业务逻辑与可靠性审查 (@general subagent).md,2,0,0
+a01/codearts_proof/sessions/13-修复路由文件 (@general subagent).md,2,0,0
+a01/codearts_proof/sessions/14-修复服务层文件 (@general subagent).md,2,0,0
+a01/codearts_proof/sessions/15-修复模型和工具文件 (@general subagent).md,2,0,0
+a01/codearts_proof/sessions/16-更新 test_stats_provider.py (@general suba.md,2,0,0
+a01/codearts_proof/sessions/17-更新 brute_test.py iter_assets (@general s.md,2,0,0
+a01/codearts_proof/sessions/18-分析Immich集成全貌 (@explore subagent).md,2,0,0
+a01/codearts_proof/sessions/19-探索Swagger文档汉化范围 (@explore subagent).md,2,0,0
+a01/codearts_proof/sessions/20-探索项目功能模块 (@explore subagent).md,2,0,0
+a01/codearts_proof/sessions/21-Scan defensive programming gaps (@explor.md,2,0,0
+a01/codearts_proof/sessions/22-全面代码审核找bug (@explore subagent).md,2,0,0
+a01/codearts_proof/sessions/23-深入探索请求链路和模块结构 (@explore subagent).md,2,0,0
+a01/codearts_proof/sessions/24-Auto-Memory Extraction.md,2,0,0
+a01/readme/03-开源组件说明.md,2,43,0
+a01/docs/参赛PPT大纲-14页.md,2,189,0
+a01/docs/场景重定位与答辩准备.md,2,105,0
+a01/docs/现场演练题与演示检查清单.md,2,99,0
+a01/demo/deploy.sh,2,8,3
+a01/demo/nginx.demo.conf,2,7,0
+a01/demo/yunying-demo.service,2,13,2
+a01/monitor/monitor.html,2,0,0
+~/Desktop/AI/skills-lock.json,1,0,0
 a01/app/core/__init__.py,1,0,0
 a01/app/__init__.py,1,0,0
 a01/app/models/__init__.py,1,0,0
@@ -217,9 +264,9 @@ a01/app/api/routes/__init__.py,1,0,0
 a01/.dockerignore,1,9,0
 a01/tests/__init__.py,1,0,0
 a01/app/scene/scene_dict.json,1,0,0
-C:/Users/ayuan/Desktop/AI图像语义搜索微服务-技术文档.md,1,507,0
-C:/Users/ayuan/Desktop/code-review-report.md,1,104,0
-C:/Users/ayuan/Desktop/云影图鉴-Immich功能对比分析.md,1,73,0
+~/Desktop/AI图像语义搜索微服务-技术文档.md,1,507,0
+~/Desktop/code-review-report.md,1,104,0
+~/Desktop/云影图鉴-Immich功能对比分析.md,1,73,0
 a01/.pytest_tmp/tmpcr0dlxvv,1,0,0
 a01/.pytest_tmp/tmpygfaf7kn,1,0,0
 a01/parse_report.py,1,0,0
@@ -228,5 +275,26 @@ a01/testreport_summary.txt,1,0,0
 a01/sleep_probe.txt,1,0,0
 a01/app/repositories/__init__.py,1,0,0
 a01/data/_test_search_fallback.py,1,0,0
-C:/Users/ayuan/immich/docker-compose.yml,1,3,0
+~/immich/docker-compose.yml,1,3,0
 a01/tests/test_rate_limit.py,1,0,0
+a01/codearts_proof/sessions/25-Auto-Memory Extraction.md,1,0,0
+a01/demo/query_translate.py,1,0,0
+a01/demo/requirements.txt,1,0,0
+a01/demo/serve_demo.py,1,0,0
+a01/demo/smoke.sh,1,0,0
+a01/docs/前端改版提示词-给华为.md,1,0,0
+a01/docs/在线演示站-部署与运维.md,1,0,0
+a01/tools/build_demo_assets.py,1,0,0
+a01/tools/build_demo_assets2.py,1,0,0
+a01/tools/check_page.py,1,0,0
+a01/tools/contract_probe.py,1,0,0
+a01/tools/demo_cache_check.py,1,0,0
+a01/tools/demo_ext_check.py,1,0,0
+a01/tools/demo_probe.py,1,0,0
+a01/tools/inspect_onnx_ext.py,1,0,0
+a01/tools/probe_smart.py,1,0,0
+a01/demo/deploy_monitor.sh,1,0,0
+a01/monitor/monitor.py,1,0,0
+a01/tools/_chk_html.py,1,0,0
+a01/submission.json,1,0,0
+"a01/""readme/01-/347/216/257/345/242/203/344/276/235/350/265/226/344/270/216/344/270/200/351/224/256/345/256/211/350/243/205.md""",1,0,0

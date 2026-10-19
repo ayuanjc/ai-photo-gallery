@@ -1,7 +1,7 @@
 # Auto-Memory Extraction
 
 - 会话 ID：ses_ebfb19f11ffeSyc6xJBTGQM8AK
-- 工作目录：C:\Users\ayuan\IDEProjects\a01
+- 工作目录：a01
 - 消息数：5　代码改动：0 次　轮次范围：第 1-1 轮
 
 ## 第 1 轮 · 2026-10-16 00:04:00

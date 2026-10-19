@@ -13,9 +13,11 @@ API，本服务不直接向用户提供的 URL 发起请求，实际暴露面有
 """
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import os
 import socket
+from collections.abc import Iterable
 from urllib.parse import urlparse
 
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
@@ -29,7 +31,7 @@ _TRUSTED_HOSTS = frozenset(
 )
 
 
-def is_safe_url(url: str) -> bool:
+def is_safe_url(url: str, *, resolve_dns: bool = True) -> bool:
     """检查 URL 是否安全（非内网、非回环、非链路本地、http/https 协议）。
 
     - 仅允许 http / https 协议。
@@ -38,6 +40,10 @@ def is_safe_url(url: str) -> bool:
     - 可信主机白名单（URL_TRUSTED_HOSTS 环境变量）直接放行。
     - IP 地址拒绝私有/回环/链路本地/保留/多播/未分配地址。
     - DNS 解析失败时 fail-closed（返回 False）。
+
+    resolve_dns=False 时跳过 DNS 解析段（Pydantic 同步 validator 场景，
+    避免同步 getaddrinfo 阻塞事件循环），域名类主机的 DNS 校验由调用方
+    在异步上下文通过 ensure_urls_dns_safe 补齐（fail-closed 不变）。
     """
     parsed = urlparse(url)
     if parsed.scheme not in _ALLOWED_SCHEMES:
@@ -54,6 +60,8 @@ def is_safe_url(url: str) -> bool:
     try:
         ip = ipaddress.ip_address(host)
     except ValueError:
+        if not resolve_dns:
+            return True
         try:
             infos = socket.getaddrinfo(host, None)
             for info in infos:
@@ -66,8 +74,28 @@ def is_safe_url(url: str) -> bool:
     return ip.is_global and not ip.is_reserved and not ip.is_multicast
 
 
-def validate_url_or_raise(url: str) -> str:
+def validate_url_or_raise(url: str, *, resolve_dns: bool = True) -> str:
     """校验 URL 安全性，不安全时抛 ValueError。"""
-    if not is_safe_url(url):
+    if not is_safe_url(url, resolve_dns=resolve_dns):
         raise ValueError(f"不安全的 URL（可能触发 SSRF）: {url}")
     return url
+
+
+async def ensure_urls_dns_safe(urls: Iterable[str]) -> None:
+    """在异步上下文并发完成 URL 的 DNS 级 SSRF 校验。
+
+    socket.getaddrinfo 是同步阻塞调用，直接在事件循环线程执行会被
+    恶意慢 DNS 冻结整个服务；此处通过 asyncio.to_thread 并发校验，
+    单请求总耗时约等于最慢一次解析，且不阻塞其他请求。
+    任一 URL 不安全时抛 ValueError（fail-closed）。
+    """
+    targets = [u for u in urls if u]
+    if not targets:
+        return
+    results = await asyncio.gather(
+        *(asyncio.to_thread(validate_url_or_raise, u) for u in targets),
+        return_exceptions=True,
+    )
+    for result in results:
+        if isinstance(result, BaseException):
+            raise result

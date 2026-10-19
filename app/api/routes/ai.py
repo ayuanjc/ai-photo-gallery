@@ -7,7 +7,9 @@ from fastapi import APIRouter, Depends
 
 from ...ai.base import AnalysisResult, ImageAnalyzer
 from ...core.config import Settings
+from ...core.errors import AppError, ErrorCode
 from ...models.ai import AIAnalyzeRequest
+from ...utils.url_safety import ensure_urls_dns_safe
 from ..deps import get_ai_analyzer, get_settings_dep, rate_limit_guard, verify_api_key
 from .admin import feature_gate
 
@@ -28,6 +30,14 @@ async def analyze_images(
     analyzer: ImageAnalyzer = Depends(get_ai_analyzer),
     settings: Settings = Depends(get_settings_dep),
 ) -> list[AnalysisResult]:
+    # DNS 级 SSRF 校验（异步线程并发，fail-closed，不阻塞事件循环）。
+    try:
+        await ensure_urls_dns_safe(
+            [str(request.reference_url), *(str(c) for c in request.candidate_urls)]
+        )
+    except ValueError as exc:
+        raise AppError(ErrorCode.INVALID_PARAMS, str(exc)) from exc
+
     reference = str(request.reference_url)
     sem = asyncio.Semaphore(settings.ai_max_concurrent)
 

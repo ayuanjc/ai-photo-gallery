@@ -4,9 +4,10 @@ After=network.target
 
 [Service]
 Type=simple
+User=www-data
 WorkingDirectory=/opt/yunying/app
 Environment=DEMO_BASE=/opt/yunying
-Environment=DEMO_CLIP_DIR=/opt/yunying/clip
+Environment=DEMO_CLIP_DIR=/opt/yunying/models
 Environment=ORT_THREADS=2
 ExecStart=/opt/yunying/venv/bin/uvicorn serve_demo:app --host 127.0.0.1 --port 8100 --workers 1
 Restart=always
@@ -14,6 +15,16 @@ RestartSec=3
 
 # 内存兜底：2C4G 上把上限压在 1.6G，超了只杀自己
 MemoryMax=1600M
+
+# 沙箱加固：公网 Web 服务不以 root 运行，最小权限 + 文件系统只读
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+ReadOnlyPaths=/opt/yunying
 
 [Install]
 WantedBy=multi-user.target

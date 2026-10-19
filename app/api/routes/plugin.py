@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import time
 from typing import Any
 
@@ -43,6 +44,10 @@ from ...scene.fallback import apply_fallback_scene
 from ..deps import rate_limit_guard
 
 logger = logging.getLogger(__name__)
+
+# asset.id 仅允许字母/数字/连字符/下划线（与 HTTP 入口 SearchRequest.asset_ids 白名单一致），
+# 防止路径注入（../ 经 httpx URL 规范化穿越）与日志注入（\n 伪造日志行）
+_ASSET_ID_PATTERN = re.compile(r"^[A-Za-z0-9\-_]+$")
 
 router = APIRouter(tags=["plugin"], dependencies=[Depends(rate_limit_guard)])
 
@@ -145,6 +150,12 @@ async def plugin_hook(
             request_id, payload.event,
         )
         return PluginHookResponse(warnings=["缺少 asset.id"])
+    if not isinstance(asset_id, str) or len(asset_id) > 128 or not _ASSET_ID_PATTERN.fullmatch(asset_id):
+        logger.warning(
+            "插件 hook 收到非法 asset.id 格式 request_id=%s event=%s asset_id=%r",
+            request_id, payload.event, asset_id if isinstance(asset_id, str) else type(asset_id).__name__,
+        )
+        return PluginHookResponse(warnings=["asset.id 格式非法（仅允许字母、数字、连字符和下划线）"])
 
     dedup_key = _dedup_key(payload.event, payload.asset)
     is_first = await _check_dedup(request, dedup_key)
@@ -186,13 +197,20 @@ async def plugin_hook(
             changes=changes,
         )
 
-    # 场景来源：优先 payload 自带（自定义格式），否则现场分析（Immich webhook 不带 scene）
-    scene_dict = payload.asset.get("scene")
-    if scene_dict is None and payload.event in ("AssetCreate", "AssetMetadataExtraction"):
+    # 场景来源：一律现场分析。webhook payload 自带的 scene dict（含 source/
+    # confidence 字段）属于外部输入，不可作为写回闸门的信任锚——伪造
+    # {"source": "analyzed"} 即可旁路闸门，故不采信该路径。
+    scene_dict = None
+    if payload.event in ("AssetCreate", "AssetMetadataExtraction"):
         scene_analyzer = getattr(request.app.state, "scene_analyzer", None)
         if scene_analyzer is not None:
             try:
-                tags = await scene_analyzer.analyze(payload.asset)
+                # payload 可信度跟随 token 鉴权：配置了 PLUGIN_HOOK_TOKEN 且
+                # 校验通过时，smartInfo/tags 映射结果可写回（token 保护下由
+                # Immich 发出）；无 token 时标记 tag_inferred，闸门拒绝写回。
+                tags = await scene_analyzer.analyze(
+                    payload.asset, trusted=bool(expected_token)
+                )
                 scene_dict = tags.model_dump()
             except Exception as exc:
                 logger.warning(
@@ -207,8 +225,10 @@ async def plugin_hook(
         scene_dict = apply_fallback_scene(scene_dict, settings)
 
     # 写回闸门：仅真实分析结果（source=analyzed）允许写回 Immich。
-    # webhook payload 不含 smartInfo、推理端点未配置时分析恒空，
-    # 兜底/推断场景属于猜测值，写回会污染图库并引发 AssetTagged 事件循环。
+    # source 由服务端 SceneAnalyzer 写入：第二级推理（服务端权威端点）产出
+    # analyzed；无 token 鉴权时 webhook 的 smartInfo/tags 映射产出
+    # tag_inferred；兜底/推断场景产出 fallback——后两者均为猜测值，
+    # 写回会污染图库并引发 AssetTagged 事件循环。
     scene_writable = bool(
         isinstance(scene_dict, dict) and scene_dict.get("source") == "analyzed"
     )

@@ -277,6 +277,9 @@ async def test_writeback_semaphore_limits_concurrency(tmp_path, monkeypatch):
 
 
 def test_rate_limit_client_id_hashes_api_key():
+    """与配置一致的 x-api-key 享 key 桶（哈希脱敏）；随机 key 归 IP 桶（F5 修复后语义）。"""
+    from types import SimpleNamespace
+
     class _Client:
         host = "127.0.0.1"
 
@@ -284,9 +287,23 @@ def test_rate_limit_client_id_hashes_api_key():
         headers = {"x-api-key": "sk-secret-value-123"}
         client = _Client()
 
-    cid = _get_client_id(_Req(), get_settings())
+    # 未配置 search_api_key 时任何 key 头都不享 key 桶
+    settings = get_settings().model_copy(update={"search_api_key": ""})
+    cid = _get_client_id(_Req(), settings)
     assert "sk-secret-value-123" not in cid
-    assert cid.startswith("key:")
+    assert cid.startswith("ip:")
+
+    # 配置后：匹配的 key 享 key 桶且不落明文；随机 key 仍归 IP 桶
+    settings_matched = get_settings().model_copy(update={"search_api_key": "sk-secret-value-123"})
+    cid_matched = _get_client_id(_Req(), settings_matched)
+    assert "sk-secret-value-123" not in cid_matched
+    assert cid_matched.startswith("key:")
+
+    req_random = SimpleNamespace(
+        headers={"x-api-key": "junk-random-key"}, client=SimpleNamespace(host="1.2.3.4")
+    )
+    cid_random = _get_client_id(req_random, settings_matched)
+    assert cid_random == "ip:1.2.3.4"
 
 
 def test_rate_limit_client_id_uses_ip_without_key():

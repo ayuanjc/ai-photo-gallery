@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+import math
 import random as _random
 from datetime import datetime, timezone
 
@@ -195,9 +196,13 @@ def apply_feedback_boost(final_score: float | None, boost: float) -> float | Non
     """将反馈加权值叠加到最终排序分数上，结果裁切到 [0, 1]。
 
     final_score 为 None（immich 模式未编分）时原样返回 None，不伪造分数。
+    boost 为 NaN 时视为 0（防 NaN 传播到 final_score 破坏排序）；
+    ±inf 保留 clamp 裁切语义（inf → 1.0，-inf → 0.0）。
     """
     if final_score is None:
         return None
+    if math.isnan(boost):
+        boost = 0.0
     return clamp(final_score + boost)
 
 # ---- 排序维度切换 ----

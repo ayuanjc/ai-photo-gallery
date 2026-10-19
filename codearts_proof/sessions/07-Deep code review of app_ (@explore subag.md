@@ -1,7 +1,7 @@
 # Deep code review of app/ (@explore subagent)
 
 - 会话 ID：ses_ed1125bceffe1knn2GS4T7XvXW
-- 工作目录：C:\Users\ayuan\IDEProjects\a01
+- 工作目录：a01
 - 消息数：15　代码改动：0 次　轮次范围：第 1-1 轮
 
 ## 第 1 轮 · 2026-10-12 15:04:48

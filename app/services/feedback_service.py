@@ -45,6 +45,8 @@ class FeedbackService:
         self._settings = settings
         self._rate_limiter: dict[str, list[float]] = {}
 
+    _RATE_LIMITER_MAX_KEYS = 10_000
+
     async def record_feedback(
         self, asset_id: str, query: str, action: str, session_id: str = ""
     ) -> tuple[bool, str | None]:
@@ -125,7 +127,12 @@ class FeedbackService:
         return max(0.0, min(1.0, score + boost))
 
     def _check_rate_limit(self, asset_id: str, query: str, session_id: str) -> bool:
-        """防刷检查：同一 session + asset + query 每分钟反馈限次。"""
+        """防刷检查：同一 session + asset + query 每分钟反馈限次。
+
+        字典容量有上限：键由 session_id/asset_id/query_hash 组成且均用户可控，
+        不设上限时攻击者可用随机 session_id 无限增长导致内存耗尽；
+        超限时丢弃最旧键（防 OOM 优先于精确限次）。
+        """
         if not session_id:
             return True
         limit = getattr(self._settings, "feedback_rate_limit_per_minute", 2)
@@ -135,6 +142,14 @@ class FeedbackService:
         rl_key = f"{session_id}:{asset_id}:{hashlib.sha256(query.encode()).hexdigest()[:8]}"
         now = time.monotonic()
         window = 60.0
+
+        if len(self._rate_limiter) >= self._RATE_LIMITER_MAX_KEYS:
+            stale = [k for k, ts in self._rate_limiter.items() if now - ts[-1] >= window]
+            if stale:
+                for k in stale:
+                    self._rate_limiter.pop(k, None)
+            while len(self._rate_limiter) >= self._RATE_LIMITER_MAX_KEYS:
+                self._rate_limiter.pop(next(iter(self._rate_limiter)), None)
 
         timestamps = self._rate_limiter.get(rl_key, [])
         timestamps = [t for t in timestamps if now - t < window]

@@ -2530,76 +2530,6 @@ class TestAutoAlbumBrute:
 # ============================================================================
 # 防御性测试报告
 # ============================================================================
-
-def pytest_terminal_summary(terminalreporter, exitstatus, config):
-    """在 pytest 输出末尾生成防御性测试报告。"""
-    stats = terminalreporter.stats
-
-    passed = len(stats.get("passed", []))
-    failed = len(stats.get("failed", []))
-    errors = len(stats.get("error", []))
-    skipped = len(stats.get("skipped", []))
-    total = passed + failed + errors + skipped
-
-    terminalreporter.write_line("")
-    terminalreporter.write_line("=" * 72, yellow=True)
-    terminalreporter.write_line("  防御性测试报告 — 混沌工程与安全渗透测试", yellow=True)
-    terminalreporter.write_line("=" * 72, yellow=True)
-    terminalreporter.write_line(f"  测试场景总数:  {total}")
-    terminalreporter.write_line(f"  通过数:        {passed}", green=True)
-    terminalreporter.write_line(f"  失败数:        {failed}", red=bool(failed))
-    terminalreporter.write_line(f"  错误数:        {errors}", red=bool(errors))
-    terminalreporter.write_line(f"  跳过数:        {skipped}")
-    terminalreporter.write_line("")
-
-    if failed == 0 and errors == 0:
-        terminalreporter.write_line("  结论: 未发现系统漏洞（所有攻击场景均被正确防御）。", green=True)
-    else:
-        terminalreporter.write_line("  发现的系统漏洞清单:", red=True)
-        terminalreporter.write_line("")
-
-        severity_map = {
-            "ssrf": "P0-严重",
-            "localhost": "P0-严重",
-            "leak": "P2-中危",
-            "nan": "P1-高危",
-            "crash": "P1-高危",
-            "deadlock": "P1-高危",
-            "maxsize": "P2-中危",
-        }
-
-        vuln_id = 0
-        for failed_report in stats.get("failed", []):
-            vuln_id += 1
-            test_name = failed_report.nodeid
-            failure_msg = str(failed_report.longrepr) if failed_report.longrepr else "未知"
-
-            severity = "P3-低危"
-            lower_msg = failure_msg.lower()
-            for keyword, level in severity_map.items():
-                if keyword in lower_msg or keyword in test_name.lower():
-                    severity = level
-                    break
-
-            terminalreporter.write_line(f"  [{severity}] 漏洞 #{vuln_id}", red=True)
-            terminalreporter.write_line(f"    测试: {test_name}")
-            short_msg = failure_msg.split("\n")[0][:120] if failure_msg else "未知"
-            terminalreporter.write_line(f"    描述: {short_msg}")
-            terminalreporter.write_line(f"    复现: python -m pytest {test_name} -v")
-            terminalreporter.write_line("")
-
-        for error_report in stats.get("error", []):
-            vuln_id += 1
-            test_name = error_report.nodeid
-            terminalreporter.write_line(f"  [P1-高危] 漏洞 #{vuln_id} (ERROR)", red=True)
-            terminalreporter.write_line(f"    测试: {test_name}")
-            terminalreporter.write_line(f"    复现: python -m pytest {test_name} -v")
-            terminalreporter.write_line("")
-
-    terminalreporter.write_line("=" * 72, yellow=True)
-
-
-# ============================================================================
 # 排序维度切换 — 破坏性测试（六大类全覆盖）
 # ============================================================================
 
@@ -3802,7 +3732,8 @@ class TestFeedbackBrute:
         """apply_feedback_boost 传入 NaN → 不崩溃。"""
         from app.services.ranking import apply_feedback_boost
         result = apply_feedback_boost(0.5, float("nan"))
-        assert 0.0 <= result <= 1.0 or result != result  # NaN 比较特殊
+        assert not math.isnan(result), "NaN boost 不应传播到结果分数"
+        assert 0.0 <= result <= 1.0
 
     def test_feedback_apply_boost_inf_safe(self):
         """apply_feedback_boost 传入 inf → 裁切到 [0,1]。"""

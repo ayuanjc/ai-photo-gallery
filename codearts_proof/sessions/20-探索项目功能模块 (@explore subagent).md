@@ -1,7 +1,7 @@
 # 探索项目功能模块 (@explore subagent)
 
 - 会话 ID：ses_ecb4f925cffeQN1kZWbnFBQfU7
-- 工作目录：C:\Users\ayuan\IDEProjects\a01
+- 工作目录：a01
 - 消息数：8　代码改动：0 次　轮次范围：第 1-1 轮
 
 ## 第 1 轮 · 2026-10-13 17:55:40
