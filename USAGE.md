@@ -1,6 +1,6 @@
 # 云影图鉴 · AI 图像语义搜索微服务 — 使用文档
 
-> 基于 FastAPI 的 AI 图像语义搜索微服务，原生嵌入 [Immich](https://immich.app/) 照片管理平台：中文语义搜图、CLIP 真实场景分析、AI 标签/描述/评分/相册自动写回。
+> 基于 FastAPI 的 AI 图像语义搜索微服务，集成 [Immich](https://immich.app/) 照片管理平台（工作流事件原生触发，写回走公开 API）：中文语义搜图、CLIP 真实场景分析、AI 标签/描述/评分/相册自动写回。
 >
 > - 服务代码：本仓库（分支 `feat/immich-embed-final`）
 > - 在线接口文档（Swagger）：`http://127.0.0.1:8000/docs`
