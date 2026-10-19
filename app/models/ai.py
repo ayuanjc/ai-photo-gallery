@@ -17,12 +17,12 @@ class AIAnalyzeRequest(BaseModel):
     @field_validator("reference_url")
     @classmethod
     def _validate_reference_url(cls, v: HttpUrl) -> HttpUrl:
-        validate_url_or_raise(str(v))
+        validate_url_or_raise(str(v), resolve_dns=False)
         return v
 
     @field_validator("candidate_urls")
     @classmethod
     def _validate_candidate_urls(cls, v: list[HttpUrl]) -> list[HttpUrl]:
         for url in v:
-            validate_url_or_raise(str(url))
+            validate_url_or_raise(str(url), resolve_dns=False)
         return v

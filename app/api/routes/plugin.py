@@ -186,13 +186,20 @@ async def plugin_hook(
             changes=changes,
         )
 
-    # 场景来源：优先 payload 自带（自定义格式），否则现场分析（Immich webhook 不带 scene）
-    scene_dict = payload.asset.get("scene")
-    if scene_dict is None and payload.event in ("AssetCreate", "AssetMetadataExtraction"):
+    # 场景来源：一律现场分析。webhook payload 自带的 scene dict（含 source/
+    # confidence 字段）属于外部输入，不可作为写回闸门的信任锚——伪造
+    # {"source": "analyzed"} 即可旁路闸门，故不采信该路径。
+    scene_dict = None
+    if payload.event in ("AssetCreate", "AssetMetadataExtraction"):
         scene_analyzer = getattr(request.app.state, "scene_analyzer", None)
         if scene_analyzer is not None:
             try:
-                tags = await scene_analyzer.analyze(payload.asset)
+                # payload 可信度跟随 token 鉴权：配置了 PLUGIN_HOOK_TOKEN 且
+                # 校验通过时，smartInfo/tags 映射结果可写回（token 保护下由
+                # Immich 发出）；无 token 时标记 tag_inferred，闸门拒绝写回。
+                tags = await scene_analyzer.analyze(
+                    payload.asset, trusted=bool(expected_token)
+                )
                 scene_dict = tags.model_dump()
             except Exception as exc:
                 logger.warning(
@@ -207,8 +214,10 @@ async def plugin_hook(
         scene_dict = apply_fallback_scene(scene_dict, settings)
 
     # 写回闸门：仅真实分析结果（source=analyzed）允许写回 Immich。
-    # webhook payload 不含 smartInfo、推理端点未配置时分析恒空，
-    # 兜底/推断场景属于猜测值，写回会污染图库并引发 AssetTagged 事件循环。
+    # source 由服务端 SceneAnalyzer 写入：第二级推理（服务端权威端点）产出
+    # analyzed；无 token 鉴权时 webhook 的 smartInfo/tags 映射产出
+    # tag_inferred；兜底/推断场景产出 fallback——后两者均为猜测值，
+    # 写回会污染图库并引发 AssetTagged 事件循环。
     scene_writable = bool(
         isinstance(scene_dict, dict) and scene_dict.get("source") == "analyzed"
     )

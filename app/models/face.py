@@ -60,7 +60,7 @@ class FaceClassifyRequest(BaseModel):
         for url in value:
             key = str(url)
             if key not in seen:
-                validate_url_or_raise(key)
+                validate_url_or_raise(key, resolve_dns=False)
                 seen.add(key)
                 result.append(url)
         return result

@@ -1,9 +1,13 @@
 """请求模型（Pydantic）与字段校验。"""
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+# asset_id 字符白名单（Immich UUID 格式：hex + 连字符），防止 URL 拼接注入。
+_ASSET_ID_PATTERN = re.compile(r"^[A-Za-z0-9\-_]+$")
 
 # 允许客户端请求返回的图片元数据字段白名单，防止任意字段注入。
 ALLOWED_METADATA_FIELDS = frozenset(
@@ -95,7 +99,7 @@ class SearchRequest(BaseModel):
                 raise ValueError("image_url 不能为空字符串")
             if len(url) > 2048:
                 raise ValueError(f"image_url 长度不能超过 2048 字符: {url[:50]}...")
-            validate_url_or_raise(url)
+            validate_url_or_raise(url, resolve_dns=False)
             if url in seen:
                 raise ValueError(f"image_url 重复: {url[:50]}...")
             seen.add(url)
@@ -110,6 +114,10 @@ class SearchRequest(BaseModel):
                 raise ValueError("asset_id 不能为空字符串")
             if len(aid) > 128:
                 raise ValueError(f"asset_id 长度不能超过 128 字符: {aid[:20]}...")
+            if not _ASSET_ID_PATTERN.fullmatch(aid):
+                raise ValueError(
+                    f"asset_id 仅允许字母、数字、连字符和下划线: {aid[:20]}..."
+                )
             if aid in seen:
                 raise ValueError(f"asset_id 重复: {aid}")
             seen.add(aid)

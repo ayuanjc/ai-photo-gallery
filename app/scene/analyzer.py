@@ -110,16 +110,22 @@ class SceneAnalyzer:
         self._inflight: dict[str, asyncio.Future[SceneTags]] = {}
         self._timeout = max(0.0, infer_timeout_seconds)
 
-    async def analyze(self, asset: dict) -> SceneTags:
+    async def analyze(self, asset: dict, *, trusted: bool = True) -> SceneTags:
         """分析单条 asset，优先命中缓存，其次分级推理，超时降级。
 
         使用 singleflight 模式：相同 asset_id 的并发请求共享同一个推理任务，
         避免缓存 stampede（大量并发 miss 同时触发推理）。
+
+        trusted 表示 asset dict 的来源是否可信（如 Immich API 服务端拉取）。
+        webhook payload 等外部输入必须传 trusted=False：第一级 smartInfo/tags
+        映射结果会被标记 source=tag_inferred（不可写回 Immich），且不写缓存
+        （防止伪造 payload 投毒 scene:{asset_id} 缓存污染真实搜索）；
+        第二级推理结果不受影响（服务端权威端点，source=analyzed）。
         """
         asset_id = str(asset.get("id", "") or "")
         if not asset_id:
             logger.debug("场景分析：asset_id 为空，跳过 singleflight")
-        if asset_id:
+        if asset_id and trusted:
             cached = await self._get_cached(asset_id)
             if cached is not None:
                 return cached
@@ -127,13 +133,13 @@ class SceneAnalyzer:
             if inflight is not None and not inflight.done():
                 return await inflight
 
-        task = asyncio.create_task(self._compute(asset, asset_id))
-        if asset_id:
+        task = asyncio.create_task(self._compute(asset, asset_id, trusted))
+        if asset_id and trusted:
             self._inflight[asset_id] = task
         try:
             return await task
         finally:
-            if asset_id:
+            if asset_id and trusted:
                 self._inflight.pop(asset_id, None)
 
     async def aclose(self) -> None:
@@ -141,12 +147,13 @@ class SceneAnalyzer:
         if hasattr(self._inferrer, "aclose"):
             await self._inferrer.aclose()
 
-    async def _compute(self, asset: dict, asset_id: str) -> SceneTags:
+    async def _compute(self, asset: dict, asset_id: str, trusted: bool = True) -> SceneTags:
         """实际推理逻辑（不含缓存检查），由 analyze 通过 singleflight 调度。"""
         # 第一级：基于 Immich smartInfo / tags 的确定性映射。
-        base = self._analyze_smartinfo(asset)
+        base = self._analyze_smartinfo(asset, trusted)
         if base.scenes:
-            await self._store(asset_id, base)
+            if trusted:
+                await self._store(asset_id, base)
             return base
 
         # 第二级：零样本推理大场景（带超时），保留第一级的视觉属性映射结果。
@@ -159,25 +166,36 @@ class SceneAnalyzer:
                 sub_scenes=base.sub_scenes,
                 visual_attrs=base.visual_attrs,
                 confidence=base.confidence,
+                source=base.source,
             )
 
         # 合并两级结果：大场景/子场景/置信度以推理结果为准（推断器无
         # infer_full 时 inferred 仅含大场景），保留第一级已映射的子场景与视觉属性。
-        merged_subs = list(dict.fromkeys([*base.sub_scenes, *inferred.sub_scenes]))
+        # untrusted（webhook 外部输入）时第一级内容不可信，只保留权威推理部分。
+        if trusted:
+            merged_subs = list(dict.fromkeys([*base.sub_scenes, *inferred.sub_scenes]))
+            merged_attrs = base.visual_attrs
+            merged_conf = {**base.confidence, **inferred.confidence}
+        else:
+            merged_subs = list(inferred.sub_scenes)
+            merged_attrs = inferred.visual_attrs
+            merged_conf = dict(inferred.confidence)
         merged = SceneTags(
             primary_scene=inferred.primary_scene,
             scenes=inferred.scenes,
             sub_scenes=merged_subs,
-            visual_attrs=base.visual_attrs,
-            confidence={**base.confidence, **inferred.confidence},
+            visual_attrs=merged_attrs,
+            confidence=merged_conf,
+            source="analyzed",
         )
-        await self._store(asset_id, merged)
+        if trusted:
+            await self._store(asset_id, merged)
         return merged
 
     # ---- 第一级：smartInfo / tags 白名单映射 ----
-    def _analyze_smartinfo(self, asset: dict) -> SceneTags:
+    def _analyze_smartinfo(self, asset: dict, trusted: bool = True) -> SceneTags:
         raw_tags = self._collect_tags(asset)
-        return self._map_tags(raw_tags)
+        return self._map_tags(raw_tags, trusted)
 
     @staticmethod
     def _collect_tags(asset: dict) -> list[str]:
@@ -197,8 +215,13 @@ class SceneAnalyzer:
                         collected.append(str(name))
         return collected
 
-    def _map_tags(self, raw_tags: list[str]) -> SceneTags:
-        """将原始标签归一化后映射到白名单，未命中一律丢弃。"""
+    def _map_tags(self, raw_tags: list[str], trusted: bool = True) -> SceneTags:
+        """将原始标签归一化后映射到白名单，未命中一律丢弃。
+
+        source 由服务端写入而非调用方声明：可信来源（Immich API 响应）映射
+        结果标记 analyzed；不可信来源（webhook payload 的 tags/smartInfo）
+        标记 tag_inferred，写回闸门（source==analyzed）将拒绝其写回。
+        """
         scenes: list[str] = []
         sub_scenes: list[str] = []
         visual_attrs: dict[str, str] = {}
@@ -242,6 +265,7 @@ class SceneAnalyzer:
             sub_scenes=sub_scenes,
             visual_attrs=visual_attrs,
             confidence=confidence,
+            source="analyzed" if trusted else "tag_inferred",
         )
 
     # ---- 第二级：零样本推理（带超时降级）----

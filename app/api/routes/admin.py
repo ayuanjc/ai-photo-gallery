@@ -17,11 +17,12 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field, field_validator
 
 from ...core.config import get_settings
 from ...core.errors import AppError, ErrorCode, UnauthorizedError
+from ..deps import rate_limit_guard
 from ...core.runtime_config import (
     FEATURES_META,
     get_runtime_config,
@@ -387,7 +388,7 @@ async def update_features(body: FeatureUpdates, request: Request) -> dict:
     return {"updated": True, "features": config.snapshot()}
 
 
-@router.post("/admin/api/verify")
+@router.post("/admin/api/verify", dependencies=[Depends(rate_limit_guard)])
 async def verify_key(body: VerifyRequest) -> dict:
     settings = get_settings()
     expected = settings.admin_api_key
@@ -503,6 +504,14 @@ async def update_settings_handler(body: SettingsUpdates, request: Request) -> di
     settings = get_settings()
     if settings.app_env == "production":
         raise AppError(ErrorCode.INVALID_PARAMS, "生产环境禁止通过 API 修改 .env 配置")
+    if not settings.admin_api_key:
+        # 硬闸：未配置 ADMIN_API_KEY 时任何环境都禁止写 .env。
+        # 否则 development 默认放行 + 可改 immich_base_url 组成凭据外送链
+        # （服务重启后 IMMICH_API_KEY 会被明文发往攻击者地址）。
+        raise AppError(
+            ErrorCode.SERVICE_UNAVAILABLE,
+            "写 .env 前必须配置 ADMIN_API_KEY（防止未授权修改上游地址导致 API Key 外送）",
+        )
     unknown = [k for k in body.updates if k not in _SETTING_KEYS]
     if unknown:
         raise AppError(ErrorCode.INVALID_PARAMS, f"未知的配置项: {','.join(unknown)}")

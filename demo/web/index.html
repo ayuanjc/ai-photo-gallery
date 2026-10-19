@@ -76,6 +76,7 @@ footer code{color:#7f8f9d}
 
 <script>
 var $ = function (s) { return document.querySelector(s); };
+function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
 var EX = ["海边日落","城市夜景","雪山","人物肖像","火锅","蓝色的车","烟花","森林","猫","毕业典礼","湖","街边小吃"];
 $("#chips").innerHTML = EX.map(function (t) { return '<div class="chip">' + t + '</div>'; }).join("");
 Array.prototype.forEach.call(document.querySelectorAll(".chip"), function (c) {
@@ -100,16 +101,16 @@ function doSearch() {
       var d = res.d;
       if (!res.ok) throw new Error(d.detail || "http error");
       $("#fMs").textContent = d.timing_ms.text_embed + "ms";
-      $("#meta").innerHTML = "查询 <b>" + d.query + "</b> → 模型实际读到 <u>" + d.translated + "</u>"
+      $("#meta").innerHTML = "查询 <b>" + esc(d.query) + "</b> → 模型实际读到 <u>" + esc(d.translated) + "</u>"
         + (d.translated_used ? "（中文已改写成 CLIP 词表内的短语）" : "（英文原样）")
         + " · 编码 <b>" + d.timing_ms.text_embed + "ms</b> · 全流程 <b>" + d.timing_ms.total + "ms</b> · 返回 " + d.top_k + " 张";
       $("#grid").innerHTML = d.results.map(function (it) {
-        var scene = it.scene ? "<em>" + it.scene + "</em> · " : "";
-        var label = (it.city || it.fileName || "").slice(0, 20);
-        return '<div class="card" data-id="' + it.id + '">'
+        var scene = it.scene ? "<em>" + esc(it.scene) + "</em> · " : "";
+        var label = esc((it.city || it.fileName || "").slice(0, 20));
+        return '<div class="card" data-id="' + esc(it.id) + '">'
           + '<span class="s">' + it.score.toFixed(3) + '</span>'
           + '<span class="rel">' + Math.round(it.rel * 100) + '%</span>'
-          + '<img loading="lazy" src="' + it.thumb + '" alt="">'
+          + '<img loading="lazy" src="' + esc(it.thumb) + '" alt="">'
           + '<div class="t">' + scene + label + '</div></div>';
       }).join("");
       Array.prototype.forEach.call(document.querySelectorAll(".card"), function (c) {

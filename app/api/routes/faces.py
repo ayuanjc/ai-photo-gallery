@@ -3,8 +3,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
+from ...core.errors import AppError, ErrorCode
 from ...models.face import FaceClassifyRequest, FaceClassifyResponse
 from ...services.face_service import FaceService
+from ...utils.url_safety import ensure_urls_dns_safe
 from ..deps import get_face_service, rate_limit_guard, verify_api_key
 
 router = APIRouter(
@@ -22,4 +24,9 @@ async def classify_faces(
     request: FaceClassifyRequest,
     service: FaceService = Depends(get_face_service),
 ) -> FaceClassifyResponse:
+    # DNS 级 SSRF 校验（异步线程并发，fail-closed，不阻塞事件循环）。
+    try:
+        await ensure_urls_dns_safe(str(u) for u in request.image_urls)
+    except ValueError as exc:
+        raise AppError(ErrorCode.INVALID_PARAMS, str(exc)) from exc
     return await service.classify(request)

@@ -71,11 +71,13 @@ Description=YunYing semantic search demo
 After=network.target
 
 [Service]
-WorkingDirectory=$APP_DIR
-ExecStart=$APP_DIR/venv/bin/python $APP_DIR/app/serve_demo.py
+WorkingDirectory=$APP_DIR/app
+ExecStart=$APP_DIR/venv/bin/uvicorn serve_demo:app --host 127.0.0.1 --port 8100 --workers 1
 Restart=always
+RestartSec=3
 MemoryMax=1600M
-Environment=MODEL_DIR=$APP_DIR/models
+Environment=DEMO_BASE=$APP_DIR
+Environment=DEMO_CLIP_DIR=$APP_DIR/models
 
 [Install]
 WantedBy=multi-user.target

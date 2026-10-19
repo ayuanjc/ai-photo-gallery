@@ -49,16 +49,22 @@ async def verify_api_key(
 
 
 def _get_client_id(request: Request, settings: Settings) -> str:
-    """提取限流客户端标识：优先 x-api-key（存哈希，避免明文 Key 落 Redis），其次真实 IP。"""
+    """提取限流客户端标识：仅与配置一致的 x-api-key 享独立桶（存哈希），
+    任意随机 key 归入 IP 桶（防止伪造 key 头稀释限流）；其次真实 IP。
+
+    可信代理场景取 X-Forwarded-For 最右值——标准 proxy_add_x_forwarded_for
+    追加模式下该值由最近的可信代理写入，客户端无法伪造（最左值可被伪造）。
+    """
     api_key = request.headers.get("x-api-key")
-    if api_key:
-        digest = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:16]
-        return f"key:{digest}"
+    if api_key and settings.search_api_key:
+        if hmac.compare_digest(api_key, settings.search_api_key):
+            digest = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:16]
+            return f"key:{digest}"
     client_host = request.client.host if request.client else "unknown"
     if settings.trusted_proxies and client_host in settings.trusted_proxies:
         forwarded = request.headers.get("x-forwarded-for")
         if forwarded:
-            return f"ip:{forwarded.split(',')[0].strip()}"
+            return f"ip:{forwarded.split(',')[-1].strip()}"
     return f"ip:{client_host}"
 
 

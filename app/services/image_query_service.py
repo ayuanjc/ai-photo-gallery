@@ -57,6 +57,12 @@ class ImageQueryService:
         sem = self._sem
 
         async def _one(url: str) -> tuple[set[str], list[str]]:
+            # DNS 级 SSRF 校验放异步线程执行，避免同步 getaddrinfo 冻结事件循环。
+            try:
+                await asyncio.to_thread(validate_url_or_raise, url)
+            except ValueError:
+                return set(), [f"URL 未通过 SSRF 安全校验，已跳过: {url[:100]}"]
+
             asset_id = self._extract_asset_id(url)
             if asset_id is None:
                 return set(), [f"无法从 URL 提取 asset_id，已跳过: {url[:100]}"]
@@ -107,10 +113,10 @@ class ImageQueryService:
             http://immich/api/assets/{id}/original
             /api/assets/{id}
 
-        同时对 URL 做 SSRF 安全校验，不安全时返回 None。
+        同时对 URL 做 SSRF 安全校验（同步格式段，DNS 段由调用方在异步线程补齐），不安全时返回 None。
         """
         try:
-            validate_url_or_raise(url)
+            validate_url_or_raise(url, resolve_dns=False)
         except ValueError:
             return None
 
