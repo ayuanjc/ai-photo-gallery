@@ -1,0 +1,19 @@
+[Unit]
+Description=Yunying semantic search demo
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/yunying/app
+Environment=DEMO_BASE=/opt/yunying
+Environment=DEMO_CLIP_DIR=/opt/yunying/clip
+Environment=ORT_THREADS=2
+ExecStart=/opt/yunying/venv/bin/uvicorn serve_demo:app --host 127.0.0.1 --port 8100 --workers 1
+Restart=always
+RestartSec=3
+
+# 内存兜底：2C4G 上把上限压在 1.6G，超了只杀自己
+MemoryMax=1600M
+
+[Install]
+WantedBy=multi-user.target
