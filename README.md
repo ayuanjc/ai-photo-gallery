@@ -34,15 +34,21 @@
 - **写回管理**：统一写回客户端（`idempotent` / `rollback` / `audit` 三模式），一键回滚
 - **冲突策略**：标签/相册冲突时可配置策略（skip / overwrite / merge），失败不阻塞主流程
 
-### Immich 插件 / 工作流原生嵌入
+### Immich 工作流集成（事件原生触发 + 服务侧写回）
 
+- **机制（实测 immich-plugin-core v2.0.1 源码确认）**：工作流 `webhook` 方法
+  实现为 `httpRequest(...); return {}`，**Immich 不应用回调响应中的 changes**。
+  因此本服务的写回链路为：Immich 工作流事件**原生触发**（webhook 通知）→
+  本服务分析 → 本服务通过 **Immich 公开 API**（`/api/tags` / `/api/albums` /
+  `PUT /api/assets/{id}`）主动写回。回调响应的 `changes` 字段仅为诊断输出。
+- **为何不用 `assetAddTags` / `assetAddToAlbums` 原生方法**：二者为工作流内
+  静态配置（标签/相册 ID 写死在 workflow config），无法承载 CLIP 按图动态分析。
 - **插件 hook 端点**：`POST /api/v1/plugin/hook`，接收 Immich 工作流 webhook 回调，触发场景分析 + 标签/相册写回
 - **工作流管理**：通过 Immich v3.3+ 工作流 API 自动创建/更新/删除工作流
 - **三个默认工作流**：
   - `yunying-on-upload`：`AssetCreate` → webhook → 场景分析 + 标签写回
   - `yunying-on-metadata`：`AssetMetadataExtraction` → webhook → 元数据补全
   - `yunying-on-tagged`：`AssetTagged` → webhook → 归档检查 + 相册写回
-- **无需 WASM 插件**：直接使用 Immich 内置 `immich-plugin-core` 方法（`assetAddTags` / `assetAddToAlbums` / `webhook`）
 
 ### 工程化能力
 
@@ -209,11 +215,11 @@ POST /api/v1/search/smart
 # 搜索链路：20 条中文查询端到端（翻译/结果数/告警/分数来源）
 python scripts/verify_search.py --base-url http://127.0.0.1:8000
 
-# 原生嵌入：健康/容器可达/工作流/hook鉴权/上传出标签/相册/审计/幂等/降级
+# 工作流集成：健康/容器可达/工作流/hook鉴权/上传出标签/相册/审计/幂等/降级
 python scripts/verify_native.py --immich-key <key> --output data/verify_native_report.json
 ```
 
-2026-10-18 基线：搜索 20/20 PASS，原生嵌入 13/13 PASS。
+2026-10-18 基线：搜索 20/20 PASS，工作流集成 13/13 PASS。
 
 
 ### 错误响应
@@ -483,7 +489,7 @@ python verify_integration.py
 - 照片上传 → 自动场景分析 + AI 标签写回
 - 元数据提取完成 → 自动补全描述
 - 标签写入完成 → 自动归档检查 + AI 相册创建
-## 原生嵌入 Immich（工作流 + 写回）
+## 工作流集成 Immich（事件触发 + 服务侧写回）
 
 ### 架构图
 
@@ -496,14 +502,17 @@ graph LR
     E --> F[场景分析 + 标签写回]
     E --> G[描述补全 + 评分写回]
     E --> H[AI 相册归档]
-    F --> I[Immich tags: AI/自然]
-    G --> J[Immich asset.description]
-    H --> K[Immich albums: AI·自然·2026-10]
+    F --> I["Immich tags: AI·自然（服务侧调 API 写入）"]
+    G --> J["Immich asset.description（服务侧调 API 写入）"]
+    H --> K["Immich albums: AI·自然·2026-10（服务侧调 API 写入）"]
 
     L[历史资产] --> M[POST /admin/api/backfill/scene]
     M --> N[分页拉取 + 批量处理]
     N --> F
 ```
+
+> 注：webhook 方法为 fire-and-forget（实测其源码 `return {}`），
+> 写回不经过回调响应的 changes，全部由本服务主动调用 Immich 公开 API 完成。
 
 ### 四条工作流说明
 
