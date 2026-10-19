@@ -1,6 +1,6 @@
-"""Immich 插件/工作流 hook 端点。
+"""Immich 工作流 hook 端点。
 
-Immich 工作流通过 webhook 方法回调此端点，
+Immich 工作流（immich-plugin-core#webhook 方法）回调此端点，
 触发场景分析 + 标签写回 + 相册写回。
 
 请求格式（Immich v3.x 工作流 webhook 实测格式）：
@@ -15,8 +15,12 @@ Immich 工作流通过 webhook 方法回调此端点，
 兼容旧自定义格式：
     { "event": "AssetCreate", "asset": {...} }
 
-响应格式（Immich 期望）：
-    { "changes": {}, "warnings": [], "continue": true }
+⚠️ 机制说明（实测 immich-plugin-core v2.0.1 源码确认）：
+    webhook 方法实现为 functions.httpRequest(...); return {}，
+    即 Immich **不消费**本端点响应中的 changes —— 该字段仅作为
+    诊断输出（测试断言 / 日志 / 审计核对）。所有写回（标签/相册/
+    描述）均由本服务在处理事件时通过 Immich 公开 API 主动完成，
+    不依赖 changes 返回值。
 
 加固措施：
 - 鉴权：PLUGIN_HOOK_TOKEN 非空时强制校验，失败返回 401
