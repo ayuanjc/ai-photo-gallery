@@ -26,7 +26,13 @@ TITLE = "云影图鉴"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 EXCLUDE_DIRS = {".git", "__pycache__", "node_modules", ".pytest_cache", ".venv", "venv", ".idea", ".vscode"}
-EXCLUDE_FILE_PATTERNS = [re.compile(p) for p in (r"^\.env$", r"\.pem$", r"\.key$", r"\.pyc$")]
+# 敏感文件排除：.env 系（.env.local/.env.production 等）、私钥/证书、数据库文件、凭据文件
+EXCLUDE_FILE_PATTERNS = [re.compile(p) for p in (
+    r"^\.env$", r"^\.env\.", r"(^|[/\])prod\.env$",
+    r"\.pem$", r"\.key$", r"\.p12$", r"\.pfx$", r"\.pyc$",
+    r"(^|[/\])id_rsa$", r"(^|[/\])id_ed25519$", r"(^|[/\])credentials\.json$",
+    r"\.db$", r"\.sqlite$", r"\.sqlite3$",
+)]
 BIG_DATA_LIMIT = 10 * 1024 * 1024  # data/ 下超过 10MB 视为大文件
 
 RE_AKSK = re.compile(r"\b[A-Z0-9]{20,}\b|\bAK[A-Z][A-Za-z0-9]{16,}\b")
@@ -34,7 +40,8 @@ RE_SECRET = re.compile(r"(?i)[a-z0-9_\-]*(?:api[_-]?key|access[_-]?key|secret|to
 RE_PRIVATE_KEY = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
 
 SCANNABLE_EXT = {".py", ".js", ".html", ".css", ".json", ".md", ".txt", ".sh", ".yml", ".yaml",
-                 ".toml", ".cfg", ".ini", ".conf", ".env", ".example", ".csv", ".service", ".xml", ".ts"}
+                 ".toml", ".cfg", ".ini", ".conf", ".env", ".example", ".csv", ".service", ".xml", ".ts",
+                 ".cmd", ".ps1", ".bat"}
 
 
 def die(msg):

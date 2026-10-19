@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import time
 from typing import Any
 
@@ -43,6 +44,10 @@ from ...scene.fallback import apply_fallback_scene
 from ..deps import rate_limit_guard
 
 logger = logging.getLogger(__name__)
+
+# asset.id 仅允许字母/数字/连字符/下划线（与 HTTP 入口 SearchRequest.asset_ids 白名单一致），
+# 防止路径注入（../ 经 httpx URL 规范化穿越）与日志注入（\n 伪造日志行）
+_ASSET_ID_PATTERN = re.compile(r"^[A-Za-z0-9\-_]+$")
 
 router = APIRouter(tags=["plugin"], dependencies=[Depends(rate_limit_guard)])
 
@@ -145,6 +150,12 @@ async def plugin_hook(
             request_id, payload.event,
         )
         return PluginHookResponse(warnings=["缺少 asset.id"])
+    if not isinstance(asset_id, str) or len(asset_id) > 128 or not _ASSET_ID_PATTERN.fullmatch(asset_id):
+        logger.warning(
+            "插件 hook 收到非法 asset.id 格式 request_id=%s event=%s asset_id=%r",
+            request_id, payload.event, asset_id if isinstance(asset_id, str) else type(asset_id).__name__,
+        )
+        return PluginHookResponse(warnings=["asset.id 格式非法（仅允许字母、数字、连字符和下划线）"])
 
     dedup_key = _dedup_key(payload.event, payload.asset)
     is_first = await _check_dedup(request, dedup_key)

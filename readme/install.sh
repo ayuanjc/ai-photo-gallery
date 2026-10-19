@@ -11,8 +11,9 @@ TS=$(date +%Y%m%d%H%M%S)
 STEP="init"
 
 rollback() {
+  trap - EXIT  # 防止递归触发
   echo "!! 步骤【$STEP】失败，回滚已变更的系统配置"
-  for f in /etc/systemd/system/${SVC}.service /etc/nginx/sites-available/yunying; do
+  for f in "/etc/systemd/system/${SVC}.service" /etc/nginx/sites-available/yunying; do
     if [ -f "$f.bak.$TS" ]; then mv -f "$f.bak.$TS" "$f"; echo "已还原 $f"; fi
   done
   systemctl daemon-reload 2>/dev/null || true
@@ -20,7 +21,9 @@ rollback() {
   echo "回滚完成。请根据上方报错排查后重试（脚本可重复执行）。"
   exit 1
 }
-trap rollback ERR
+# 用 EXIT 而非 ERR：显式 exit 1 与 set -e 的失败退出都会触发 EXIT，
+# ERR trap 捕获不到 exit 1（bash 语义），会导致最需回滚的路径静默失效
+trap rollback EXIT
 step() { STEP="$1"; echo "== $1 =="; }
 
 step "1/7 系统包（幂等）"
@@ -35,22 +38,22 @@ python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,11) else 1)' \
   || { echo "需要 Python >= 3.11（当前 $(python3 -V)）"; exit 1; }
 
 step "3/7 目录与代码"
-mkdir -p $APP_DIR/app $APP_DIR/web $APP_DIR/data/thumbs $APP_DIR/models $APP_DIR/venv
-cp -f demo/serve_demo.py demo/query_translate.py demo/requirements.txt $APP_DIR/app/
-cp -f demo/web/index.html $APP_DIR/web/
+mkdir -p "$APP_DIR/app" "$APP_DIR/web" "$APP_DIR/data/thumbs" "$APP_DIR/models" "$APP_DIR/venv"
+cp -f demo/serve_demo.py demo/query_translate.py demo/requirements.txt "$APP_DIR/app/"
+cp -f demo/web/index.html "$APP_DIR/web/"
 if [ -f data/demo/embeddings.npy ]; then
-  cp -f data/demo/embeddings.npy data/demo/meta.json $APP_DIR/data/
-  cp -f data/demo/thumbs/*.webp $APP_DIR/data/thumbs/ 2>/dev/null || true
+  cp -f data/demo/embeddings.npy data/demo/meta.json "$APP_DIR/data/"
+  cp -f data/demo/thumbs/*.webp "$APP_DIR/data/thumbs/" 2>/dev/null || true
 else
   echo "提示：样例向量 data/demo/embeddings.npy 未找到，请先从仓库 data/demo/ 上传"
 fi
 
 step "4/7 venv 与依赖（幂等）"
-if [ ! -x $APP_DIR/venv/bin/pip ]; then python3 -m venv $APP_DIR/venv; fi
-$APP_DIR/venv/bin/pip install -q --upgrade pip
-$APP_DIR/venv/bin/pip install -q -r $APP_DIR/app/requirements.txt
-$APP_DIR/venv/bin/python -c "import onnxruntime,numpy,tokenizers,fastapi; print('deps ok, ort', onnxruntime.__version__)"
-$APP_DIR/venv/bin/python - <<'PY'
+if [ ! -x "$APP_DIR/venv/bin/pip" ]; then python3 -m venv "$APP_DIR/venv"; fi
+"$APP_DIR/venv/bin/pip" install -q --upgrade pip
+"$APP_DIR/venv/bin/pip" install -q -r "$APP_DIR/app/requirements.txt"
+"$APP_DIR/venv/bin/python" -c "import onnxruntime,numpy,tokenizers,fastapi; print('deps ok, ort', onnxruntime.__version__)"
+"$APP_DIR/venv/bin/python" - <<'PY'
 import onnxruntime as o
 major, minor = o.__version__.split(".")[:2]
 if int(major) < 1 or (int(major) == 1 and int(minor) < 31):
@@ -60,41 +63,66 @@ PY
 
 step "5/7 模型文件检查"
 for f in model.onnx model.data tokenizer.json; do
-  [ -s $APP_DIR/models/$f ] || { echo "缺少 $APP_DIR/models/$f —— 请按 readme/01 第 3 节从 immich_machine_learning 容器导出"; exit 1; }
+  [ -s "$APP_DIR/models/$f" ] || { echo "缺少 $APP_DIR/models/$f —— 请按 readme/01 第 3 节从 immich_machine_learning 容器导出"; exit 1; }
 done
-echo "模型三件套就绪：$(du -sh $APP_DIR/models | cut -f1)"
+echo "模型三件套就绪：$(du -sh "$APP_DIR/models" | cut -f1)"
 
 step "6/7 systemd（幂等 + 备份回滚）"
-cat > $APP_DIR/yunying-demo.service <<UNIT
+cat > "$APP_DIR/yunying-demo.service" <<UNIT
 [Unit]
 Description=YunYing semantic search demo
 After=network.target
 
 [Service]
+Type=simple
+User=www-data
 WorkingDirectory=$APP_DIR/app
 ExecStart=$APP_DIR/venv/bin/uvicorn serve_demo:app --host 127.0.0.1 --port 8100 --workers 1
 Restart=always
 RestartSec=3
-MemoryMax=1600M
 Environment=DEMO_BASE=$APP_DIR
 Environment=DEMO_CLIP_DIR=$APP_DIR/models
+
+# 内存兜底：2C4G 上把上限压在 1.6G，超了只杀自己
+MemoryMax=1600M
+
+# 沙箱加固：公网 Web 服务不以 root 运行，最小权限 + 文件系统只读
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+ReadOnlyPaths=$APP_DIR
 
 [Install]
 WantedBy=multi-user.target
 UNIT
-if [ -f /etc/systemd/system/${SVC}.service ]; then cp /etc/systemd/system/${SVC}.service /etc/systemd/system/${SVC}.service.bak.$TS; fi
-cp -f $APP_DIR/yunying-demo.service /etc/systemd/system/${SVC}.service
-systemctl daemon-reload && systemctl enable --now ${SVC}
-sleep 3
-systemctl is-active ${SVC} || { journalctl -u ${SVC} -n 30 --no-pager; exit 1; }
+if [ -f "/etc/systemd/system/${SVC}.service" ]; then cp "/etc/systemd/system/${SVC}.service" "/etc/systemd/system/${SVC}.service.bak.$TS"; fi
+cp -f "$APP_DIR/yunying-demo.service" "/etc/systemd/system/${SVC}.service"
+systemctl daemon-reload && systemctl enable "${SVC}"
+systemctl restart "${SVC}"
+# 等待服务就绪（Restart=always 下 is-active 可能落在 activating 窗口）
+ok=""
+for i in 1 2 3 4 5; do
+  if systemctl is-active --quiet "${SVC}"; then ok=1; break; fi
+  sleep 2
+done
+[ -n "$ok" ] || { journalctl -u "${SVC}" -n 30 --no-pager; exit 1; }
 
 step "7/7 nginx（幂等 + 备份回滚）"
 NG=/etc/nginx/sites-available/yunying
 cat > /tmp/yunying.nginx <<NGINX
 server {
     listen 80 default_server;
+    server_tokens off;
     root $APP_DIR/web;
     index index.html;
+
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options DENY always;
+    add_header Referrer-Policy no-referrer always;
 
     location /api/ {
         proxy_pass http://127.0.0.1:8100/api/;
@@ -109,12 +137,16 @@ server {
     gzip_types text/html application/json image/svg+xml;
 }
 NGINX
-[ -f $NG ] && cp $NG $NG.bak.$TS
-cp -f /tmp/yunying.nginx $NG
-ln -sf $NG /etc/nginx/sites-enabled/yunying
+[ -f "$NG" ] && cp "$NG" "$NG.bak.$TS"
+cp -f /tmp/yunying.nginx "$NG"
+ln -sf "$NG" /etc/nginx/sites-enabled/yunying
 rm -f /etc/nginx/sites-enabled/default
 nginx -t && systemctl reload nginx
 
 step "自检"
-curl -s http://127.0.0.1/api/health && echo
-echo "安装完成 → http://$(hostname -I | awk '{print $1}')"
+curl -fsS --max-time 10 http://127.0.0.1/api/health && echo
+
+trap - EXIT  # 全部成功，解除回滚
+IP=$(hostname -I | awk '{print $1}')
+echo "安装完成 → http://$IP"
+echo "（云主机/NAT 环境请改用公网 IP 访问；安全组/防火墙需放行 80 端口）"

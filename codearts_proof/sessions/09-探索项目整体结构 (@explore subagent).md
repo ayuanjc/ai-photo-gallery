@@ -1,7 +1,7 @@
 # 探索项目整体结构 (@explore subagent)
 
 - 会话 ID：ses_ecc2856aaffeaJaVxNCa3dm0ez
-- 工作目录：C:\Users\ayuan\IDEProjects\a01
+- 工作目录：a01
 - 消息数：7　代码改动：0 次　轮次范围：第 1-1 轮
 
 ## 第 1 轮 · 2026-10-13 13:58:54

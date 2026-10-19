@@ -29,6 +29,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# 进度快照中 errors 列表上限：防上游持续故障时无界累积（10 万资产 × 200 字符 ≈ 20MB），
+# 且每页全量序列化写 Redis 造成内存/带宽膨胀。failed 计数仍精确记录。
+_MAX_PROGRESS_ERRORS = 200
+_ERROR_TEXT_MAX = 200
+
 _PROGRESS_KEY = "backfill:progress"
 _AI_TAG_PREFIX = "AI·"
 
@@ -143,7 +148,8 @@ class BackfillService:
         except Exception as exc:
             logger.exception("回填任务异常: %s", exc)
             self._progress["status"] = "failed"
-            self._progress["errors"].append(str(exc))
+            if len(self._progress["errors"]) < _MAX_PROGRESS_ERRORS:
+                self._progress["errors"].append(str(exc)[:_ERROR_TEXT_MAX])
         finally:
             self._progress["elapsed_seconds"] = round(
                 time.monotonic() - self._progress.pop("_t0", 0), 1
@@ -194,7 +200,8 @@ class BackfillService:
             for result in results:
                 if isinstance(result, Exception):
                     total_failed += 1
-                    self._progress["errors"].append(str(result)[:200])
+                    if len(self._progress["errors"]) < _MAX_PROGRESS_ERRORS:
+                        self._progress["errors"].append(str(result)[:_ERROR_TEXT_MAX])
                 elif result == "skipped":
                     total_skipped += 1
                 elif result == "succeeded":

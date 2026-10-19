@@ -1,7 +1,7 @@
 # 安全审查：注入/认证/SSRF (@general subagent)
 
 - 会话 ID：ses_ecc237c29ffe7klyhkeBZxBx1R
-- 工作目录：C:\Users\ayuan\IDEProjects\a01
+- 工作目录：a01
 - 消息数：9　代码改动：0 次　轮次范围：第 1-1 轮
 
 ## 第 1 轮 · 2026-10-13 14:04:12

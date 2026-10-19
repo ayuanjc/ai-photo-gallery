@@ -23,7 +23,7 @@ services:
   immich-server:
     image: ghcr.io/immich-app/immich-server:${IMMICH_VERSION:-v3.3.1}
     ports:
-      - "2283:2283"
+      - "127.0.0.1:2283:2283"
     environment:
       - DB_HOSTNAME=immich-postgres
       - DB_USERNAME=postgres
@@ -51,7 +51,7 @@ services:
   immich-machine-learning:
     image: ghcr.io/immich-app/immich-machine-learning:${IMMICH_VERSION:-v3.3.1}
     ports:
-      - "3003:3003"
+      - "127.0.0.1:3003:3003"
     volumes:
       - immich-ml-cache:/cache
     restart: unless-stopped

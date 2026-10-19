@@ -1,7 +1,7 @@
 # 审查API层与模型层 (@explore subagent)
 
 - 会话 ID：ses_ed33560e6ffeexRYTn6q8zynfI
-- 工作目录：C:\Users\ayuan\IDEProjects\a01
+- 工作目录：a01
 - 消息数：10　代码改动：0 次　轮次范围：第 1-1 轮
 
 ## 第 1 轮 · 2026-10-12 05:07:18

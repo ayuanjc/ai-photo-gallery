@@ -1,7 +1,7 @@
 # 修复路由文件 (@general subagent)
 
 - 会话 ID：ses_ecc0eb459ffe8QYi3vISIH9Lxz
-- 工作目录：C:\Users\ayuan\IDEProjects\a01
+- 工作目录：a01
 - 消息数：13　代码改动：0 次　轮次范围：第 1-1 轮
 
 ## 第 1 轮 · 2026-10-13 14:26:54

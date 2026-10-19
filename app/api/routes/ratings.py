@@ -10,7 +10,7 @@
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 
 from ...core.errors import AppError, ErrorCode
 from ...models.rating import (
@@ -23,8 +23,12 @@ from ...models.rating import (
     UpdateRatingRequest,
 )
 from ...services.rating_service import RatingService
+from ..deps import rate_limit_guard, verify_api_key
 
-router = APIRouter(tags=["rating"])
+router = APIRouter(
+    tags=["rating"],
+    dependencies=[Depends(verify_api_key), Depends(rate_limit_guard)],
+)
 
 
 def _get_rating_service(request: Request) -> RatingService:

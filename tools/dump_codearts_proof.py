@@ -28,6 +28,10 @@ KEYS = re.compile(r"(?i)(ak|sk|secret|api_key|apikey|access_key|token|password|p
 HEX32 = re.compile(r"[0-9a-f]{32}")
 JWT = re.compile(r"eyJ[A-Za-z0-9_-]{10,}[.][A-Za-z0-9_-]{10,}[.][A-Za-z0-9_-]{5,}")
 QUOTES = [chr(34), chr(39), chr(32), chr(61)]
+# 用户主目录绝对路径 → ~/（去除本机用户名与目录拓扑泄漏）
+RE_HOME = re.compile("(?i)[A-Z]:[" + BS8 + "/]+(?:Users|home)[" + BS8 + "/]+[^" + BS8 + "/\\s]+[" + BS8 + "/]+")
+# 裸 sk- 形态密钥（sk-xxx，不被 KEYS 的 key=value 形态覆盖）
+RE_SK = re.compile(r"\bsk-[A-Za-z0-9_-]{16,}")
 
 def scrub(s):
     if not s:
@@ -49,6 +53,8 @@ def scrub(s):
     s = "".join(out)
     s = JWT.sub("<REDACTED_JWT>", s)
     s = HEX32.sub("<REDACTED_HEX32>", s)
+    s = RE_HOME.sub("~/", s)
+    s = RE_SK.sub("<REDACTED_SK>", s)
     res = []
     last = 0
     for m in KEYS.finditer(s):
@@ -71,12 +77,17 @@ def dstr(ms):
     return datetime.datetime.fromtimestamp(ms / 1000.0, TZ).strftime("%Y-%m-%d")
 
 def relpath(p):
-    """绝对路径 → 相对 a01 的 posix 路径（去除本机用户名），非本项目原样 posix 化。"""
+    """绝对路径 → 相对 a01 的 posix 路径（去除本机用户名），非本项目剥离主目录后 posix 化。"""
     p = p or ""
     i = p.find("IDEProjects")
     if i >= 0:
         return p[i + len("IDEProjects") + 1:].replace(BS8, "/")
-    return p.replace(BS8, "/")
+    q = p.replace(BS8, "/")
+    q = RE_HOME.sub("~/", q)
+    m = re.match(r"(?i)^[A-Z]:/", q)
+    if m:
+        q = q[m.end():]
+    return q
 
 def slug(s, n=40):
     for ch in [chr(92), "/", ":", "*", "?", chr(34), "<", ">", "|", chr(13), chr(10), chr(9)]:
@@ -363,7 +374,7 @@ for i, (sid, title, wd, tc, tu) in enumerate(sessions, 1):
         suffix = "" if len(rounds) <= CHUNK else "-第%d-%d轮" % (k + 1, k + len(seg))
         S = ["# %s" % (title or "(无标题)"), "",
              "- 会话 ID：%s" % sid,
-             "- 工作目录：%s" % (wd or ""),
+             "- 工作目录：%s" % relpath(wd),
              "- 消息数：%d　代码改动：%d 次　轮次范围：第 %d-%d 轮" % (len(lst), nd, k + 1, k + len(seg)), ""]
         for j, r in enumerate(seg, k + 1):
             S.append("## 第 %d 轮 · %s" % (j, ts(r["t"])))
@@ -388,7 +399,7 @@ for root, _, fs in os.walk(OUT):
         p = os.path.join(root, f3)
         files.append((os.path.relpath(p, OUT), os.path.getsize(p)))
 M = ["# MANIFEST", "",
-     "数据源：%s" % DB,
+     "数据源：%s" % relpath(DB),
      "源库大小：%d 字节，mtime=%s" % (os.path.getsize(DB), ts(os.path.getmtime(DB) * 1000)),
      "文件数：%d　总字节：%d" % (len(files), sum(s for _, s in files)), "",
      "| 文件 | 字节 |", "|---|---|"]
