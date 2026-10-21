@@ -1,0 +1,183 @@
+{
+  "session_id": "ses_ed19596a4ffe5BvUXL4Fy3kpzI",
+  "title": "缓存接入场景分析与搜索",
+  "directory": "C:\\Users\\MENG\\IDEProjects\\photo-gallery-ai",
+  "time_created": 1791780088156,
+  "time_updated": 1791780219134,
+  "message_count": 10,
+  "messages": [
+    {
+      "id": "msg_12e6a6b06001QhqoGq5n07GqBl",
+      "time": "2026-10-12 12:41:28",
+      "role": "user",
+      "text": "# 角色\r\n你是资深 Python/FastAPI 后端工程师。一次性完成本次全部任务，不要中途停下等确认。\r\n\r\n# 项目整体上下文（承接关系）\r\n本项目是 AI 图像语义搜索微服务。\r\n前置模块已完成并合入 main：可插拔缓存后端 CacheBackend（MemoryCache / RedisCache），\r\n通过 get_cache() 获取实例。\r\n本次是把现有两处缓存切到新后端，并新增搜索结果缓存。\r\n\r\n# 并行开发约束（必读）\r\n本项目有多个功能分支同时在开发，你只负责本模块。\r\n1. 只允许修改下面「允许修改的文件」清单里的文件\r\n2. 新增配置项统一加在 app/core/config.py 的 Settings 类末尾\r\n3. 开发前先 git checkout main && git pull origin main\r\n4. 若 git pull 后 config.py 有冲突，先 git rebase main 再继续\r\n5. 不动其他模块文件\r\n\r\n允许修改的文件：\r\n- app/scene/analyzer.py（缓存调用改为 get_cache()）\r\n- app/services/search_service.py（新增搜索缓存）\r\n- app/models/response.py（SearchResponse 加 cached 字段）\r\n- app/core/config.py（只在 Settings 末尾追加）\r\n- tests/test_cache_integration.py（新增）\r\n\r\n# 本次目标\r\n1. 场景分析缓存从进程内 LRU 切到 get_cache()\r\n2. 新增搜索结果缓存，命中时不调 Immich\r\n\r\n# 硬约束\r\n1. 不改变现有接口契约，命中缓存响应结构与未命中一致\r\n2. 缓存失败降级为「不缓存」，不影响搜索返回\r\n3. 缓存 key 包含所有影响结果的参数\r\n4. 不修改 ImmichProvider、排序逻辑\r\n\r\n# 任务 1：场景分析缓存\r\n改 app/scene/analyzer.py：\r\n- 从进程内 LRU 改为 get_cache()\r\n- key: {prefix}scene:{asset_id}\r\n- 值：SceneTags 的 JSON\r\n- TTL: SCENE_CACHE_TTL_SECONDS，默认 86400\r\n- 缓存异常时降级为直接分析，不报错\r\n\r\nSettings 末尾追加：\r\n- SCENE_CACHE_TTL_SECONDS: int = 86400\r\n\r\n# 任务 2：搜索结果缓存\r\n改 app/services/search_service.py：\r\n- key: {prefix}search:{sha256(query + filters + page + size)}\r\n- 值：SearchResponse 的 JSON\r\n- TTL: SEARCH_CACHE_TTL_SECONDS，默认 300\r\n- 命中直接返回，不调 Immich\r\n- SearchResponse 新增 cached: bool = False\r\n- 降级模式（degraded=true）的结果不写缓存\r\n\r\nSettings 末尾追加：\r\n- SEARCH_CACHE_TTL_SECONDS: int = 300\r\n\r\n# 任务 3：测试\r\n- 场景分析命中缓存不重复分析\r\n- 搜索命中缓存不调 Immich，cached=true\r\n- 缓存后端异常时降级，接口正常\r\n- 不同参数不串缓存\r\n- 现有测试全绿\r\n\r\n# 工作流（一次性全部执行）\r\n1. git checkout main && git pull origin main\r\n   git checkout -b feature/cache-integration\r\n2. 按任务 1~2 实现\r\n3. pytest -q，全绿\r\n4. 提交：feat(cache): integrate cache backend into scene and search\r\n5. git push -u origin feature/cache-integration\r\n6. 在 GitCode 网页向 main 发起 PR，标题：\r\n   feat(cache): 缓存接入场景分析与搜索\r\n   PR 描述：承接关系、变更点、key 设计、降级策略、测试结果、影响范围、回滚方式\r\n7. 不直接合并，等待人工审查\r\n\r\n# 输出格式\r\n一次性输出：变更文件清单、完整代码、测试结果、提交记录、PR 描述。\r\n不要中途停下问我要不要继续。\n<system-reminder>重要提示：你必须使用简体中文回复，包括内部思考和推理过程也必须使用简体中文。即使用户用英文提问，也必须用简体中文回复。</system-reminder>",
+      "tools": []
+    },
+    {
+      "id": "msg_12e6a6ca8001FgQm7JAUydlZp7",
+      "time": "2026-10-12 12:41:29",
+      "role": "assistant",
+      "text": "",
+      "tools": [
+        {
+          "tool": "todowrite",
+          "input": {},
+          "output": ""
+        }
+      ]
+    },
+    {
+      "id": "msg_12e6abf74001FcKwjFap3PvwCZ",
+      "time": "2026-10-12 12:41:50",
+      "role": "assistant",
+      "text": "",
+      "tools": [
+        {
+          "tool": "bash",
+          "input": {},
+          "output": ""
+        },
+        {
+          "tool": "read",
+          "input": {},
+          "output": ""
+        }
+      ]
+    },
+    {
+      "id": "msg_12e6ae2490019n1OsxsM0bVC8a",
+      "time": "2026-10-12 12:41:59",
+      "role": "assistant",
+      "text": "",
+      "tools": [
+        {
+          "tool": "bash",
+          "input": {},
+          "output": ""
+        },
+        {
+          "tool": "read",
+          "input": {},
+          "output": ""
+        }
+      ]
+    },
+    {
+      "id": "msg_12e6b0fa60010nNUh4kUAKZ9yw",
+      "time": "2026-10-12 12:42:10",
+      "role": "assistant",
+      "text": "",
+      "tools": [
+        {
+          "tool": "bash",
+          "input": {},
+          "output": ""
+        },
+        {
+          "tool": "read",
+          "input": {},
+          "output": ""
+        },
+        {
+          "tool": "read",
+          "input": {},
+          "output": ""
+        },
+        {
+          "tool": "read",
+          "input": {},
+          "output": ""
+        },
+        {
+          "tool": "read",
+          "input": {},
+          "output": ""
+        }
+      ]
+    },
+    {
+      "id": "msg_12e6b2dc2001Na7GJ0peODKfi5",
+      "time": "2026-10-12 12:42:18",
+      "role": "assistant",
+      "text": "",
+      "tools": [
+        {
+          "tool": "bash",
+          "input": {},
+          "output": ""
+        },
+        {
+          "tool": "grep",
+          "input": {},
+          "output": ""
+        },
+        {
+          "tool": "read",
+          "input": {},
+          "output": ""
+        },
+        {
+          "tool": "read",
+          "input": {},
+          "output": ""
+        }
+      ]
+    },
+    {
+      "id": "msg_12e6b6252001T9m2cIsexzIrml",
+      "time": "2026-10-12 12:42:31",
+      "role": "assistant",
+      "text": "",
+      "tools": [
+        {
+          "tool": "bash",
+          "input": {},
+          "output": ""
+        },
+        {
+          "tool": "bash",
+          "input": {},
+          "output": ""
+        }
+      ]
+    },
+    {
+      "id": "msg_12e6bcbd2001zllGxp2YbW7oTQ",
+      "time": "2026-10-12 12:42:58",
+      "role": "assistant",
+      "text": "",
+      "tools": [
+        {
+          "tool": "bash",
+          "input": {},
+          "output": ""
+        },
+        {
+          "tool": "read",
+          "input": {},
+          "output": ""
+        }
+      ]
+    },
+    {
+      "id": "msg_12e6bf706001so2unFTqBKMwv6",
+      "time": "2026-10-12 12:43:09",
+      "role": "assistant",
+      "text": "",
+      "tools": [
+        {
+          "tool": "todowrite",
+          "input": {},
+          "output": ""
+        }
+      ]
+    },
+    {
+      "id": "msg_12e6c690f0012RfMP2sTGM0JHI",
+      "time": "2026-10-12 12:43:39",
+      "role": "assistant",
+      "text": "",
+      "tools": []
+    }
+  ]
+}

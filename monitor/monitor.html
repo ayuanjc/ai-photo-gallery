@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>云影图鉴 · 实时监测</title>
+<style>
+:root{--bg:#0A0E13;--card:#111823;--line:#1E2A38;--txt:#E6EDF5;--dim:#8A9BAE;--ac:#4EA8FF;--ok:#3DDC97;--warn:#F5A623;--bad:#FF5C5C}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:18px 16px 40px}
+header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;padding-bottom:14px;border-bottom:1px solid var(--line)}
+h1{font-size:19px;margin:0;font-weight:600;letter-spacing:.3px}
+h1 span{color:var(--ac)}
+.meta{margin-left:auto;display:flex;align-items:center;gap:14px;font-size:12px;color:var(--dim);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--bad);display:inline-block;margin-right:6px;vertical-align:middle}
+.dot.on{background:var(--ok);box-shadow:0 0 0 3px rgba(61,220,151,.18)}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:13px 14px}
+.card .k{font-size:12px;color:var(--dim);letter-spacing:.4px}
+.card .v{font-size:23px;font-weight:600;margin-top:5px;font-variant-numeric:tabular-nums;letter-spacing:-.3px}
+.card .s{font-size:11.5px;color:var(--dim);margin-top:4px;font-family:ui-monospace,monospace}
+.hot .v{color:var(--bad)}
+.charts{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+.chart{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px 12px 8px}
+.chart .hd{display:flex;justify-content:space-between;font-size:12px;color:var(--dim);margin-bottom:6px}
+.chart canvas{width:100%;height:96px;display:block}
+.lg{display:flex;gap:12px;font-size:11px;color:var(--dim)}
+.lg i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;vertical-align:middle}
+.svc{margin-top:12px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:12.5px}
+.chip{border:1px solid var(--line);border-radius:999px;padding:3px 10px;color:var(--dim);font-family:ui-monospace,monospace}
+.chip b{color:var(--ok);font-weight:600}
+.chip.bad b{color:var(--bad)}
+footer{margin-top:14px;font-size:11.5px;color:var(--dim);line-height:1.7}
+footer code{color:#9FC6EF;background:#111823;padding:1px 5px;border-radius:4px}
+.err{margin-top:12px;padding:9px 12px;border-radius:8px;background:rgba(255,92,92,.1);border:1px solid rgba(255,92,92,.35);color:#FFB4B4;font-size:12.5px;display:none}
+@media(max-width:820px){.grid{grid-template-columns:repeat(2,1fr)}.charts{grid-template-columns:1fr}}
+@media(max-width:520px){.grid{grid-template-columns:1fr}.card .v{font-size:21px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>云影图鉴 <span>·</span> 实时监测</h1>
+    <div class="meta">
+      <span><i class="dot" id="dot"></i><span id="conn">连接中</span></span>
+      <span id="beat">采样 —</span>
+      <span id="up">运行 —</span>
+    </div>
+  </header>
+
+  <div class="err" id="err"></div>
+
+  <div class="grid">
+    <div class="card" id="c-cpu"><div class="k">CPU 使用率</div><div class="v" id="v-cpu">—</div><div class="s" id="s-cpu">—</div></div>
+    <div class="card" id="c-mem"><div class="k">内存</div><div class="v" id="v-mem">—</div><div class="s" id="s-mem">—</div></div>
+    <div class="card" id="c-disk"><div class="k">系统盘</div><div class="v" id="v-disk">—</div><div class="s" id="s-disk">—</div></div>
+    <div class="card"><div class="k">公网吞吐</div><div class="v" id="v-net">—</div><div class="s" id="s-net">—</div></div>
+    <div class="card"><div class="k">磁盘 IO</div><div class="v" id="v-io">—</div><div class="s" id="s-io">—</div></div>
+    <div class="card"><div class="k">检索服务</div><div class="v" id="v-app">—</div><div class="s" id="s-app">—</div></div>
+  </div>
+
+  <div class="charts">
+    <div class="chart">
+      <div class="hd"><span>CPU / 内存</span><span class="lg"><span><i style="background:#4EA8FF"></i>CPU</span><span><i style="background:#3DDC97"></i>内存</span></span></div>
+      <canvas id="g1"></canvas>
+    </div>
+    <div class="chart">
+      <div class="hd"><span>网络吞吐</span><span class="lg"><span><i style="background:#F5A623"></i>入</span><span><i style="background:#C77DFF"></i>出</span></span></div>
+      <canvas id="g2"></canvas>
+    </div>
+    <div class="chart">
+      <div class="hd"><span>磁盘 IO</span><span class="lg"><span><i style="background:#4EA8FF"></i>读</span><span><i style="background:#F5A623"></i>写</span></span></div>
+      <canvas id="g3"></canvas>
+    </div>
+    <div class="chart">
+      <div class="hd"><span>系统负载（1 分钟）</span><span class="lg"><span><i style="background:#3DDC97"></i>load1</span></span></div>
+      <canvas id="g4"></canvas>
+    </div>
+  </div>
+
+  <div class="svc" id="svc"><span class="chip">服务状态读取中…</span></div>
+
+  <footer>
+    数据来源：<code>psutil</code> 直接读取内核计数器，采样间隔 <code>2</code> 秒，图表窗口 <code>150</code> 帧（约 5 分钟）。
+    传输走 SSE 单连接增量推送（一帧约 0.3 KB），不轮询、不写库、不额外占带宽。<br>
+    面板显示的是 <b>服务器自身口径</b>（与云厂商控制台的计费/取整口径可能不同）；累计吞吐自本服务启动起算，仅供趋势参考，不作为计费依据。
+  </footer>
+</div>
+
+<script>
+(function(){
+  var BASE = location.pathname.indexOf('/monitor') === 0 ? '/monitor' : '';
+  // ?snap=1 → 静态快照模式：只拉一次历史、不建 SSE（用于截图 / 汇报取图）
+  var SNAP = /[?&]snap=1/.test(location.search);
+  var N = 150;
+  var buf = [];
+  var es = null, fails = 0, lastRx = 0;
+
+  function $(id){ return document.getElementById(id); }
+
+  function fmtB(b){
+    b = Number(b) || 0;
+    if (b >= 1073741824) return (b/1073741824).toFixed(2) + ' GB';
+    if (b >= 1048576) return (b/1048576).toFixed(1) + ' MB';
+    if (b >= 1024) return (b/1024).toFixed(0) + ' KB';
+    return b + ' B';
+  }
+  function fmtRate(bps){
+    bps = Number(bps) || 0;
+    if (bps >= 1048576) return (bps/1048576).toFixed(2) + ' MB/s';
+    if (bps >= 1024) return (bps/1024).toFixed(1) + ' KB/s';
+    return bps.toFixed(0) + ' B/s';
+  }
+  function fmtDur(s){
+    s = Math.max(0, Math.floor(Number(s) || 0));
+    var d = Math.floor(s/86400), h = Math.floor(s%86400/3600), m = Math.floor(s%3600/60);
+    if (d) return d + ' 天 ' + h + ' 时';
+    if (h) return h + ' 时 ' + m + ' 分';
+    return m + ' 分 ' + (s%60) + ' 秒';
+  }
+
+  function draw(id, series, opt){
+    var cv = $(id);
+    if (!cv) return;
+    var dpr = window.devicePixelRatio || 1;
+    var w = cv.clientWidth || 600, h = cv.clientHeight || 96;
+    if (cv.width !== Math.round(w*dpr) || cv.height !== Math.round(h*dpr)){
+      cv.width = Math.round(w*dpr); cv.height = Math.round(h*dpr);
+    }
+    var g = cv.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+
+    var max = opt.floor || 10, i, j, arr;
+    for (i = 0; i < series.length; i++){
+      arr = series[i].data;
+      for (j = 0; j < arr.length; j++) if (arr[j] > max) max = arr[j];
+    }
+    max = max * 1.18;
+
+    g.strokeStyle = 'rgba(255,255,255,.06)'; g.lineWidth = 1;
+    for (i = 1; i < 4; i++){
+      var gy = Math.round(h*i/4) + .5;
+      g.beginPath(); g.moveTo(0, gy); g.lineTo(w, gy); g.stroke();
+    }
+
+    var step = w / Math.max(1, N - 1);
+    for (i = 0; i < series.length; i++){
+      arr = series[i].data;
+      if (!arr.length) continue;
+      var off = N - arr.length;
+      g.beginPath();
+      for (j = 0; j < arr.length; j++){
+        var x = (off + j) * step;
+        var y = h - Math.min(1, arr[j]/max) * (h - 2) - 1;
+        if (j === 0) g.moveTo(x, y); else g.lineTo(x, y);
+      }
+      g.strokeStyle = series[i].color; g.lineWidth = 1.7; g.lineJoin = 'round'; g.stroke();
+      g.lineTo((off + arr.length - 1) * step, h); g.lineTo(off * step, h); g.closePath();
+      g.fillStyle = series[i].fill; g.fill();
+    }
+
+    g.fillStyle = 'rgba(230,237,245,.42)';
+    g.font = '10px ui-monospace,monospace';
+    g.fillText(opt.fmt(max), 4, 11);
+  }
+
+  function paint(d){
+    if (d.error){
+      var e = $('err'); e.style.display = 'block'; e.textContent = '采集异常：' + d.error;
+      return;
+    }
+    $('err').style.display = 'none';
+
+    $('v-cpu').textContent = d.cpu.toFixed(1) + '%';
+    $('s-cpu').textContent = d.cores + ' 核 · 负载 ' + d.load1.toFixed(2);
+    $('c-cpu').className = 'card' + (d.cpu > 80 ? ' hot' : '');
+
+    $('v-mem').textContent = fmtB(d.mem.used);
+    $('s-mem').textContent = d.mem.pct.toFixed(1) + '% / ' + fmtB(d.mem.total) + ' · swap ' + d.swap.pct.toFixed(0) + '%';
+    $('c-mem').className = 'card' + (d.mem.pct > 85 ? ' hot' : '');
+
+    $('v-disk').textContent = fmtB(d.disk.used);
+    $('s-disk').textContent = d.disk.pct.toFixed(1) + '% / ' + fmtB(d.disk.total) + ' 已用';
+    $('c-disk').className = 'card' + (d.disk.pct > 85 ? ' hot' : '');
+
+    $('v-net').textContent = '↓ ' + fmtRate(d.net.rx);
+    $('s-net').textContent = '↑ ' + fmtRate(d.net.tx) + ' · 累计 ' + fmtB(d.net.tx_total);
+
+    $('v-io').textContent = '读 ' + fmtRate(d.io.dr);
+    $('s-io').textContent = '写 ' + fmtRate(d.io.dw) + (d.temp !== null && d.temp !== undefined ? ' · ' + d.temp + '°C' : '');
+
+    $('v-app').textContent = fmtB(d.demo_rss);
+    $('s-app').textContent = (d.demo_procs || 0) + ' 进程 · 常驻内存';
+
+    $('beat').textContent = '采样 ' + d.samples + ' 帧';
+    $('up').textContent = '运行 ' + fmtDur(d.uptime);
+
+    var svc = d.services || {}, keys = Object.keys(svc), box = $('svc');
+    if (keys.length){
+      var out = '';
+      for (var i = 0; i < keys.length; i++){
+        var ok = svc[keys[i]] === 'active';
+        out += '<span class="chip' + (ok ? '' : ' bad') + '">' + keys[i] + ' <b>' + svc[keys[i]] + '</b></span>';
+      }
+      out += '<span class="chip">磁盘余量 <b>' + fmtB(d.disk.total - d.disk.used) + '</b></span>';
+      box.innerHTML = out;
+    }
+  }
+
+  function push(d){
+    if (d && d.t) buf.push(d);
+    lastRx = Date.now();
+    if (buf.length > N) buf.shift();
+    paint(d);
+    redraw();
+  }
+
+  function col(key){ var a = [], i; for (i = 0; i < buf.length; i++) a.push(buf[i][key] || 0); return a; }
+
+  function redraw(){
+    var memPct = [], i;
+    for (i = 0; i < buf.length; i++) memPct.push(buf[i].mem.pct);
+    draw('g1', [
+      { data: col('cpu'), color: '#4EA8FF', fill: 'rgba(78,168,255,.12)' },
+      { data: memPct, color: '#3DDC97', fill: 'rgba(61,220,151,.09)' }
+    ], { floor: 20, fmt: function(v){ return v.toFixed(0) + '%'; } });
+
+    var rx = [], tx = [];
+    for (i = 0; i < buf.length; i++){ rx.push(buf[i].net.rx); tx.push(buf[i].net.tx); }
+    draw('g2', [
+      { data: rx, color: '#F5A623', fill: 'rgba(245,166,35,.10)' },
+      { data: tx, color: '#C77DFF', fill: 'rgba(199,125,255,.09)' }
+    ], { floor: 65536, fmt: function(v){ return fmtRate(v).replace('/s', ''); } });
+
+    var dr = [], dw = [];
+    for (i = 0; i < buf.length; i++){ dr.push(buf[i].io.dr); dw.push(buf[i].io.dw); }
+    draw('g3', [
+      { data: dr, color: '#4EA8FF', fill: 'rgba(78,168,255,.12)' },
+      { data: dw, color: '#F5A623', fill: 'rgba(245,166,35,.10)' }
+    ], { floor: 65536, fmt: function(v){ return fmtRate(v).replace('/s', ''); } });
+
+    var la = [];
+    for (i = 0; i < buf.length; i++) la.push(buf[i].load1);
+    draw('g4', [{ data: la, color: '#3DDC97', fill: 'rgba(61,220,151,.10)' }],
+      { floor: 1, fmt: function(v){ return v.toFixed(1); } });
+  }
+
+  function setConn(on, txt){
+    var dot = $('dot');
+    dot.className = 'dot' + (on ? ' on' : '');
+    $('conn').textContent = txt || (on ? '实时' : '等待数据');
+  }
+
+  // 连接状态以「最后一次收到帧」为准，避免 EventSource 瞬时重连造成误报
+  setInterval(function(){
+    if (!lastRx) return;
+    var gap = (Date.now() - lastRx) / 1000;
+    if (gap < 6) setConn(true, '实时 · ' + gap.toFixed(0) + 's');
+    else setConn(false, '无数据 ' + Math.round(gap) + ' 秒');
+  }, 1000);
+
+  function connect(){
+    if (es) try { es.close(); } catch(x){}
+    es = new EventSource(BASE + '/api/monitor/stream');
+    es.onopen = function(){ fails = 0; if (!lastRx) setConn(true, '已连接，等待首帧'); };
+    es.onmessage = function(ev){
+      try { push(JSON.parse(ev.data)); } catch(x){}
+    };
+    es.onerror = function(){
+      fails = fails + 1;
+      if (fails > 8){ try { es.close(); } catch(x){} es = null; setTimeout(connect, 5000); }
+    };
+  }
+
+  // 首屏先拉历史，避免空图
+  fetch(BASE + '/api/monitor/history?limit=' + N).then(function(r){ return r.json(); }).then(function(j){
+    if (j && j.items && j.items.length){
+      buf = j.items.slice(-N);
+      redraw();
+      paint(j.items[j.items.length - 1]);
+    }
+  }).catch(function(){}).then(function(){
+    if (SNAP) setConn(true, '快照模式');
+    else connect();
+  });
+
+  window.addEventListener('resize', redraw);
+  setInterval(redraw, 5000);
+})();
+</script>
+</body>
+</html>

@@ -119,3 +119,12 @@ nul
 data/ratings.db
 data/ratings.db-*
 *junit*.xml
+
+# 提交参数（含联系方式，不入库）
+submission.json
+# 打包生成物（tools/stage_project.py 产出）
+project/
+# 临时调试脚本存档
+tools/_archive/
+# PPT 图片素材（体积大，随 PPT 单独交付）
+ppt/img/
