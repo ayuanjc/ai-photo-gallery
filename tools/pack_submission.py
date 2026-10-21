@@ -28,9 +28,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXCLUDE_DIRS = {".git", "__pycache__", "node_modules", ".pytest_cache", ".venv", "venv", ".idea", ".vscode"}
 # 敏感文件排除：.env 系（.env.local/.env.production 等）、私钥/证书、数据库文件、凭据文件
 EXCLUDE_FILE_PATTERNS = [re.compile(p) for p in (
-    r"^\.env$", r"^\.env\.", r"(^|[/\])prod\.env$",
+    r"^\.env$", r"^\.env\.", r"(^|[/\\])prod\.env$",
     r"\.pem$", r"\.key$", r"\.p12$", r"\.pfx$", r"\.pyc$",
-    r"(^|[/\])id_rsa$", r"(^|[/\])id_ed25519$", r"(^|[/\])credentials\.json$",
+    r"(^|[/\\])id_rsa$", r"(^|[/\\])id_ed25519$", r"(^|[/\\])credentials\.json$",
     r"\.db$", r"\.sqlite$", r"\.sqlite3$",
 )]
 BIG_DATA_LIMIT = 10 * 1024 * 1024  # data/ 下超过 10MB 视为大文件
@@ -275,15 +275,50 @@ CHECKLIST = [
 ]
 
 
+CONFIG_NAME = "submission.json"
+
+
+def load_submission_config():
+    """读取项目根的 submission.json 作为参数默认值；缺失或损坏时返回空字典。"""
+    path = os.path.join(ROOT, CONFIG_NAME)
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"!! {CONFIG_NAME} 读取失败，忽略：{exc}")
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--group", required=True, choices=["专业组", "非专业组"])
-    ap.add_argument("--team", required=True)
-    ap.add_argument("--version", required=True)
-    ap.add_argument("--phone", required=True)
+    # Windows 控制台默认 GBK，中文提示会乱码；就地切 UTF-8（失败也不影响打包）。
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except (AttributeError, OSError):
+        pass
+    cfg = load_submission_config()
+    ap = argparse.ArgumentParser(description="参赛提交打包与自检；参数默认取项目根 submission.json")
+    ap.add_argument("--group", choices=["专业组", "非专业组"], default=cfg.get("group"), help="默认取 submission.json")
+    ap.add_argument("--team", default=cfg.get("team"), help="默认取 submission.json")
+    ap.add_argument("--version", default=cfg.get("version"), help="默认取 submission.json")
+    ap.add_argument("--phone", default=cfg.get("phone"), help="默认取 submission.json")
     ap.add_argument("--skip-video-check", action="store_true")
     ap.add_argument("--allow", action="append", default=[], help="敏感扫描豁免的相对路径（可多次）")
     args = ap.parse_args()
+
+    missing = [
+        flag for flag, value in (
+            ("--group", args.group),
+            ("--team", args.team),
+            ("--version", args.version),
+            ("--phone", args.phone),
+        ) if not value
+    ]
+    if missing:
+        die("缺少参数 " + "、".join(missing) + f"（写入 {CONFIG_NAME} 或用命令行传入）")
+    print(f"打包参数：{args.group} + {TITLE} + {args.team} + {args.version} + {args.phone}")
 
     vids = check_layout()
     check_video(vids, args.skip_video_check)

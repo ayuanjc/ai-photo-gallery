@@ -1,0 +1,6 @@
+# Bundle patch layer: this row loads lib/index.js as the host half, and the
+# `dsh.client` declaration in package.json makes the web app load lib/client.js
+# as the browser half (one sidebar panel row + one main-slot page).
+- insert:
+    - id: dsh-server-monitor
+      name: dsh-server-monitor
