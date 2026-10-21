@@ -128,3 +128,13 @@ project/
 tools/_archive/
 # PPT 图片素材（体积大，随 PPT 单独交付）
 ppt/img/
+
+# 云凭据（华为云 STS 临时凭证等本地产物）
+sts-creds.*
+*creds.json
+*creds.sh
+
+# 本地 skills 安装产物（npx skills add 生成）
+.agents/
+.claude/
+skills-lock.json
