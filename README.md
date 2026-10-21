@@ -2,6 +2,16 @@
 
 基于 FastAPI 的 AI 图像语义搜索微服务，对接 [Immich](https://immich.app/) 开源照片管理平台与华为云 FRS 人脸识别服务，提供语义搜索、复合条件搜索、人脸分类、AI 图像分析四大核心能力。
 
+## 项目地址
+
+| 项目 | 地址 |
+|------|------|
+| 代码仓库（GitCode / AtomGit） | <https://atomgit.com/ayuanjc/photo-gallery-ai> |
+| 作品展览馆展示页 | <https://gallery.developer.huaweicloud.com/gallery/00688e62c7400000> |
+| 在线演示站 | <http://106.52.116.164> |
+
+本作品已发布至华为云开发者作品展览馆「华为开发者大赛-珠海科技学院校赛」活动专区。
+
 ## 功能特性
 
 ### 核心算法（7 项）
