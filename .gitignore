@@ -138,3 +138,7 @@ sts-creds.*
 .agents/
 .claude/
 skills-lock.json
+tools/_mihomo/
+after.cjs
+analyze_big.cjs
+attempts.cjs

@@ -266,7 +266,7 @@ CHECKLIST = [
     "4. project/ 源码可运行：readme/install.sh 在干净服务器实测过一次",
     "5. project/ 不含 .env/*.pem/*.key/.git/node_modules/__pycache__/data 大文件",
     "6. .env.example 保留且无真实密钥",
-    "7. codearts_proof/ 数字与 PPT 第 11 页口径一致（24 会话/4,489 消息/2,148 改动）",
+    "7. codearts_proof/ 数字与 PPT 第 11 页口径一致（28 会话/4,834 消息/2,339 改动/1,115 测试）",
     "8. readme/ 四个 md + install.sh 齐全，02 文档 curl 样例亲自跑通过",
     "9. 敏感扫描 0 命中（或已 --allow 豁免并人工复核过）",
     "10. MANIFEST.txt 中 git commit 与最终推送提交一致",
@@ -318,7 +318,8 @@ def main():
     ]
     if missing:
         die("缺少参数 " + "、".join(missing) + f"（写入 {CONFIG_NAME} 或用命令行传入）")
-    print(f"打包参数：{args.group} + {TITLE} + {args.team} + {args.version} + {args.phone}")
+    advisor = cfg.get("advisor") or "—"
+    print(f"打包参数：{args.group} + {TITLE} + {args.team} + 指导老师 {advisor} + {args.version} + {args.phone}")
 
     vids = check_layout()
     check_video(vids, args.skip_video_check)

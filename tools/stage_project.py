@@ -28,7 +28,11 @@ EXTS = {".py", ".md", ".txt", ".toml", ".yml", ".yaml", ".cfg", ".ini", ".conf",
 DENY_NAMES = {
     ".env", "submission.json", "nul", "submit_log.md",
     ".gitignore", ".dockerignore", ".env.example",
+    # 凭据文件绝不可进包（华为云 STS 临时凭证等本地产物）
+    "sts-creds.json", "sts-creds.sh", "credentials.json",
 }
+# 名字里带这些词的根级文件一律不进包（兜底，防止新命名的凭据文件漏网）
+DENY_NAME_PARTS = ("creds", "credential", "secret", "private_key", "id_rsa")
 DENY_DIRS = {"__pycache__", ".pytest_cache", ".ruff_cache", ".codeartsdoer", "_se_src"}
 
 
@@ -64,6 +68,9 @@ def sync():
     for f in sorted(os.listdir(ROOT)):
         sp = os.path.join(ROOT, f)
         if not os.path.isfile(sp) or f in DENY_NAMES:
+            continue
+        if any(p in f.lower() for p in DENY_NAME_PARTS):
+            print(f"  拒收疑似凭据文件：{f}")
             continue
         if os.path.splitext(f)[1].lower() not in EXTS and f not in ("Dockerfile", "LICENSE"):
             continue
