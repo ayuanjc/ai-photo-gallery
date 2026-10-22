@@ -6,7 +6,7 @@
   python tools/pack_submission.py --group 专业组 --team 队伍名 --version v1.0 --phone 138xxxxxxxx
   python tools/pack_submission.py ... --skip-video-check   # 无 ffprobe 时人工确认视频
 
-产物：`<组别>+云影图鉴+<队伍名>+<版本号>+<联系方式>.zip`（提交目录五个：ppt/ project/ video/ codearts_proof/ readme/）
+产物：`<组别>+云影图鉴+<队伍名>+指导老师<姓名>+<版本号>+<联系方式>.zip`（提交目录五个：ppt/ project/ video/ codearts_proof/ readme/）
 """
 import argparse
 import csv
@@ -260,7 +260,7 @@ def verify_pack(zip_path):
 
 
 CHECKLIST = [
-    "1. zip 文件名符合「组别+作品名+队伍名+版本号+联系方式.zip」命名规则",
+    "1. zip 文件名符合「组别+作品名+队伍名+指导老师+版本号+联系方式.zip」命名规则",
     "2. ppt/ 为最终版（≥1 个 .pptx/.pdf，14 页，无占位 TODO）",
     "3. video/ 视频时长 ≤185 秒（或 video_link.txt 链接可公开访问）",
     "4. project/ 源码可运行：readme/install.sh 在干净服务器实测过一次",
@@ -331,7 +331,8 @@ def main():
     total = report_size(files)
     manifest = build_manifest(files, total)
 
-    zip_name = f"{args.group}+{TITLE}+{args.team}+{args.version}+{args.phone}.zip"
+    suffix = f"+指导老师{advisor}" if advisor and advisor != "—" else ""
+    zip_name = f"{args.group}+{TITLE}+{args.team}{suffix}+{args.version}+{args.phone}.zip"
     zip_path = os.path.join(ROOT, zip_name)
     if os.path.exists(zip_path):
         os.remove(zip_path)
