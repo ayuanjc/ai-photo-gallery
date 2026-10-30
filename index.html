@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>云影图鉴 · 中文语义检索</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0A0E17;--panel:#111827;--line:#1E2A47;--text:#E8EEF9;--dim:#8A9AB5;--acc:#4C8DFF;--acc2:#7C5CFF}
+html,body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased}
+body{padding:0 0 80px}
+.wrap{max-width:1280px;margin:0 auto;padding:0 28px}
+header{padding:52px 0 26px;border-bottom:1px solid var(--line)}
+.h1{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+h1{font-size:30px;letter-spacing:.5px;background:linear-gradient(92deg,#9CC3FF,#C9B4FF 70%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.h1 span{color:var(--dim);font-size:13px;letter-spacing:.4px}
+.tag{color:var(--dim);font-size:14px;margin-top:12px;line-height:1.75}
+.badges{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap}
+.badge{border:1px solid var(--line);background:#0E1524;color:#9FB3D1;font-size:12px;padding:5px 11px;border-radius:999px;letter-spacing:.3px}
+.badge b{color:#7FB2FF;font-weight:600}
+.search{margin:30px 0 0;display:flex;gap:12px}
+.search input{flex:1;background:#0D1424;border:1px solid var(--line);color:var(--text);font-size:15px;padding:14px 16px;border-radius:10px;outline:none;transition:border-color .18s}
+.search input:focus{border-color:#2F5FCC}
+.search button{background:linear-gradient(180deg,#4C8DFF,#3A6FE0);border:0;color:#fff;font-size:15px;padding:0 26px;border-radius:10px;cursor:pointer;font-weight:600}
+.search button:hover{filter:brightness(1.08)}
+.chips{display:flex;flex-wrap:wrap;gap:9px;margin-top:16px}
+.chip{border:1px solid var(--line);background:#0E1524;color:#A7BAD6;font-size:13px;padding:7px 14px;border-radius:999px;cursor:pointer;transition:.16s}
+.chip:hover{border-color:#2C4A80;color:#D6E3F7}
+.chip.on{border-color:var(--acc);background:#132547;color:#CFE1FF}
+.status{display:flex;gap:18px;flex-wrap:wrap;margin:22px 0 16px;font-size:12.5px;color:var(--dim);align-items:center}
+.status .k{color:#6E86A8}
+.status .v{color:#9FC0EE}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:8px}
+@media(max-width:1100px){.grid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}.wrap{padding:0 16px}}
+.card{position:relative;background:var(--panel);border:1px solid #16203a;border-radius:12px;overflow:hidden;cursor:zoom-in;transition:transform .16s,border-color .16s}
+.card:hover{transform:translateY(-2px);border-color:#2A3E66}
+.card img{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;background:#0b1120}
+.card .sc{position:absolute;top:8px;right:8px;background:rgba(8,14,26,.82);border:1px solid #23405f;color:#8FD0FF;font-size:11px;padding:3px 7px;border-radius:6px;font-family:ui-monospace,monospace}
+.card .meta{padding:9px 11px 11px;font-size:11.5px;color:#7C90AD;line-height:1.5}
+.card .meta b{display:block;color:#B9CCE6;font-weight:500;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card .meta em{font-style:normal;color:#5F7392}
+.hint{margin-top:26px;border:1px dashed #1F2E4C;border-radius:10px;padding:14px 16px;color:#7A8EA9;font-size:12.5px;line-height:1.8}
+.hint b{color:#9FB3D1;font-weight:500}
+footer{margin-top:34px;padding-top:20px;border-top:1px solid var(--line);color:#5F7392;font-size:12px;line-height:1.9;display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}
+footer a{color:#7FA8E0;text-decoration:none}
+#lb{position:fixed;inset:0;background:rgba(4,7,14,.93);display:none;align-items:center;justify-content:center;z-index:50;padding:40px}
+#lb.on{display:flex}
+#lb img{max-width:82vw;max-height:78vh;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.7)}
+#lb .info{position:absolute;bottom:26px;left:0;right:0;text-align:center;color:#9FB3D1;font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="h1"><h1>云影图鉴 · 语义检索</h1><span>CLIP ViT-B-32__openai · 静态演示版</span></div>
+  <div class="tag">用一句中文描述画面，直接召回语义相近的照片 —— 不是搜文件名，是搜画面。</div>
+  <div class="badges">
+    <div class="badge">样例库 <b>487</b> 张真实照片</div>
+    <div class="badge">向量维度 <b>512</b></div>
+    <div class="badge">分数 <b>真实余弦</b></div>
+    <div class="badge">线上服务 <b>51</b> 个接口</div>
+    <div class="badge">自动化测试 <b>1,115</b> 个</div>
+  </div>
+  <form class="search" onsubmit="return go(event)">
+    <input id="q" placeholder="试试：海边日落 / 城市夜景 / 火锅 / 蓝色的车" autocomplete="off">
+    <button type="submit">搜索</button>
+  </form>
+  <div class="chips" id="chips"></div>
+</header>
+
+<div class="status">
+  <div><span class="k">查询</span> <span class="v" id="s-q">—</span></div>
+  <div><span class="k">改写后送入模型</span> <span class="v mono" id="s-en">—</span></div>
+  <div><span class="k">文本编码</span> <span class="v" id="s-ms">—</span></div>
+  <div><span class="k">返回</span> <span class="v" id="s-n">—</span></div>
+</div>
+
+<div class="grid" id="grid"></div>
+
+<div class="hint">
+  <b>这是静态演示版</b>：文本塔与图像向量在构建时离线预计算好，页面把 18 个中文查询的完整结果（含真实余弦分数与缩略图）一起打包，因此可以直接托管在 GitHub Pages、不依赖任何后端。自由输入会映射到最接近的预设查询 —— 完整版支持任意中文查询实时编码，实测首查 70ms。
+</div>
+
+<footer>
+  <div>光影智码团队 · 指导老师 张阳意 ｜ 华为云开发者大赛</div>
+  <div>仓库 <a href="https://atomgit.com/ayuanjc/photo-gallery-ai">atomgit.com/ayuanjc/photo-gallery-ai</a> ｜ 作品 <a href="https://gallery.developer.huaweicloud.com/gallery/00688e62c7400000">展览馆</a></div>
+</footer>
+</div>
+
+<div id="lb" onclick="this.classList.remove('on')"><img id="lbi" alt=""><div class="info" id="lbt"></div></div>
+
+<script>
+var DB = null;
+var CUR = null;
+
+function fmtDate(s){
+  if(!s) return "—";
+  var d = new Date(s);
+  if (isNaN(d)) return "—";
+  function p(n){ return n<10 ? "0"+n : ""+n; }
+  return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate());
+}
+
+function el(tag, cls, txt){
+  var e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (txt != null) e.textContent = txt;
+  return e;
+}
+
+function render(qname){
+  var item = null;
+  for (var i=0;i<DB.queries.length;i++){
+    if (DB.queries[i].q === qname) { item = DB.queries[i]; break; }
+  }
+  if (!item) return;
+  CUR = item;
+
+  document.getElementById("s-q").textContent = item.q;
+  document.getElementById("s-en").textContent = item.en + (item.translated ? "" : " （词表未覆盖，原文直送）");
+  document.getElementById("s-ms").textContent = item.ms.toFixed(1) + " ms";
+  document.getElementById("s-n").textContent = item.results.length + " 张";
+
+  var grid = document.getElementById("grid");
+  grid.innerHTML = "";
+  item.results.forEach(function(r){
+    var card = el("div","card");
+    var img = el("img");
+    img.src = r.thumb; img.alt = r.fileName || ""; img.loading = "lazy";
+    var sc = el("div","sc", r.score.toFixed(3));
+    var meta = el("div","meta");
+    meta.appendChild(el("b", null, r.fileName || r.id.slice(0,8)));
+    var line = fmtDate(r.takenAt);
+    if (r.scene) line += " · " + r.scene;
+    meta.appendChild(el("em", null, line));
+    card.appendChild(img); card.appendChild(sc); card.appendChild(meta);
+    card.onclick = function(){ openLb(r); };
+    grid.appendChild(card);
+  });
+
+  var chips = document.getElementById("chips").children;
+  for (var j=0;j<chips.length;j++){
+    chips[j].className = "chip" + (chips[j].dataset.q === item.q ? " on" : "");
+  }
+}
+
+function openLb(r){
+  var lb = document.getElementById("lb");
+  document.getElementById("lbi").src = r.thumb;
+  document.getElementById("lbt").textContent = (r.fileName||"") + " ｜ 余弦 " + r.score.toFixed(4) + " ｜ " + fmtDate(r.takenAt);
+  lb.classList.add("on");
+}
+
+function go(e){
+  e.preventDefault();
+  var q = document.getElementById("q").value.trim();
+  if (!q) return false;
+  var best = match(q);
+  document.getElementById("q").value = best;
+  render(best);
+  return false;
+}
+
+function match(q){
+  var names = DB.queries.map(function(x){ return x.q; });
+  for (var i=0;i<names.length;i++){ if (names[i] === q) return q; }
+  for (var k=0;k<names.length;k++){ if (q.indexOf(names[k]) >= 0 || names[k].indexOf(q) >= 0) return names[k]; }
+  var bestScore = -1, bestName = names[0];
+  for (var m=0;m<names.length;m++){
+    var s = 0;
+    for (var c=0;c<names[m].length;c++){ if (q.indexOf(names[m][c]) >= 0) s++; }
+    if (s > bestScore){ bestScore = s; bestName = names[m]; }
+  }
+  return bestName;
+}
+
+fetch("data.json").then(function(r){ return r.json(); }).then(function(d){
+  DB = d;
+  var chips = document.getElementById("chips");
+  d.queries.forEach(function(it){
+    var c = el("div","chip", it.q);
+    c.dataset.q = it.q;
+    c.onclick = function(){ document.getElementById("q").value = it.q; render(it.q); };
+    chips.appendChild(c);
+  });
+  render(d.queries[0].q);
+}).catch(function(err){
+  document.getElementById("grid").textContent = "数据加载失败：" + err.message;
+});
+</script>
+</body>
+</html>
