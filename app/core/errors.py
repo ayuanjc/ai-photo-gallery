@@ -38,6 +38,8 @@ class ErrorCode(str, Enum):
     RATE_LIMITED = "RATE_LIMITED"
     # 资源不存在（如评分记录未找到）
     NOT_FOUND = "NOT_FOUND"
+    # 请求被策略拒绝（如比赛演示只读模式下的归档写操作）
+    FORBIDDEN = "FORBIDDEN"
     # 服务内部错误
     INTERNAL_ERROR = "INTERNAL_ERROR"
 
@@ -57,6 +59,7 @@ STATUS_CODE_MAP: dict[ErrorCode, int] = {
     ErrorCode.SERVICE_UNAVAILABLE: 503,
     ErrorCode.RATE_LIMITED: 429,
     ErrorCode.NOT_FOUND: 404,
+    ErrorCode.FORBIDDEN: 403,
     ErrorCode.INTERNAL_ERROR: 500,
 }
 

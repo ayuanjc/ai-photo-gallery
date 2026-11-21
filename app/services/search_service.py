@@ -8,7 +8,7 @@ import logging
 
 from ..core.cache import CacheBackend
 from ..core.config import Settings
-from ..core.errors import UpstreamTimeoutError, UpstreamUnavailableError
+from ..core.errors import AppError, ErrorCode, UpstreamTimeoutError, UpstreamUnavailableError
 from ..core.runtime_config import runtime_enabled
 from ..models.request import SearchRequest
 from ..models.response import SearchResponse, SearchResultItem
@@ -55,6 +55,19 @@ class SearchService:
         self._capabilities = capabilities
         self._sem_vision = asyncio.Semaphore(settings.search_max_concurrent_vision)
         self._sem_scene = asyncio.Semaphore(settings.search_max_concurrent_scene)
+
+    def _activity_asset_ids(self, activity_id: str) -> list[str]:
+        """从活动台账取照片白名单；活动不存在时抛 404 语义错误（写错 ID 不该静默返回全库）。"""
+        store = getattr(self, "_activities", None)
+        if store is None:
+            from ..workflow import ActivityStore
+
+            store = ActivityStore(self._settings.activities_path)
+            self._activities = store
+        activity = store.get(activity_id)
+        if activity is None:
+            raise AppError(ErrorCode.NOT_FOUND, f"活动不存在: {activity_id}")
+        return list(activity.asset_ids)
 
     async def search(self, request: SearchRequest) -> SearchResponse:
         # 0. 查缓存：命中直接返回（cached=true），不调 Immich。
@@ -140,6 +153,24 @@ class SearchService:
                 effective_asset_ids = list(merged)
                 image_query_used = True
             warnings.extend(image_warnings)
+
+        # 1c. 活动台账白名单：把检索范围锁定在该活动登记的照片集合内。
+        #     活动名/主办方属元数据，交给 CLIP 猜会污染召回；这里用结构化白名单兜住。
+        if request.activity_id:
+            ledger_ids = self._activity_asset_ids(request.activity_id)
+            if effective_asset_ids:
+                allowed = set(ledger_ids)
+                effective_asset_ids = [a for a in effective_asset_ids if a in allowed]
+            else:
+                effective_asset_ids = list(ledger_ids)
+            if not effective_asset_ids:
+                return SearchResponse(
+                    query=request.query,
+                    total=0,
+                    degraded=False,
+                    warnings=[f"活动 {request.activity_id} 未登记任何照片，检索范围为空"],
+                    results=[],
+                )
 
         # 2. 调用 Immich 语义搜索（上游不可用/超时时降级返回空结果，不报 5xx）。
         #    Immich CLIP（ViT-B-32）不支持中文：中文查询先翻译为英文提示词再检索，

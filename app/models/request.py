@@ -86,6 +86,11 @@ class SearchRequest(BaseModel):
         le=5,
         description="最低评分过滤阈值 1-5，仅返回评分 >= 此值的资产",
     )
+    activity_id: str | None = Field(
+        default=None,
+        max_length=100,
+        description="活动台账 ID：指定后检索范围锁定在该活动登记的照片集合内（活动名不进 CLIP 查询串）",
+    )
 
 
     @field_validator("image_urls")

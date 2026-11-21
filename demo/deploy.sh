@@ -6,10 +6,13 @@ HOST=${HOST:-root@106.52.116.164}
 REMOTE=/opt/yunying
 
 echo '== 1/5 上传应用文件 =='
-ssh $HOST "mkdir -p $REMOTE/app $REMOTE/web $REMOTE/data/thumbs"
+ssh $HOST "mkdir -p $REMOTE/app $REMOTE/web $REMOTE/data/thumbs $REMOTE/data/activities"
 scp demo/serve_demo.py demo/query_translate.py demo/requirements.txt $HOST:$REMOTE/app/
+# 台账与素材包引擎与主应用共用同一份源码：整目录同步，不维护第二份实现
+scp -r app/workflow $HOST:$REMOTE/app/
 scp demo/web/index.html $HOST:$REMOTE/web/
 scp data/demo/embeddings.npy data/demo/meta.json $HOST:$REMOTE/data/
+scp data/activities/activities.json $HOST:$REMOTE/data/activities/
 scp -r data/demo/thumbs/. $HOST:$REMOTE/data/thumbs/
 
 echo '== 2/5 建 venv 装依赖 =='

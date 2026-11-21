@@ -155,3 +155,59 @@ def get_watermark_processor(request: Request) -> BatchWatermarkProcessor:
     if not runtime_enabled("watermark_enabled", getattr(settings, "watermark_enabled", True)):
         raise AppError(ErrorCode.SERVICE_UNAVAILABLE, "水印功能未启用（WATERMARK_ENABLED=false）")
     return request.app.state.watermark_processor
+
+# ---- 活动台账 / 素材包 / 归档（v2）-----------------------------------
+def get_activity_store(request: Request):
+    """活动台账（懒加载，首次访问读 JSON；台账更新后调 reload 即可）。"""
+    from ..workflow import ActivityStore
+
+    store = getattr(request.app.state, "activity_store", None)
+    if store is None:
+        store = ActivityStore(get_settings().activities_path)
+        request.app.state.activity_store = store
+    return store
+
+
+def get_package_store(request: Request):
+    from ..services.package_store import PackageStore
+
+    store = getattr(request.app.state, "package_store", None)
+    if store is None:
+        settings = get_settings()
+        store = PackageStore(settings.packages_dir, settings.package_ttl_seconds)
+        request.app.state.package_store = store
+    return store
+
+
+def get_workflow_service(request: Request):
+    from ..services.workflow_service import WorkflowService
+
+    service = getattr(request.app.state, "workflow_service", None)
+    if service is None:
+        service = WorkflowService(
+            settings=get_settings(),
+            activity_store=get_activity_store(request),
+            package_store=get_package_store(request),
+            search_service=getattr(request.app.state, "search_service", None),
+        )
+        request.app.state.workflow_service = service
+    return service
+
+
+def get_archive_service(request: Request):
+    from ..services.archive_service import ArchiveService
+
+    service = getattr(request.app.state, "archive_service", None)
+    if service is None:
+        writeback = getattr(request.app.state, "immich_writeback", None)
+        if writeback is None:
+            raise ServiceUnavailableError("写回组件未初始化，归档功能不可用")
+        service = ArchiveService(
+            settings=get_settings(),
+            writeback=writeback,
+            activity_store=get_activity_store(request),
+            package_store=get_package_store(request),
+        )
+        request.app.state.archive_service = service
+    return service
+

@@ -3,131 +3,333 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>云影图鉴 · 语义检索演示</title>
+<title>云影图鉴 · 找图即成稿</title>
 <style>
-:root{--bg:#0a0e13;--panel:#111820;--line:#1e2833;--fg:#e8eef4;--dim:#8a97a4;--acc:#4ea8ff;--ok:#3ddc97;--warn:#f5a623}
+:root{--bg:#0a0e13;--panel:#111820;--panel2:#0d151d;--line:#1e2833;--fg:#e8eef4;--dim:#8a97a4;--acc:#4ea8ff;--ok:#3ddc97;--warn:#f5a623;--bad:#ff6b6b}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.65 "Segoe UI",-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
-header{padding:26px 28px 16px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#0d151d,#0a0e13)}
-h1{margin:0;font-size:21px;font-weight:680;letter-spacing:.2px}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 "Segoe UI",-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+header{padding:22px 26px 14px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#0d151d,#0a0e13)}
+h1{margin:0;font-size:20px;font-weight:680}
 h1 em{color:var(--acc);font-style:normal}
-.tag{display:inline-block;vertical-align:middle;margin-left:10px;font-size:11.5px;color:var(--dim);border:1px solid var(--line);border-radius:5px;padding:2px 7px}
-.lede{color:var(--dim);font-size:13.5px;margin-top:9px;max-width:900px}
+.tag{display:inline-block;margin-left:10px;font-size:11.5px;color:var(--dim);border:1px solid var(--line);border-radius:5px;padding:2px 7px;vertical-align:middle}
+.lede{color:var(--dim);font-size:13px;margin-top:8px;max-width:960px}
 .lede b{color:var(--fg);font-weight:600}
-.facts{display:flex;gap:26px;flex-wrap:wrap;margin-top:14px;font-size:12.5px;color:var(--dim)}
+.facts{display:flex;gap:22px;flex-wrap:wrap;margin-top:10px;font-size:12.5px;color:var(--dim)}
 .facts i{color:var(--ok);font-style:normal;font-weight:600}
-.bar{display:flex;gap:10px;padding:18px 28px 8px;flex-wrap:wrap;align-items:center}
-input[type=text]{flex:1;min-width:260px;background:var(--panel);border:1px solid var(--line);color:var(--fg);border-radius:9px;padding:12px 15px;font-size:15px;outline:none}
+main{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:0;align-items:start}
+@media(max-width:1100px){main{grid-template-columns:1fr}}
+.left{min-width:0;border-right:1px solid var(--line)}
+section{padding:16px 26px}
+h2{font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin:0 0 10px;font-weight:650}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+.act{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:11px 13px;cursor:pointer;transition:.15s}
+.act:hover{border-color:#31465c}
+.act.on{border-color:var(--acc);background:#0f1d2b;box-shadow:0 0 0 1px var(--acc) inset}
+.act .n{font-weight:640;font-size:14.5px}
+.act .m{color:var(--dim);font-size:12px;margin-top:4px;font-family:ui-monospace,Consolas,monospace}
+.act .c{color:var(--ok);font-size:12px;margin-top:2px}
+.bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:4px}
+input[type=text]{flex:1;min-width:240px;background:var(--panel);border:1px solid var(--line);color:var(--fg);border-radius:9px;padding:11px 14px;font-size:15px;outline:none}
 input[type=text]:focus{border-color:var(--acc)}
-button{background:var(--acc);border:0;color:#04121f;font-weight:650;border-radius:9px;padding:12px 22px;cursor:pointer;font-size:14px}
-button:disabled{opacity:.5;cursor:default}
-.chips{display:flex;gap:8px;flex-wrap:wrap;padding:0 28px 10px}
-.chip{background:var(--panel);border:1px solid var(--line);color:var(--dim);border-radius:20px;padding:6px 14px;font-size:13px;cursor:pointer}
+button{background:var(--acc);border:0;color:#04121f;font-weight:650;border-radius:9px;padding:11px 18px;cursor:pointer;font-size:13.5px}
+button.ghost{background:transparent;border:1px solid var(--line);color:var(--dim)}
+button.ghost:hover{color:var(--fg);border-color:var(--acc)}
+button:disabled{opacity:.45;cursor:default}
+.chips{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}
+.chip{background:var(--panel);border:1px solid var(--line);color:var(--dim);border-radius:20px;padding:5px 12px;font-size:12.5px;cursor:pointer}
 .chip:hover{color:var(--fg);border-color:var(--acc)}
-.meta{padding:8px 28px 0;color:var(--dim);font-size:12.5px;font-family:ui-monospace,Consolas,monospace;min-height:22px}
-.meta b{color:var(--fg);font-weight:600}
-.meta u{color:var(--ok);text-decoration:none}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;padding:16px 28px 40px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;cursor:pointer;position:relative;transition:border-color .15s}
-.card:hover{border-color:#31465c}
-.card img{width:100%;height:168px;object-fit:cover;display:block;background:#0e141b}
-.card .s{position:absolute;top:8px;left:8px;background:rgba(4,16,26,.85);color:var(--acc);font:600 11.5px/1 ui-monospace,Consolas,monospace;padding:5px 7px;border-radius:6px}
-.card .rel{position:absolute;top:8px;right:8px;background:rgba(4,16,26,.7);color:var(--dim);font:600 10.5px/1 ui-monospace,Consolas,monospace;padding:5px 6px;border-radius:6px}
-.card .t{padding:7px 9px;font-size:11.5px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.card .t em{color:var(--ok);font-style:normal}
-#box{position:fixed;inset:0;background:rgba(4,8,12,.94);display:none;align-items:center;justify-content:center;padding:40px;z-index:9}
-#box.on{display:flex}
-#box img{max-width:min(92vw,1200px);max-height:76vh;border-radius:8px}
-#box .info{position:absolute;bottom:20px;color:var(--dim);font:12.5px ui-monospace,Consolas,monospace;text-align:center}
-footer{padding:0 28px 30px;color:#5a6773;font-size:12px;line-height:1.8}
-footer code{color:#7f8f9d}
-@media(max-width:600px){.grid{padding:12px 14px 30px}header,.bar,.chips,.meta,footer{padding-left:14px;padding-right:14px}}
+.meta{color:var(--dim);font-size:12.5px;font-family:ui-monospace,Consolas,monospace;min-height:20px;margin-top:10px;word-break:break-all}
+.meta b{color:var(--fg)}.meta u{color:var(--ok);text-decoration:none}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.card img{width:100%;height:150px;object-fit:cover;display:block;background:#0a0f14}
+.card .b{padding:6px 8px;font-size:11.5px;color:var(--dim);font-family:ui-monospace,Consolas,monospace}
+.card .b b{color:var(--fg)}
+.panel{position:sticky;top:0;padding:16px 22px;max-height:100vh;overflow:auto}
+#pk{display:flex;flex-direction:column;gap:10px}
+.pitem{background:var(--panel);border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.pitem img{width:100%;aspect-ratio:3/2;object-fit:cover;display:block;background:#0a0f14}
+.pitem .h{display:flex;justify-content:space-between;align-items:center;padding:6px 9px;font-size:12px;color:var(--dim)}
+.pitem .h b{color:var(--fg)}
+.pitem .r{padding:0 9px 7px;font-size:11.5px;color:var(--dim);line-height:1.5}
+.pitem .a{display:flex;gap:6px;padding:0 9px 9px}
+.pitem .a button{padding:5px 9px;font-size:11.5px;border-radius:7px}
+.diff{font-size:12px;color:var(--warn);font-family:ui-monospace,Consolas,monospace;white-space:pre-wrap}
+.empty{color:var(--dim);font-size:13px;border:1px dashed var(--line);border-radius:9px;padding:16px;text-align:center}
+.plan{font-size:12px;color:var(--dim);font-family:ui-monospace,Consolas,monospace;white-space:pre-wrap;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:9px;margin-top:9px}
+.step{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--dim);margin-bottom:9px}
+.step span{width:19px;height:19px;border-radius:50%;background:var(--panel);border:1px solid var(--line);display:grid;place-items:center;font-size:11px;color:var(--fg)}
+.step.on span{background:var(--acc);color:#04121f;border-color:var(--acc);font-weight:700}
 </style>
 </head>
 <body>
 <header>
-  <h1>云影图鉴 <em>· 语义检索</em><span class="tag">CLIP ViT-B-32 · onnxruntime CPU</span></h1>
-  <div class="lede">
-    用一句中文描述去检索照片。查询词在<b>本机</b>被翻译成 CLIP 能懂的英文短语、编码成 512 维向量，
-    再与库里每张图的向量算<b>余弦相似度</b>排序——不依赖任何外部 API，也不会给你编一个假分数。
-  </div>
+  <h1>云影图鉴 <em>· 找图即成稿</em><span class="tag">校园活动素材工作流 v1.1</span></h1>
+  <div class="lede">三步走完：<b>选活动</b>（台账锁定照片范围，不让模型猜）→ <b>说一句话找图</b>（CLIP 文本塔真实余弦）→ <b>改素材包并导出</b>（每张带选图理由，可换横/竖图、去掉、回填不重搜）。</div>
   <div class="facts">
-    <span>样例库 <i id="fCount">—</i> 张</span>
-    <span>向量维度 <i>512</i></span>
-    <span>文本编码 <i id="fMs">—</i></span>
-    <span>打分口径 <b>真实余弦</b> / 相对 top1 的百分比</span>
-    <span>全量版在本地：29,712 张照片 + Immich 原生插件</span>
+    <div>范围锁定 <i id="f-act">-</i> 场活动</div>
+    <div>图库 <i id="f-count">-</i> 张</div>
+    <div>模型 <i id="f-model">-</i></div>
+    <div>加载 <i id="f-load">-</i> ms</div>
   </div>
 </header>
 
-<div class="bar">
-  <input id="q" type="text" placeholder="试试：海边日落 / 城市夜景 / 雪山 / 人物肖像 / 火锅 / 蓝色的车" autocomplete="off">
-  <button id="go">搜索</button>
-</div>
-<div class="chips" id="chips"></div>
-<div class="meta" id="meta">模型加载中…</div>
-<div class="grid" id="grid"></div>
-<footer>
-  说明：本页是<b>轻量演示站</b>（2 核 4G），只挂了 <span id="fCount2">—</span> 张精选样例，用于验证"中文 → 语义检索"这条链路本身；
-  完整图库（29,712 张照片 / 1,081 段视频）、Immich 原生工作流插件、AI 标签写回都在本地全量环境运行。<br>
-  缩略图为 480px WebP（单张约 16KB），一张图 = 一次点积，<code>Q · Kᵀ</code> 在 2 核上就是毫秒级。
-</footer>
-<div id="box"><img id="big" alt=""><div class="info" id="bigInfo"></div></div>
+<main>
+  <div class="left">
+    <section>
+      <div class="step on" id="s1"><span>1</span>选活动（台账）</div>
+      <div class="cards" id="acts"><div class="empty">正在读取活动台账…</div></div>
+      <div class="plan" id="ledger-note" hidden></div>
+    </section>
+
+    <section>
+      <div class="step" id="s2"><span>2</span>说一句话找图</div>
+      <div class="bar">
+        <input id="q" type="text" placeholder="例如：舞台灯光下的合影 / 志愿者在社区服务" autocomplete="off">
+        <button id="go">找图</button>
+        <button class="ghost" id="mkgroup" disabled>生成素材包</button>
+      </div>
+      <div class="chips" id="chips"></div>
+      <div class="meta" id="meta"></div>
+      <div class="grid" id="grid"></div>
+    </section>
+  </div>
+
+  <aside class="panel">
+    <div class="step" id="s3"><span>3</span>素材包（可改可导出）</div>
+    <div class="meta" id="pk-meta"></div>
+    <div id="pk"><div class="empty">先选活动、找图，然后点「生成素材包」</div></div>
+    <div class="diff" id="diff"></div>
+    <div class="bar" style="margin-top:12px">
+      <button id="arch" disabled>归档提案（只读）</button>
+      <button class="ghost" id="reset">重置</button>
+    </div>
+    <div class="plan" id="arch-out" hidden></div>
+  </aside>
+</main>
 
 <script>
-var $ = function (s) { return document.querySelector(s); };
-function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
-var EX = ["海边日落","城市夜景","雪山","人物肖像","火锅","蓝色的车","烟花","森林","猫","毕业典礼","湖","街边小吃"];
-$("#chips").innerHTML = EX.map(function (t) { return '<div class="chip">' + t + '</div>'; }).join("");
-Array.prototype.forEach.call(document.querySelectorAll(".chip"), function (c) {
-  c.onclick = function () { $("#q").value = c.textContent; doSearch(); };
-});
-function boot() {
-  fetch("/api/health").then(function (r) { return r.json(); }).then(function (h) {
-    $("#fCount").textContent = h.count;
-    $("#fCount2").textContent = h.count;
-    $("#meta").textContent = "就绪 · " + h.count + " 张 · " + h.dim + " 维 · " + h.model + " · 模型加载 " + h.load_ms + "ms";
-  }).catch(function (e) { $("#meta").textContent = "后端未就绪：" + e; });
+const $ = (id) => document.getElementById(id);
+const state = { activity: null, activities: [], pkg: null, results: [] };
+
+function fmtAct(a) {
+  const span = (a.starts_at || '').slice(0, 10) + (a.ends_at ? ' → ' + a.ends_at.slice(0, 10) : '');
+  return span;
 }
-boot();
-function doSearch() {
-  var q = $("#q").value.trim(); if (!q) return;
-  $("#go").disabled = true; $("#meta").textContent = "检索中…";
-  fetch("/api/search", {
-    method: "POST", headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({query: q, top_k: 24})
-  }).then(function (r) { return r.json().then(function (d) { return {ok: r.ok, d: d}; }); })
-    .then(function (res) {
-      var d = res.d;
-      if (!res.ok) throw new Error(d.detail || "http error");
-      $("#fMs").textContent = d.timing_ms.text_embed + "ms";
-      $("#meta").innerHTML = "查询 <b>" + esc(d.query) + "</b> → 模型实际读到 <u>" + esc(d.translated) + "</u>"
-        + (d.translated_used ? "（中文已改写成 CLIP 词表内的短语）" : "（英文原样）")
-        + " · 编码 <b>" + d.timing_ms.text_embed + "ms</b> · 全流程 <b>" + d.timing_ms.total + "ms</b> · 返回 " + d.top_k + " 张";
-      $("#grid").innerHTML = d.results.map(function (it) {
-        var scene = it.scene ? "<em>" + esc(it.scene) + "</em> · " : "";
-        var label = esc((it.city || it.fileName || "").slice(0, 20));
-        return '<div class="card" data-id="' + esc(it.id) + '">'
-          + '<span class="s">' + it.score.toFixed(3) + '</span>'
-          + '<span class="rel">' + Math.round(it.rel * 100) + '%</span>'
-          + '<img loading="lazy" src="' + esc(it.thumb) + '" alt="">'
-          + '<div class="t">' + scene + label + '</div></div>';
-      }).join("");
-      Array.prototype.forEach.call(document.querySelectorAll(".card"), function (c) {
-        c.onclick = function () {
-          var it = d.results.filter(function (x) { return x.id === c.dataset.id; })[0];
-          $("#big").src = it.thumb;
-          $("#bigInfo").textContent = "余弦 " + it.score.toFixed(4) + " · 相对 top1 " + Math.round(it.rel * 100) + "% · "
-            + (it.fileName || "") + " · " + (it.takenAt || "").slice(0, 10) + " " + (it.city || "");
-          $("#box").classList.add("on");
-        };
-      });
-      $("#go").disabled = false;
-    }).catch(function (e) { $("#meta").textContent = "出错：" + e.message; $("#go").disabled = false; });
+
+async function api(path, body) {
+  const opt = body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {};
+  const r = await fetch(path, opt);
+  if (!r.ok) {
+    let detail = r.status + ' ' + r.statusText;
+    try { const j = await r.json(); detail = j.detail || detail; } catch (e) {}
+    throw new Error(detail);
+  }
+  return r;
 }
-$("#go").onclick = doSearch;
-$("#q").addEventListener("keydown", function (e) { if (e.key === "Enter") doSearch(); });
-$("#box").onclick = function () { $("#box").classList.remove("on"); };
+
+async function boot() {
+  const h = await (await api('/api/health')).json();
+  $('f-count').textContent = h.count;
+  $('f-model').textContent = h.model;
+  $('f-load').textContent = h.load_ms;
+  const a = await (await api('/api/activities')).json();
+  state.activities = a.activities || [];
+  $('f-act').textContent = a.total;
+  if (a.ledger) { $('ledger-note').hidden = false; $('ledger-note').textContent = '台账文件：' + a.ledger; }
+  const box = $('acts');
+  box.innerHTML = '';
+  if (!state.activities.length) { box.innerHTML = '<div class="empty">台账为空</div>'; return; }
+  for (const act of state.activities) {
+    const el = document.createElement('div');
+    el.className = 'act';
+    el.dataset.id = act.id;
+    el.innerHTML = '<div class="n">' + act.name + '</div><div class="m">' + fmtAct(act) + '</div>' +
+      '<div class="c">已登记 ' + act.count + ' 张' + (act.venue ? ' · ' + act.venue : '') + '</div>';
+    el.onclick = () => pickActivity(act, el);
+    box.appendChild(el);
+  }
+  pickActivity(state.activities[0], box.children[0]);
+}
+
+function pickActivity(act, el) {
+  state.activity = act;
+  for (const c of $('acts').children) c.classList.remove('on');
+  if (el) el.classList.add('on');
+  $('s1').classList.add('on');
+  $('mkgroup').disabled = !state.results.length;
+  $('meta').innerHTML = '范围锁定：<b>' + act.name + '</b>（' + act.count + ' 张，检索只在这批里排序）';
+}
+
+const CHIPS = ['舞台 灯光', '大合照', '志愿者 服务', '领奖 合影', '观众席', '横幅 背景板'];
+function buildChips() {
+  const box = $('chips');
+  box.innerHTML = '';
+  for (const t of CHIPS) {
+    const c = document.createElement('div');
+    c.className = 'chip';
+    c.textContent = t;
+    c.onclick = () => { $('q').value = t; doSearch(); };
+    box.appendChild(c);
+  }
+}
+
+async function doSearch() {
+  const q = $('q').value.trim();
+  if (!q) return;
+  if (!state.activity) { $('meta').textContent = '请先选活动：台账决定检索范围'; return; }
+  $('go').disabled = true;
+  try {
+    const r = await api('/api/search', { query: q, top_k: 24, activity_id: state.activity.id });
+    const j = await r.json();
+    state.results = j.results || [];
+    $('s2').classList.add('on');
+    $('mkgroup').disabled = !state.results.length;
+    $('meta').innerHTML = '模型读到的英文短语：<b>' + j.translated + '</b>' +
+      (j.translated_used ? ' <u>（已改写）</u>' : ' <u>（原样）</u>') +
+      ' · 命中 <b>' + j.top_k + '</b> 张 · 翻译 ' + j.timing_ms.translate + 'ms / 文本塔 ' +
+      j.timing_ms.text_embed + 'ms / 合计 ' + j.timing_ms.total + 'ms';
+    const g = $('grid');
+    g.innerHTML = '';
+    for (const it of state.results) {
+      const d = document.createElement('div');
+      d.className = 'card';
+      d.title = it.fileName || it.id;
+      d.innerHTML = '<img loading="lazy" src="' + it.thumb + '" alt="">' +
+        '<div class="b"><b>' + it.score.toFixed(3) + '</b> · ' + (it.w || '?') + '×' + (it.h || '?') +
+        '<br>' + (it.scene || '未分类') + (it.takenAt ? '<br>' + it.takenAt.slice(0, 10) : '') + '</div>';
+      g.appendChild(d);
+    }
+  } catch (e) {
+    $('meta').textContent = '检索失败：' + e.message;
+  } finally {
+    $('go').disabled = false;
+  }
+}
+
+async function makePackage() {
+  const q = $('q').value.trim();
+  if (!q || !state.activity) return;
+  $('mkgroup').disabled = true;
+  try {
+    const r = await api('/api/package', { activity_id: state.activity.id, query: q, top_k: 60 });
+    const j = await r.json();
+    state.pkg = j;
+    $('s3').classList.add('on');
+    $('diff').textContent = '';
+    $('arch').disabled = false;
+    renderPackage(j);
+  } catch (e) {
+    $('pk').innerHTML = '<div class="empty">生成失败：' + e.message + '</div>';
+  } finally {
+    $('mkgroup').disabled = !state.results.length;
+  }
+}
+
+function renderPackage(j) {
+  const p = j.package || {};
+  $('pk-meta').innerHTML = '会话 <b>' + j.session_id + '</b> · revision <b>' + j.revision + '</b> · 候选池 <b>' +
+    (j.pool_size || 0) + '</b> 张' + (j.empty_slots && j.empty_slots.length ? ' · 未填满：' + j.empty_slots.join('/') : '');
+  const box = $('pk');
+  box.innerHTML = '';
+  for (const [slot, items] of Object.entries(p)) {
+    const label = slot === 'cover' ? '封面候选' : (slot === 'body' ? '正文配图' : slot);
+    const head = document.createElement('div');
+    head.className = 'meta';
+    head.style.marginTop = '10px';
+    head.innerHTML = '<b>' + label + '</b>（' + items.length + '）';
+    box.appendChild(head);
+    if (!items.length) {
+      const e = document.createElement('div');
+      e.className = 'empty';
+      e.textContent = '这个位置还没有图（池内方向不足）';
+      box.appendChild(e);
+    }
+    items.forEach((it, i) => {
+      const d = document.createElement('div');
+      d.className = 'pitem';
+      d.innerHTML = '<img loading="lazy" src="' + it.thumb + '" alt="">' +
+        '<div class="h"><b>' + (i + 1) + '. ' + (it.asset_id || '') + '</b><span>' + (it.orientation || '') +
+        ' · ' + (it.w || '?') + '×' + (it.h || '?') + '</span></div>' +
+        '<div class="r">' + (it.reason || '') + '</div>';
+      const bar = document.createElement('div');
+      bar.className = 'a';
+      const bLand = document.createElement('button');
+      bLand.textContent = '换横图';
+      bLand.onclick = () => edit([{ op: 'replace', slot: slot, orientation: 'landscape', count: items.length }]);
+      const bPort = document.createElement('button');
+      bPort.textContent = '换竖图';
+      bPort.onclick = () => edit([{ op: 'replace', slot: slot, orientation: 'portrait', count: items.length }]);
+      const bDrop = document.createElement('button');
+      bDrop.className = 'ghost';
+      bDrop.textContent = '去掉';
+      bDrop.onclick = () => edit([{ op: 'drop', asset_id: it.asset_id }]);
+      bar.append(bLand, bPort, bDrop);
+      d.appendChild(bar);
+      box.appendChild(d);
+    });
+  }
+  const ex = document.createElement('button');
+  ex.textContent = '导出素材包 zip（manifest + 缩略图）';
+  ex.style.marginTop = '12px';
+  ex.onclick = doExport;
+  box.appendChild(ex);
+}
+
+async function edit(ops) {
+  if (!state.pkg) return;
+  try {
+    const r = await api('/api/package/edit', { session_id: state.pkg.session_id, revision: state.pkg.revision, ops });
+    const j = await r.json();
+    state.pkg = j;
+    renderPackage(j);
+    const d = j.diff && j.diff.slots ? j.diff.slots : {};
+    const lines = Object.entries(d).map(([s, v]) => s + '：+' + (v.added.length ? v.added.join(',') : '无') +
+      ' / -' + (v.removed.length ? v.removed.join(',') : '无'));
+    $('diff').textContent = lines.length ? '池内重排（没重跑检索）\n' + lines.join('\n') : '';
+  } catch (e) {
+    $('diff').textContent = '编辑失败：' + e.message;
+  }
+}
+
+async function doExport() {
+  if (!state.pkg) return;
+  const r = await api('/api/package/export', { session_id: state.pkg.session_id });
+  const blob = await r.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'yunying-' + state.pkg.session_id + '.zip';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+async function doArchive() {
+  if (!state.activity) return;
+  try {
+    const body = { activity_id: state.activity.id };
+    if (state.pkg) body.session_id = state.pkg.session_id;
+    const j = await (await api('/api/archive/propose', body)).json();
+    $('arch-out').hidden = false;
+    $('arch-out').textContent = '归档提案（dry-run，零写入）\n相册：' + j.album.name +
+      '\n将新增：' + j.will_add + ' 张\n' + (j.warnings || []).join('\n') + '\n' + (j.note || '');
+  } catch (e) {
+    $('arch-out').hidden = false;
+    $('arch-out').textContent = '提案失败：' + e.message;
+  }
+}
+
+$('go').onclick = doSearch;
+$('mkgroup').onclick = makePackage;
+$('arch').onclick = doArchive;
+$('reset').onclick = () => {
+  state.pkg = null; state.results = [];
+  $('grid').innerHTML = ''; $('pk').innerHTML = '<div class="empty">先选活动、找图，然后点「生成素材包」</div>';
+  $('pk-meta').textContent = ''; $('diff').textContent = ''; $('arch-out').hidden = true;
+  $('mkgroup').disabled = true; $('arch').disabled = true;
+};
+$('q').addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch(); });
+buildChips();
+boot().catch((e) => { $('acts').innerHTML = '<div class="empty">加载失败：' + e.message + '</div>'; });
 </script>
 </body>
 </html>

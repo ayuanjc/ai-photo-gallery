@@ -21,8 +21,10 @@ from fastapi.staticfiles import StaticFiles
 
 from .ai.factory import build_ai_analyzer
 from .api.routes import (
+    activities,
     admin,
     ai,
+    archive,
     assets,
     batch_import,
     faces,
@@ -32,6 +34,7 @@ from .api.routes import (
     search,
     stats,
     watermark,
+    workflow,
 )
 from .core.cache import get_cache
 from .core.config import get_settings
@@ -270,6 +273,9 @@ app = FastAPI(
         {"name": "rating", "description": "照片评分：创建、更新、查询、删除、批量获取、统计"},
         {"name": "assets", "description": "资产代理：缩略图/原图代理获取"},
         {"name": "plugin", "description": "Immich 插件/工作流 hook 回调"},
+        {"name": "activities", "description": "活动台账：结构化锁定照片范围（别名/时间窗解析，多命中追问）"},
+        {"name": "workflow", "description": "找图工作流：活动内检索 → 可编辑素材包 → 导出（manifest+缩略图）"},
+        {"name": "archive", "description": "归档：propose 只读提案 → commit 确认后写回 Immich 相册"},
         {"name": "system", "description": "系统接口：健康检查"},
     ],
 )
@@ -284,6 +290,9 @@ app.include_router(plugin.router, prefix="/api/v1")
 app.include_router(batch_import.router, prefix="/api/v1")
 app.include_router(watermark.router, prefix="/api/v1")
 app.include_router(ratings.router, prefix="/api/v1")
+app.include_router(activities.router, prefix="/api/v1")
+app.include_router(workflow.router, prefix="/api/v1")
+app.include_router(archive.router, prefix="/api/v1")
 app.include_router(admin.router)
 
 _STATIC_DIR = str(Path(__file__).parent / "static")

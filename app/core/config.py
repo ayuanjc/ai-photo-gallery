@@ -245,6 +245,20 @@ class Settings(BaseSettings):
     # 相册结果缓存 TTL（秒）。
     album_cache_ttl_seconds: int = 600
 
+    # ---- 活动台账 / 素材包 / 归档（v2 工作流）----
+    # 活动台账 JSON 路径（相对仓库根或绝对路径）。
+    activities_path: str = "data/activities/activities.json"
+    # 素材包会话落盘目录（每会话一个 JSON，含候选池快照）。
+    packages_dir: str = "data/packages"
+    # 素材包会话有效期（秒），过期会话可被清理且编辑失效。
+    package_ttl_seconds: int = 3600
+    # 归档提案有效期（秒）：propose 与 commit 必须在这个窗口内完成。
+    archive_proposal_ttl_seconds: int = 600
+    # 活动相册命名前缀（归档目标相册名 = 前缀 + 活动名 + 日期）。
+    activity_album_prefix: str = "云影图鉴 · "
+    # 比赛/演示只读模式：拦截所有写归档接口（403），搜索与素材包不受影响。
+    competition_readonly: bool = False
+
     # ---- 否定语义搜索（query 中否定前缀解析 + 场景标签过滤）----
     # 开启后解析 query 中的否定前缀（不要/没有/不含/排除/-），过滤掉命中否定词的结果。
     negation_enabled: bool = True
